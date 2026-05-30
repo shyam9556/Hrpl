@@ -1,0 +1,828 @@
+import { useState, useEffect } from "react";
+import { prices as pricesApi } from "../utils/api";
+import { Loader2, Plus, Trash2, Save, Check, AlertTriangle, Info, X } from "lucide-react";
+import ConfirmDialog from "./ConfirmDialog";
+import ErrorState from "./ErrorState";
+
+export default function PriceManager() {
+  const [panels, setPanels] = useState([]);
+  const [inverters, setInverters] = useState([]);
+  const [accessories, setAccessories] = useState([]);
+  const [kits, setKits] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [errorDialog, setErrorDialog] = useState({ open: false, message: "" });
+  const [fetchError, setFetchError] = useState(false);
+  const [accessorySaved, setAccessorySaved] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // { type: 'panel'|'inverter'|'kit', id, name }
+
+  // Add Product Form Toggles
+  const [showAddPanel, setShowAddPanel] = useState(false);
+  const [showAddInv, setShowAddInv] = useState(false);
+  const [showAddKit, setShowAddKit] = useState(false);
+
+  // New Kit Form State
+  const [newKit, setNewKit] = useState({ brand: "", type: "Bifacial", watt: "", panels: "", kw: "", inv_brand: "", inv_kw: "", price: "" });
+  const [addingKit, setAddingKit] = useState(false);
+
+  // Form State for Additions
+  const [newPanel, setNewPanel] = useState({ brand: "", watt: "", type: "Mono PERC", pricePerPanel: "" });
+  const [newInv, setNewInv] = useState({ brand: "", kw: "", type: "Single Phase (Single MPPT)", pricePerUnit: "" });
+
+  // Form State for Editing
+  const [editingPanelId, setEditingPanelId] = useState(null);
+  const [editingPanel, setEditingPanel] = useState({ brand: "", watt: "", type: "", pricePerPanel: "" });
+
+  const [editingInverterId, setEditingInverterId] = useState(null);
+  const [editingInverter, setEditingInverter] = useState({ brand: "", kw: "", type: "", pricePerUnit: "" });
+
+  // Kit Price Editing State
+  const [editingKitId, setEditingKitId] = useState(null);
+  const [editingKitPrice, setEditingKitPrice] = useState("");
+
+  const fetchPrices = async () => {
+    try {
+      const res = await pricesApi.getAll();
+      setPanels(res.panels || []);
+      setInverters(res.inverters || []);
+      setAccessories(res.accessories || []);
+      setKits(res.kits || []);
+    } catch (err) {
+      console.error("Fetch prices error:", err);
+      setFetchError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchPrices(); }, []);
+
+  const handleAddPanel = async () => {
+    if (!newPanel.brand || !newPanel.watt || !newPanel.pricePerPanel) {
+      setErrorDialog({ open: true, message: "Please fill in all panel fields" });
+      return;
+    }
+    try {
+      await pricesApi.addPanel({
+        brand: newPanel.brand,
+        watt: String(newPanel.watt),
+        type: newPanel.type,
+        pricePerPanel: parseFloat(newPanel.pricePerPanel),
+      });
+      setNewPanel({ brand: "", watt: "", type: "Mono PERC", pricePerPanel: "" });
+      setShowAddPanel(false);
+      fetchPrices();
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to add panel." });
+    }
+  };
+
+  const handleAddInv = async () => {
+    if (!newInv.brand || !newInv.kw || !newInv.pricePerUnit) {
+      setErrorDialog({ open: true, message: "Please fill in all inverter fields" });
+      return;
+    }
+    try {
+      await pricesApi.addInverter({
+        brand: newInv.brand,
+        kw: parseFloat(newInv.kw),
+        type: newInv.type,
+        pricePerUnit: parseFloat(newInv.pricePerUnit),
+      });
+      setNewInv({ brand: "", kw: "", type: "Single Phase (Single MPPT)", pricePerUnit: "" });
+      setShowAddInv(false);
+      fetchPrices();
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to add inverter." });
+    }
+  };
+
+  const handleSavePanel = async (id) => {
+    if (!editingPanel.brand || !editingPanel.watt || !editingPanel.pricePerPanel) {
+      setErrorDialog({ open: true, message: "Please fill in all panel fields" });
+      return;
+    }
+    try {
+      await pricesApi.updatePanel(id, {
+        brand: editingPanel.brand,
+        watt: String(editingPanel.watt),
+        type: editingPanel.type,
+        pricePerPanel: parseFloat(editingPanel.pricePerPanel),
+      });
+      setEditingPanelId(null);
+      fetchPrices();
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to update panel." });
+    }
+  };
+
+  const handleSaveInverter = async (id) => {
+    if (!editingInverter.brand || !editingInverter.kw || !editingInverter.pricePerUnit) {
+      setErrorDialog({ open: true, message: "Please fill in all inverter fields" });
+      return;
+    }
+    try {
+      await pricesApi.updateInverter(id, {
+        brand: editingInverter.brand,
+        kw: parseFloat(editingInverter.kw),
+        type: editingInverter.type,
+        pricePerUnit: parseFloat(editingInverter.pricePerUnit),
+      });
+      setEditingInverterId(null);
+      fetchPrices();
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to update inverter." });
+    }
+  };
+
+  const handleSaveKitPrice = async (id) => {
+    try {
+      await pricesApi.updateKit(id, parseFloat(editingKitPrice));
+      setEditingKitId(null);
+      fetchPrices();
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to update kit price." });
+    }
+  };
+
+  const handleAddKit = async () => {
+    const { brand, type, watt, panels, kw, inv_brand, inv_kw, price } = newKit;
+    if (!brand || !type || !watt || !panels || !kw || !inv_brand || !inv_kw || !price) {
+      setErrorDialog({ open: true, message: "Please fill in all kit fields." });
+      return;
+    }
+    setAddingKit(true);
+    try {
+      await pricesApi.createKit({
+        brand: brand.trim(),
+        type: type.trim(),
+        watt: String(watt).trim(),
+        panels: parseInt(panels, 10),
+        kw: parseFloat(kw),
+        inv_brand: inv_brand.trim(),
+        inv_kw: parseFloat(inv_kw),
+        price: parseFloat(price),
+      });
+      setNewKit({ brand: "", type: "Bifacial", watt: "", panels: "", kw: "", inv_brand: "", inv_kw: "", price: "" });
+      setShowAddKit(false);
+      fetchPrices();
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to add kit." });
+    } finally {
+      setAddingKit(false);
+    }
+  };
+
+  const handleDeleteKit = async (id) => {
+    try {
+      await pricesApi.deleteKit(id);
+      fetchPrices();
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to delete kit." });
+    }
+  };
+
+  const handleDeletePanel = async (id) => {
+    try {
+      await pricesApi.deletePanel(id);
+      fetchPrices();
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to delete panel." });
+    }
+  };
+
+  const handleDeleteInv = async (id) => {
+    try {
+      await pricesApi.deleteInverter(id);
+      fetchPrices();
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to delete inverter." });
+    }
+  };
+
+  const saveAccessoryPrices = async () => {
+    setSaving(true);
+    try {
+      const updates = accessories.map(a => ({ id: a.id, price: parseFloat(a.price) }));
+      await pricesApi.updateAccessories(updates);
+      setSaving(false);
+      setAccessorySaved(true);
+      setTimeout(() => setAccessorySaved(false), 2500);
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to update accessory prices." });
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
+        <div style={{ marginBottom: 8 }}><Loader2 size={32} className="animate-spin" /></div>Loading prices...
+      </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <ErrorState
+        title="Failed to load prices."
+        message="Could not connect to the server. Please check your connection and try again."
+        onRetry={() => { setFetchError(false); setLoading(true); fetchPrices(); }}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <div
+        className="page-header"
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
+      >
+        <div>
+          <div className="page-title">Price Manager</div>
+          <div className="page-sub">Edit prices — quotations update instantly</div>
+        </div>
+      </div>
+
+      {/* ── Panels ── */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <div className="card-title" style={{ margin: 0 }}>Solar Panels</div>
+          <button className="btn-sm primary" onClick={() => setShowAddPanel(!showAddPanel)}>
+            {showAddPanel ? "Cancel" : "+ Add Panel"}
+          </button>
+        </div>
+
+        {showAddPanel && (
+          <div style={{
+            background: "var(--green-light)", border: "1.5px solid var(--green)",
+            borderRadius: "12px", padding: "1.25rem", marginBottom: "1.5rem"
+          }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, color: "var(--green)" }}>
+              <Plus size={14} /> Configure & Add New Solar Panel
+            </div>
+            <div className="form-grid-3" style={{ gap: 12 }}>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 10 }}>Brand Name</label>
+                <input placeholder="e.g. Adani, Waaree" value={newPanel.brand} onChange={e => setNewPanel({ ...newPanel, brand: e.target.value })} />
+              </div>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 10 }}>Capacity (Watts)</label>
+                <input type="text" placeholder="e.g. 540-555" value={newPanel.watt} onChange={e => setNewPanel({ ...newPanel, watt: e.target.value })} />
+              </div>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 10 }}>Panel Type</label>
+                <select value={newPanel.type} onChange={e => setNewPanel({ ...newPanel, type: e.target.value })}>
+                  <option value="Mono PERC">Mono PERC</option>
+                  <option value="Bifacial">Bifacial</option>
+                  <option value="TOPCon">TOPCon</option>
+                  <option value="Polycrystalline">Polycrystalline</option>
+                </select>
+              </div>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 10 }}>Price per Panel (₹)</label>
+                <input type="number" placeholder="e.g. 12000" value={newPanel.pricePerPanel} onChange={e => setNewPanel({ ...newPanel, pricePerPanel: e.target.value })} />
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-end", gridColumn: "span 2" }}>
+                <button className="btn-primary" style={{ height: 42, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} onClick={handleAddPanel}>
+                  <span><Plus size={14} /></span> Add to Product List
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ overflowX: "auto" }}>
+        <table>
+          <thead>
+            <tr>
+              <th>Brand</th>
+              <th>Watt</th>
+              <th>Type</th>
+              <th>Price / Panel (₹)</th>
+              <th style={{ textAlign: "right" }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {panels.map(p => {
+              const isEditing = editingPanelId === p.id;
+              return (
+                <tr key={p.id}>
+                  <td>
+                    {isEditing ? (
+                      <input
+                        className="input-inline"
+                        value={editingPanel.brand}
+                        onChange={e => setEditingPanel({ ...editingPanel, brand: e.target.value })}
+                        style={{ width: "100%", padding: "4px 8px" }}
+                      />
+                    ) : (
+                      <span style={{ fontWeight: 600 }}>{p.brand}</span>
+                    )}
+                  </td>
+                  <td>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        className="input-inline"
+                        value={editingPanel.watt}
+                        onChange={e => setEditingPanel({ ...editingPanel, watt: e.target.value })}
+                        style={{ width: 80, padding: "4px 8px" }}
+                      />
+                    ) : (
+                      `${p.watt}W`
+                    )}
+                  </td>
+                  <td>
+                    {isEditing ? (
+                      <select
+                        className="input-inline"
+                        value={editingPanel.type}
+                        onChange={e => setEditingPanel({ ...editingPanel, type: e.target.value })}
+                        style={{ width: 130, padding: "4px 8px" }}
+                      >
+                        <option value="Mono PERC">Mono PERC</option>
+                        <option value="Bifacial">Bifacial</option>
+                        <option value="TOPCon">TOPCon</option>
+                        <option value="Polycrystalline">Polycrystalline</option>
+                      </select>
+                    ) : (
+                      <span className="badge badge-gray">{p.type}</span>
+                    )}
+                  </td>
+                  <td style={{ fontFamily: "var(--mono)", fontWeight: 500 }}>
+                    {isEditing ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <span>₹</span>
+                        <input
+                          type="number"
+                          className="input-inline"
+                          value={editingPanel.pricePerPanel}
+                          onChange={e => setEditingPanel({ ...editingPanel, pricePerPanel: e.target.value })}
+                          style={{ width: 100, padding: "4px 8px" }}
+                        />
+                      </div>
+                    ) : (
+                      `₹${Number(p.price_per_panel).toLocaleString("en-IN")}`
+                    )}
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    {isEditing ? (
+                      <div style={{ display: "inline-flex", gap: 6 }}>
+                        <button
+                          className="btn-sm"
+                          style={{ background: "var(--green)", color: "white", borderColor: "var(--green)", padding: "4px 10px", display: "flex", alignItems: "center", gap: 3 }}
+                          onClick={() => handleSavePanel(p.id)}
+                        >
+                          <Save size={12} /> Save
+                        </button>
+                        <button
+                          className="btn-sm"
+                          style={{ padding: "4px 10px" }}
+                          onClick={() => setEditingPanelId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "inline-flex", gap: 6 }}>
+                        <button
+                          className="btn-sm"
+                          style={{ padding: "4px 10px", borderColor: "var(--primary, #3b82f6)", color: "var(--primary, #3b82f6)" }}
+                          onClick={() => {
+                            setEditingPanelId(p.id);
+                            setEditingPanel({ brand: p.brand, watt: p.watt, type: p.type, pricePerPanel: p.price_per_panel });
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button className="btn-sm danger" style={{ padding: "4px 10px" }} onClick={() => setDeleteConfirm({ type: "panel", id: p.id })} title="Delete Product">
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      {/* ── Inverters ── */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <div className="card-title" style={{ margin: 0 }}>Inverters</div>
+          <button className="btn-sm primary" onClick={() => setShowAddInv(!showAddInv)}>
+            {showAddInv ? "Cancel" : "+ Add Inverter"}
+          </button>
+        </div>
+
+        {showAddInv && (
+          <div style={{
+            background: "var(--green-light)", border: "1.5px solid var(--green)",
+            borderRadius: "12px", padding: "1.25rem", marginBottom: "1.5rem"
+          }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, color: "var(--green)" }}>
+              <Plus size={14} /> Configure & Add New Inverter
+            </div>
+            <div className="form-grid-3" style={{ gap: 12 }}>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 10 }}>Brand Name</label>
+                <input placeholder="e.g. Growatt, Solis" value={newInv.brand} onChange={e => setNewInv({ ...newInv, brand: e.target.value })} />
+              </div>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 10 }}>Capacity (kW)</label>
+                <input type="number" placeholder="e.g. 5" value={newInv.kw} onChange={e => setNewInv({ ...newInv, kw: e.target.value })} />
+              </div>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 10 }}>Inverter Type</label>
+                <select value={newInv.type} onChange={e => setNewInv({ ...newInv, type: e.target.value })}>
+                  <option value="Single Phase (Single MPPT)">Single Phase (Single MPPT)</option>
+                  <option value="Single Phase (Dual MPPT)">Single Phase (Dual MPPT)</option>
+                  <option value="Three Phase">Three Phase</option>
+                </select>
+              </div>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 10 }}>Price per Unit (₹)</label>
+                <input type="number" placeholder="e.g. 24000" value={newInv.pricePerUnit} onChange={e => setNewInv({ ...newInv, pricePerUnit: e.target.value })} />
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-end", gridColumn: "span 2" }}>
+                <button className="btn-primary" style={{ height: 42, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} onClick={handleAddInv}>
+                  <span><Plus size={14} /></span> Add to Inverter List
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ overflowX: "auto" }}>
+        <table>
+          <thead>
+            <tr>
+              <th>Brand</th>
+              <th>kW</th>
+              <th>Type</th>
+              <th>Price / Unit (₹)</th>
+              <th style={{ textAlign: "right" }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inverters.map(i => {
+              const isEditing = editingInverterId === i.id;
+              return (
+                <tr key={i.id}>
+                  <td>
+                    {isEditing ? (
+                      <input
+                        className="input-inline"
+                        value={editingInverter.brand}
+                        onChange={e => setEditingInverter({ ...editingInverter, brand: e.target.value })}
+                        style={{ width: "100%", padding: "4px 8px" }}
+                      />
+                    ) : (
+                      <span style={{ fontWeight: 600 }}>{i.brand}</span>
+                    )}
+                  </td>
+                  <td>
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        className="input-inline"
+                        value={editingInverter.kw}
+                        onChange={e => setEditingInverter({ ...editingInverter, kw: e.target.value })}
+                        style={{ width: 80, padding: "4px 8px" }}
+                      />
+                    ) : (
+                      `${Number(i.kw)} kW`
+                    )}
+                  </td>
+                  <td>
+                    {isEditing ? (
+                      <select
+                        className="input-inline"
+                        value={editingInverter.type}
+                        onChange={e => setEditingInverter({ ...editingInverter, type: e.target.value })}
+                        style={{ width: 130, padding: "4px 8px" }}
+                      >
+                        <option value="Single Phase (Single MPPT)">Single Phase (Single MPPT)</option>
+                        <option value="Single Phase (Dual MPPT)">Single Phase (Dual MPPT)</option>
+                        <option value="Three Phase">Three Phase</option>
+                      </select>
+                    ) : (
+                      <span className="badge badge-gray">{i.type}</span>
+                    )}
+                  </td>
+                  <td style={{ fontFamily: "var(--mono)", fontWeight: 500 }}>
+                    {isEditing ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <span>₹</span>
+                        <input
+                          type="number"
+                          className="input-inline"
+                          value={editingInverter.pricePerUnit}
+                          onChange={e => setEditingInverter({ ...editingInverter, pricePerUnit: e.target.value })}
+                          style={{ width: 100, padding: "4px 8px" }}
+                        />
+                      </div>
+                    ) : (
+                      `₹${Number(i.price_per_unit).toLocaleString("en-IN")}`
+                    )}
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    {isEditing ? (
+                      <div style={{ display: "inline-flex", gap: 6 }}>
+                        <button
+                          className="btn-sm"
+                          style={{ background: "var(--green)", color: "white", borderColor: "var(--green)", padding: "4px 10px", display: "flex", alignItems: "center", gap: 3 }}
+                          onClick={() => handleSaveInverter(i.id)}
+                        >
+                          <Save size={12} /> Save
+                        </button>
+                        <button
+                          className="btn-sm"
+                          style={{ padding: "4px 10px" }}
+                          onClick={() => setEditingInverterId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "inline-flex", gap: 6 }}>
+                        <button
+                          className="btn-sm"
+                          style={{ padding: "4px 10px", borderColor: "var(--primary, #3b82f6)", color: "var(--primary, #3b82f6)" }}
+                          onClick={() => {
+                            setEditingInverterId(i.id);
+                            setEditingInverter({ brand: i.brand, kw: i.kw, type: i.type, pricePerUnit: i.price_per_unit });
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button className="btn-sm danger" style={{ padding: "4px 10px" }} onClick={() => setDeleteConfirm({ type: "inverter", id: i.id })} title="Delete Product">
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      {/* ── Accessories ── */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+          <div className="card-title" style={{ margin: 0 }}>Accessories & Labour</div>
+          <button className="btn-primary" style={{ width: "auto", padding: "8px 20px" }} onClick={saveAccessoryPrices} disabled={saving}>
+            {saving ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : accessorySaved ? <><Check size={14} /> Saved!</> : <><Save size={14} /> Save Accessory Prices</>}
+          </button>
+        </div>
+        {/* ISSUE-07: Accessories are used for stock tracking and BOM display only.
+            They do NOT directly affect quotation pricing calculations.
+            Quotation pricing is driven by the Pricing Settings (DC Wire, AC Wire, Structure costs per kW). */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 14px", background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.18)", borderRadius: 10, marginBottom: "1rem" }}>
+          <Info size={15} style={{ color: "#3b82f6", flexShrink: 0, marginTop: 1 }} />
+          <p style={{ margin: 0, fontSize: 12, color: "var(--text)", lineHeight: 1.6 }}>
+            <strong>Stock Tracking Only.</strong> Accessory prices here update stock valuations and material costs in the Stock Manager. They do <em>not</em> affect the quotation price shown to customers — quotation pricing is controlled by the <strong>Settings &rsaquo; Pricing</strong> parameters (DC Wire Cost, AC Wire Cost, Structure Cost per kW).
+          </p>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Price (₹)</th>
+              <th>Unit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {accessories.map(a => (
+              <tr key={a.id}>
+                <td style={{ fontWeight: 500 }}>{a.display_name}</td>
+                <td>
+                  <input
+                    className="input-inline"
+                    type="number"
+                    value={a.price}
+                    onChange={e => {
+                      setAccessories(prev => prev.map(acc =>
+                        acc.id === a.id ? { ...acc, price: e.target.value } : acc
+                      ));
+                    }}
+                  />
+                </td>
+                <td style={{ color: "var(--muted)" }}>{a.unit}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      {/* ── Pre-packaged Kits ── */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <div className="card-title" style={{ margin: 0 }}>Pre-packaged Kit Prices</div>
+          <button
+            className="btn-sm"
+            style={{ padding: "6px 14px", display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}
+            onClick={() => setShowAddKit(v => !v)}
+          >
+            {showAddKit ? <><X size={13} /> Cancel</> : <><Plus size={13} /> Add Kit</>}
+          </button>
+        </div>
+
+        {/* Add Kit Form */}
+        {showAddKit && (
+          <div style={{ background: "var(--bg, #f8fafc)", border: "1.5px solid var(--green)", borderRadius: 12, padding: "16px", marginBottom: "1.5rem" }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: "var(--green)", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+              <Plus size={14} /> New Kit Configuration
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px", marginBottom: 12 }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 10 }}>Panel Brand</label>
+                <input placeholder="Adani" value={newKit.brand} onChange={e => setNewKit(p => ({ ...p, brand: e.target.value }))} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 10 }}>Panel Type</label>
+                <select value={newKit.type} onChange={e => setNewKit(p => ({ ...p, type: e.target.value }))}>
+                  <option>Bifacial</option>
+                  <option>TOPCon</option>
+                  <option>Mono PERC</option>
+                  <option>Polycrystalline</option>
+                </select>
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 10 }}>Panel Watt</label>
+                <input placeholder="555" value={newKit.watt} onChange={e => setNewKit(p => ({ ...p, watt: e.target.value }))} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 10 }}>No. of Panels</label>
+                <input type="number" placeholder="4" value={newKit.panels} onChange={e => setNewKit(p => ({ ...p, panels: e.target.value }))} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 10 }}>System kW</label>
+                <input type="number" step="0.01" placeholder="2.22" value={newKit.kw} onChange={e => setNewKit(p => ({ ...p, kw: e.target.value }))} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 10 }}>Inverter Brand</label>
+                <input placeholder="Vsole" value={newKit.inv_brand} onChange={e => setNewKit(p => ({ ...p, inv_brand: e.target.value }))} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 10 }}>Inverter kW</label>
+                <input type="number" step="0.1" placeholder="3" value={newKit.inv_kw} onChange={e => setNewKit(p => ({ ...p, inv_kw: e.target.value }))} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 10 }}>Kit Price (Rs.)</label>
+                <input type="number" placeholder="95000" value={newKit.price} onChange={e => setNewKit(p => ({ ...p, price: e.target.value }))} />
+              </div>
+            </div>
+            <button
+              className="btn-primary"
+              style={{ width: "auto", padding: "8px 20px", fontSize: 13 }}
+              onClick={handleAddKit}
+              disabled={addingKit}
+            >
+              {addingKit ? <><Loader2 size={13} className="animate-spin" /> Adding...</> : <><Plus size={13} /> Add Kit</>}
+            </button>
+          </div>
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "24px", width: "100%" }}>
+        {/* GAP-05 fix: derive brands dynamically from DB data — any new kit brand
+            added to kit_prices will appear automatically without code changes. */}
+        {[...new Set(kits.map(k => k.brand))].map(brand => (
+            <div key={brand} style={{ display: "flex", flexDirection: "column", gap: "16px", background: "white", padding: "16px", borderRadius: "16px", border: "1px solid var(--border)", boxShadow: "0 4px 12px rgba(0,0,0,0.01)" }}>
+              <div style={{ fontWeight: 800, fontSize: 16, borderBottom: "2.5px solid var(--border)", paddingBottom: "8px", color: brand === "Adani" ? "#d97706" : "#059669", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                {brand} Solar Kits
+              </div>
+              {["Bifacial", "TOPCon"].map(type => {
+                const groupKits = kits.filter(k => k.brand === brand && k.type === type);
+                if (groupKits.length === 0) return null;
+                return (
+                  <div key={type} style={{ background: "#FAFAF9", padding: "14px", borderRadius: "12px", border: "1px solid var(--border)" }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text)", marginBottom: "10px", borderBottom: "1px dashed var(--border)", paddingBottom: "6px" }}>
+                      {type} ({groupKits[0].watt}W)
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                    <table style={{ margin: 0, width: "100%", fontSize: "12px" }}>
+                      <thead>
+                        <tr>
+                          <th>kW</th>
+                          <th>Panels</th>
+                          <th>Inverter</th>
+                          <th>Price (Rs.)</th>
+                          <th style={{ textAlign: "right" }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {groupKits.map(k => {
+                          const isEditing = editingKitId === k.id;
+                          return (
+                            <tr key={k.id}>
+                              <td style={{ fontWeight: 700, color: "var(--text)" }}>{Number(k.kw).toFixed(2)} kW</td>
+                              <td>{k.panels} pcs</td>
+                              <td style={{ fontSize: 11, color: "var(--muted)" }}>{k.inv_brand} {Number(k.inv_kw)}kW</td>
+                              <td>
+                                {isEditing ? (
+                                  <input
+                                    type="number"
+                                    className="input-inline"
+                                    value={editingKitPrice}
+                                    onChange={e => setEditingKitPrice(e.target.value)}
+                                    style={{ width: "90px", padding: "4px 8px" }}
+                                  />
+                                ) : (
+                                  <span style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>
+                                    ₹{Number(k.price).toLocaleString("en-IN")}
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ textAlign: "right" }}>
+                                {isEditing ? (
+                                  <div style={{ display: "inline-flex", gap: "4px" }}>
+                                    <button
+                                      className="btn-sm"
+                                      style={{ background: "var(--green)", color: "white", borderColor: "var(--green)", padding: "2px 6px", fontSize: "10px" }}
+                                      onClick={() => handleSaveKitPrice(k.id)}
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      className="btn-sm"
+                                      style={{ padding: "2px 6px", fontSize: "10px" }}
+                                      onClick={() => setEditingKitId(null)}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div style={{ display: "inline-flex", gap: 4 }}>
+                                    <button
+                                      className="btn-sm"
+                                      style={{ padding: "2px 8px", fontSize: "10px" }}
+                                      onClick={() => {
+                                        setEditingKitId(k.id);
+                                        setEditingKitPrice(k.price);
+                                      }}
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      className="btn-sm danger"
+                                      style={{ padding: "2px 6px", fontSize: "10px" }}
+                                      onClick={() => setDeleteConfirm({ type: "kit", id: k.id, name: `${k.brand} ${k.type} ${Number(k.kw).toFixed(2)}kW` })}
+                                      title="Delete Kit"
+                                    >
+                                      <Trash2 size={11} />
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+      {deleteConfirm && (
+        <ConfirmDialog
+          open={true}
+          title="Delete Item?"
+          message={`Are you sure you want to delete this ${deleteConfirm.type}? This action cannot be undone.`}
+          variant="danger"
+          confirmText="Delete"
+          onConfirm={() => {
+            const { type, id } = deleteConfirm;
+            setDeleteConfirm(null);
+            if (type === "panel") handleDeletePanel(id);
+            else if (type === "inverter") handleDeleteInv(id);
+            else if (type === "kit") handleDeleteKit(id);
+          }}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+      <ConfirmDialog
+        open={errorDialog.open}
+        title="Error"
+        message={errorDialog.message}
+        variant="danger"
+        confirmText="OK"
+        hideCancel
+        onConfirm={() => setErrorDialog({ open: false, message: "" })}
+        onCancel={() => setErrorDialog({ open: false, message: "" })}
+      />
+    </div>
+  );
+}

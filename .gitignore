@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+server/node_modules/
+
+# Build output
+dist/
+
+# Environment variables (contains secrets!)
+server/.env
+.env
+
+# Uploads (user-uploaded files)
+server/uploads/
+
+# Logs
+*.log
+npm-debug.log*
+server/logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Gemini IDE
+.gemini/

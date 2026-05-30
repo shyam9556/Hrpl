@@ -1,0 +1,269 @@
+import { Router } from "express";
+import bcrypt from "bcryptjs";
+
+import db from "../config/database.js";
+import { authenticate, authorize } from "../middleware/auth.js";
+import { sendDealerStatusEmail } from "../services/emailService.js";
+
+const router = Router();
+
+// All dealer management routes require admin
+router.use(authenticate);
+router.use(authorize("admin"));
+
+// ─── GET /api/dealers/registrations ──────────────────────
+// List dealer registration applications
+router.get("/registrations", async (req, res, next) => {
+  try {
+    const { status = "Pending" } = req.query;
+
+    const result = await db.query(
+      `SELECT dr.*, u.name as reviewed_by_name
+       FROM dealer_registrations dr
+       LEFT JOIN users u ON u.id = dr.reviewed_by
+       WHERE dr.status = ?
+       ORDER BY dr.submitted_at DESC`,
+      [status]
+    );
+
+    const registrations = result.rows;
+
+    if (registrations.length > 0) {
+      const regIds = registrations.map(r => r.id);
+      // MySQL IN clause with dynamic placeholders
+      const placeholders = regIds.map(() => "?").join(", ");
+      const docsResult = await db.query(
+        `SELECT id, entity_id, doc_type, original_name, mime_type, file_size_bytes, file_path
+         FROM documents
+         WHERE entity_type = 'dealer_registration' AND entity_id IN (${placeholders})`,
+        regIds
+      );
+
+      // Group documents by entity_id
+      const docsMap = {};
+      docsResult.rows.forEach(doc => {
+        if (!docsMap[doc.entity_id]) {
+          docsMap[doc.entity_id] = [];
+        }
+        docsMap[doc.entity_id].push(doc);
+      });
+
+      // Attach documents to registrations
+      registrations.forEach(r => {
+        r.documents = docsMap[r.id] || [];
+      });
+    }
+
+    res.json({
+      success: true,
+      count: registrations.length,
+      registrations: registrations,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/dealers/registrations/:id/approve ─────────
+// Approve a dealer registration → create user account
+router.post("/registrations/:id/approve", async (req, res, next) => {
+  try {
+    const regId = parseInt(req.params.id, 10);
+
+    if (isNaN(regId)) {
+      return res.status(400).json({ success: false, error: "Invalid registration ID." });
+    }
+
+    // Get the registration
+    const regResult = await db.query(
+      "SELECT * FROM dealer_registrations WHERE id = ? AND status = 'Pending'",
+      [regId]
+    );
+
+    if (regResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Registration not found or already processed.",
+      });
+    }
+
+    const reg = regResult.rows[0];
+
+    // Check if email already exists in users
+    const existingUser = await db.query("SELECT id FROM users WHERE email = ?", [reg.email]);
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        error: "A user with this email already exists.",
+      });
+    }
+
+    // Transaction: create user + update registration status + reassign documents
+    const client = await db.getClient();
+    let newUserId = null;
+    try {
+      await client.query("BEGIN");
+
+      // Create user account
+      const userInsert = await client.query(
+        `INSERT INTO users (name, email, password_hash, role, mobile, location, company_name, password_changed_at)
+         VALUES (?, ?, ?, 'dealer', ?, ?, ?, '1970-01-01 00:00:01')`,
+        [reg.name, reg.email, reg.password_hash, reg.mobile, reg.location, reg.company_name]
+      );
+      newUserId = userInsert.insertId;
+
+      // Update registration status
+      await client.query(
+        `UPDATE dealer_registrations SET status = 'Approved', reviewed_by = ?, reviewed_at = NOW()
+         WHERE id = ?`,
+        [req.user.id, regId]
+      );
+
+      // Reassign all registration documents to the new user.
+      // Documents are saved with uploaded_by = NULL at registration time
+      // (no user account exists yet). After approval, the dealer must be able
+      // to access their own submitted documents via GET /api/uploads/:id.
+      // The access check is: req.user.role !== 'admin' && doc.uploaded_by !== req.user.id
+      // Without this UPDATE, null !== newUserId → dealer gets 403 on their own docs.
+      await client.query(
+        `UPDATE documents SET uploaded_by = ?
+         WHERE entity_type = 'dealer_registration' AND entity_id = ? AND uploaded_by IS NULL`,
+        [newUserId, regId]
+      );
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Fetch created user for response
+    const userResult = await db.query(
+      "SELECT id, name, email, role FROM users WHERE id = ?",
+      [newUserId]
+    );
+
+    res.json({
+      success: true,
+      message: `Dealer '${reg.name}' approved and account created.`,
+      dealer: userResult.rows[0],
+    });
+
+    // Fire-and-forget email notification
+    sendDealerStatusEmail(reg.email, reg.name, "Approved")
+      .catch(err => console.error(`[EMAIL] Failed to send dealer Approved email to ${reg.email}:`, err.message));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/dealers/registrations/:id/reject ──────────
+// Reject a dealer registration
+router.post("/registrations/:id/reject", async (req, res, next) => {
+  try {
+    const regId = parseInt(req.params.id, 10);
+
+    if (isNaN(regId)) {
+      return res.status(400).json({ success: false, error: "Invalid registration ID." });
+    }
+
+    // Fetch registration before update (for email and response)
+    const findResult = await db.query(
+      "SELECT id, name, email FROM dealer_registrations WHERE id = ? AND status = 'Pending'",
+      [regId]
+    );
+
+    if (findResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Registration not found or already processed.",
+      });
+    }
+
+    const reg = findResult.rows[0];
+
+    await db.query(
+      `UPDATE dealer_registrations SET status = 'Rejected', reviewed_by = ?, reviewed_at = NOW()
+       WHERE id = ? AND status = 'Pending'`,
+      [req.user.id, regId]
+    );
+
+    res.json({
+      success: true,
+      message: `Dealer registration for '${reg.name}' rejected.`,
+    });
+
+    // Fire-and-forget email notification
+    sendDealerStatusEmail(reg.email, reg.name, "Rejected")
+      .catch(err => console.error(`[EMAIL] Failed to send dealer Rejected email to ${reg.email}:`, err.message));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/dealers ────────────────────────────────────
+// List all dealers (approved users with role='dealer')
+router.get("/", async (req, res, next) => {
+  try {
+    const result = await db.query(
+      `SELECT id, name, email, mobile, location, company_name, is_active, created_at
+       FROM users WHERE role = 'dealer' ORDER BY name`
+    );
+
+    res.json({
+      success: true,
+      count: result.rows.length,
+      dealers: result.rows,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PATCH /api/dealers/:id/toggle-active ────────────────
+// Activate/deactivate a dealer
+// MySQL does NOT support NOT is_active in the same way — we read, flip, then write
+router.patch("/:id/toggle-active", async (req, res, next) => {
+  try {
+    const dealerId = parseInt(req.params.id, 10);
+
+    if (isNaN(dealerId)) {
+      return res.status(400).json({ success: false, error: "Invalid dealer ID." });
+    }
+
+    // Fetch current state
+    const findResult = await db.query(
+      "SELECT id, name, email, is_active FROM users WHERE id = ? AND role = 'dealer'",
+      [dealerId]
+    );
+
+    if (findResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Dealer not found." });
+    }
+
+    const dealer = findResult.rows[0];
+    const newActiveState = dealer.is_active ? 0 : 1;
+
+    await db.query(
+      "UPDATE users SET is_active = ? WHERE id = ?",
+      [newActiveState, dealerId]
+    );
+
+    res.json({
+      success: true,
+      message: `Dealer '${dealer.name}' ${newActiveState ? "activated" : "deactivated"}.`,
+      dealer: {
+        id: dealer.id,
+        name: dealer.name,
+        email: dealer.email,
+        is_active: newActiveState === 1,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+export default router;

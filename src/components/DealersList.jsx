@@ -1,0 +1,166 @@
+import { useState, useEffect, useCallback } from "react";
+import { dealers as dealersApi } from "../utils/api";
+import { Loader2, Store, ChevronLeft, ChevronRight } from "lucide-react";
+import ConfirmDialog from "./ConfirmDialog";
+import ErrorState from "./ErrorState";
+
+export default function DealersList() {
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [confirmToggle, setConfirmToggle] = useState(null);
+  const [errorDialog, setErrorDialog] = useState({ open: false, message: "" });
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
+
+  const fetchDealers = useCallback(async (showSpinner = true) => {
+    try {
+      if (showSpinner) setLoading(true);
+      setFetchError(false);
+      const res = await dealersApi.list();
+      setList(res.dealers || []);
+    } catch (err) {
+      console.error("Fetch dealers error:", err);
+      setFetchError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchDealers(); }, [fetchDealers]);
+
+  const handleToggle = async (id) => {
+    setConfirmToggle(null);
+    setActionLoading(id);
+    try {
+      await dealersApi.toggleActive(id);
+      // Background refetch — no full spinner, just update silently
+      await fetchDealers(false);
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to toggle dealer status." });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="page-title">Dealers</div>
+        <div className="page-sub">Manage approved dealer accounts</div>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
+          <div style={{ marginBottom: 8 }}><Loader2 size={32} className="animate-spin" /></div>Loading...
+        </div>
+      ) : fetchError ? (
+        <ErrorState
+          title="Failed to load dealers."
+          message="Could not connect to the server. Please check your connection."
+          onRetry={() => { setFetchError(false); fetchDealers(true); }}
+          compact
+        />
+      ) : list.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "3rem", color: "var(--muted)" }}>
+          <div style={{ marginBottom: 12 }}><Store size={48} strokeWidth={1} /></div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>No dealers yet</div>
+          <div style={{ fontSize: 13, marginTop: 4 }}>Approved dealer registrations will appear here.</div>
+        </div>
+      ) : (
+        <div className="card">
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Contact</th>
+                  <th>Location</th>
+                  <th>Company</th>
+                  <th>Status</th>
+                  <th>Joined</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  const totalPages = Math.ceil(list.length / PAGE_SIZE);
+                  const paginatedList = list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+                  return paginatedList.map(d => (
+                  <tr key={d.id} style={{ opacity: d.is_active ? 1 : 0.5 }}>
+                    <td style={{ fontWeight: 500 }}>{d.name}</td>
+                    <td>
+                      <div>{d.email}</div>
+                      <div style={{ fontSize: 11, color: "var(--muted)" }}>{d.mobile || "—"}</div>
+                    </td>
+                    <td>{d.location || "—"}</td>
+                    <td>{d.company_name || "—"}</td>
+                    <td>
+                      <span className={`badge ${d.is_active ? "badge-green" : "badge-red"}`}>
+                        {d.is_active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    <td style={{ color: "var(--muted)", fontSize: 12 }}>
+                      {new Date(d.created_at).toLocaleDateString("en-IN")}
+                    </td>
+                    <td>
+                      <button
+                        className="btn-sm"
+                        style={{
+                          padding: "4px 12px", fontSize: 11, borderRadius: 6,
+                          background: d.is_active ? "var(--red)" : "var(--green)",
+                          color: "white", border: "none",
+                        }}
+                        disabled={actionLoading === d.id}
+                        onClick={() => setConfirmToggle(d)}
+                      >
+                        {actionLoading === d.id ? "..." : (d.is_active ? "Deactivate" : "Activate")}
+                      </button>
+                    </td>
+                  </tr>
+                ));
+                })()}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination Controls */}
+          {list.length > PAGE_SIZE && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderTop: "1px solid var(--border, #e2e8f0)" }}>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, list.length)} of {list.length}
+              </span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: "4px 12px", fontSize: 12, borderRadius: 8, display: "flex", alignItems: "center", gap: 4 }}><ChevronLeft size={14} /> Prev</button>
+                <span style={{ display: "flex", alignItems: "center", fontSize: 12, color: "var(--text)", fontWeight: 600, padding: "0 8px" }}>{page} / {Math.ceil(list.length / PAGE_SIZE)}</span>
+                <button className="btn-sm" disabled={page >= Math.ceil(list.length / PAGE_SIZE)} onClick={() => setPage(p => p + 1)} style={{ padding: "4px 12px", fontSize: 12, borderRadius: 8, display: "flex", alignItems: "center", gap: 4 }}>Next <ChevronRight size={14} /></button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {confirmToggle && (
+        <ConfirmDialog
+          open={true}
+          title={confirmToggle.is_active ? "Deactivate Dealer?" : "Activate Dealer?"}
+          message={`Are you sure you want to ${confirmToggle.is_active ? "deactivate" : "activate"} ${confirmToggle.name}? ${confirmToggle.is_active ? "They will no longer be able to log in." : "They will regain access to the dealer portal."}`}
+          variant={confirmToggle.is_active ? "danger" : "info"}
+          confirmText={confirmToggle.is_active ? "Deactivate" : "Activate"}
+          onConfirm={() => handleToggle(confirmToggle.id)}
+          onCancel={() => setConfirmToggle(null)}
+        />
+      )}
+      <ConfirmDialog
+        open={errorDialog.open}
+        title="Action Failed"
+        message={errorDialog.message}
+        variant="danger"
+        confirmText="OK"
+        hideCancel
+        onConfirm={() => setErrorDialog({ open: false, message: "" })}
+        onCancel={() => setErrorDialog({ open: false, message: "" })}
+      />
+    </div>
+  );
+}

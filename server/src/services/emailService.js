@@ -1,0 +1,502 @@
+import nodemailer from "nodemailer";
+import env from "../config/env.js";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Pre-define shared attachments (CID images) for all emails
+const SHARED_ATTACHMENTS = [
+  {
+    filename: 'logo.png',
+    path: path.resolve(__dirname, "../../../public/logo.png"),
+    cid: 'company-logo' // Used as src="cid:company-logo" in HTML
+  }
+];
+
+/**
+ * Escapes HTML characters in a string to prevent XSS.
+ * @param {string} str - The string to escape
+ * @returns {string} The escaped string
+ */
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
+ * Email Service — Handles sending system emails.
+ *
+ * Uses Nodemailer with configurable SMTP.
+ * Falls back to console logging if SMTP is not configured (development).
+ */
+
+let transporter = null;
+
+// Only create transporter if SMTP is configured
+if (env.smtp.isConfigured) {
+  transporter = nodemailer.createTransport({
+    host: env.smtp.host,
+    port: env.smtp.port,
+    secure: env.smtp.port === 465, // true for 465, false for 587
+    // In production, require TLS so credentials are never sent over plaintext
+    requireTLS: env.isProd && env.smtp.port !== 465,
+    auth: {
+      user: env.smtp.user,
+      pass: env.smtp.password,
+    },
+    // Prevent SMTP hangs from blocking the whole request
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 15_000,
+  });
+}
+
+/**
+ * Verify SMTP connection at startup.
+ * Call this from index.js after the server starts to catch misconfiguration early.
+ * Does not throw — logs a clear warning instead so startup is not blocked.
+ */
+export async function verifySMTPConnection() {
+  if (!transporter) {
+    console.warn("[SMTP] Skipping connection check — SMTP not configured.");
+    return false;
+  }
+  try {
+    await transporter.verify();
+    console.log("[✅ SMTP] Connection verified successfully.");
+    return true;
+  } catch (err) {
+    console.error("❌ [SMTP] Connection verification failed:", err.message);
+    console.error("   Check SMTP_HOST, SMTP_USER, SMTP_PASSWORD in server/.env");
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// SHARED TEMPLATE HELPERS
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Wraps any email body content in the shared branded shell.
+ * Uses a table-based layout so it renders correctly in Gmail, Outlook, Apple Mail, etc.
+ *
+ * @param {object} opts
+ * @param {string} opts.subtitle   - Small label under company name in header (e.g. "Dealer Registration Update")
+ * @param {string} opts.bodyHtml   - HTML string for the email body section
+ * @returns {string} Complete HTML document
+ */
+function buildEmailHtml({ subtitle, bodyHtml }) {
+  const year = new Date().getFullYear();
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Highlight Pro</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f0f4f0;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
+
+  <!--[if mso]><table width="100%" cellpadding="0" cellspacing="0"><tr><td><![endif]-->
+
+  <!-- Outer wrapper -->
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0f4f0;padding:40px 16px;">
+    <tr>
+      <td align="center">
+
+        <!-- Email card -->
+        <table width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.10);">
+
+          <!-- ─── Header ─── -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#1C3A2A 0%,#2E7D52 100%);padding:36px 32px;text-align:center;">
+              <!-- Inline CID attachment logo — embedded directly in the email -->
+              <img src="cid:company-logo"
+                   alt="Highlight Pro"
+                   width="60" height="60"
+                   style="display:block;margin:0 auto 16px auto;border-radius:12px;background-color:#ffffff;border:3px solid rgba(255,255,255,0.25);padding:4px;" />
+              <h1 style="color:#ffffff;margin:0;font-size:24px;font-weight:700;letter-spacing:-0.3px;line-height:1.2;">
+                Highlight Pro
+              </h1>
+              <p style="color:rgba(255,255,255,0.75);margin:6px 0 0 0;font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:600;">
+                ${subtitle}
+              </p>
+            </td>
+          </tr>
+
+          <!-- ─── Body ─── -->
+          <tr>
+            <td style="padding:36px 36px 28px 36px;">
+              ${bodyHtml}
+            </td>
+          </tr>
+
+          <!-- ─── Divider ─── -->
+          <tr>
+            <td style="padding:0 36px;">
+              <hr style="border:none;border-top:1px solid #e9ecef;margin:0;" />
+            </td>
+          </tr>
+
+          <!-- ─── Footer ─── -->
+          <tr>
+            <td style="padding:20px 36px;text-align:center;">
+              <p style="color:#9ca3af;font-size:12px;margin:0 0 4px 0;line-height:1.6;">
+                This is an automated email from <strong style="color:#6b7280;">Highlight Pro</strong>. Please do not reply to this email.
+              </p>
+              <p style="color:#9ca3af;font-size:12px;margin:0;line-height:1.6;">
+                &copy; ${year} Highlight Pro. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+        <!-- /Email card -->
+
+      </td>
+    </tr>
+  </table>
+
+  <!--[if mso]></td></tr></table><![endif]-->
+
+</body>
+</html>`;
+}
+
+/**
+ * Renders a CTA button that is safe for all email clients.
+ * Uses a table-based VML button for Outlook, with a regular <a> fallback.
+ */
+function ctaButton({ href, label, color = "#2E7D52", textColor = "#ffffff" }) {
+  return `
+<table cellpadding="0" cellspacing="0" border="0" style="margin:28px auto 0 auto;">
+  <tr>
+    <td align="center" style="border-radius:8px;background-color:${color};">
+      <a href="${href}"
+         target="_blank"
+         style="display:inline-block;color:${textColor};text-decoration:none;font-size:15px;font-weight:600;padding:14px 36px;border-radius:8px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
+        ${label}
+      </a>
+    </td>
+  </tr>
+</table>`;
+}
+
+/**
+ * Renders a highlighted info box (for quotation number, security notes, etc.)
+ */
+function infoBox({ content, bgColor = "#f0f7f4", borderColor = "#2E7D52" }) {
+  return `
+<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:20px 0;">
+  <tr>
+    <td style="background-color:${bgColor};border-left:4px solid ${borderColor};border-radius:0 6px 6px 0;padding:14px 16px;font-size:14px;color:#374151;line-height:1.6;">
+      ${content}
+    </td>
+  </tr>
+</table>`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// PASSWORD RESET EMAIL
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Send a password reset email with a reset link.
+ *
+ * @param {string} toEmail    - Recipient email address
+ * @param {string} userName   - Recipient's name (for personalization)
+ * @param {string} resetToken - The password reset token
+ * @returns {boolean} true if sent successfully, false otherwise
+ */
+export async function sendPasswordResetEmail(toEmail, userName, resetToken) {
+  const resetUrl = `${env.clientUrl}?token=${resetToken}`;
+
+  const bodyHtml = [
+    '<h2 style="color:#111827;margin:0 0 8px 0;font-size:22px;font-weight:700;line-height:1.3;">',
+    '  Password Reset Request',
+    '</h2>',
+    '<p style="color:#6b7280;font-size:13px;margin:0 0 24px 0;">',
+    '  Received on ', new Date().toLocaleString("en-IN", { dateStyle: "long", timeStyle: "short" }),
+    '</p>',
+    '<p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">',
+    '  Hello <strong>', escapeHtml(userName), '</strong>,',
+    '</p>',
+    '<p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px 0;">',
+    '  We received a request to reset the password for your Highlight Pro account.',
+    '  Click the button below to set a new password.',
+    '</p>',
+    ctaButton({ href: resetUrl, label: "Reset My Password", color: "#2E7D52" }),
+    infoBox({
+      content: [
+        '<strong style="display:block;margin-bottom:4px;color:#1f2937;">&#9888;&#65039; Security Notice</strong><br>',
+        'This link is valid for <strong>1 hour</strong> and can only be used once.<br>',
+        'If you did not request a password reset, please ignore this email &mdash; your account remains secure.'
+      ].join(''),
+      bgColor: "#fffbeb",
+      borderColor: "#f59e0b",
+    }),
+    '<p style="color:#9ca3af;font-size:12px;line-height:1.6;margin:20px 0 0 0;">',
+    '  If the button above doesn\'t work, copy and paste the link below into your browser:<br>',
+    '  <a href="', escapeHtml(resetUrl), '" style="color:#2E7D52;word-break:break-all;">', escapeHtml(resetUrl), '</a>',
+    '</p>'
+  ].join('');
+
+  const htmlContent = buildEmailHtml({ subtitle: "Account Security", bodyHtml });
+
+  // If SMTP is not configured, log to console (development mode)
+  if (!transporter) {
+    console.log("");
+    console.log("╔══════════════════════════════════════════════════╗");
+    console.log("║  📧 PASSWORD RESET EMAIL (Dev Mode — Not Sent)  ║");
+    console.log("╠══════════════════════════════════════════════════╣");
+    console.log(`║  To:    ${toEmail}`);
+    console.log(`║  Name:  ${userName}`);
+    console.log(`║  Link:  ${resetUrl}`);
+    console.log(`║  Token: ${resetToken}`);
+    console.log("╚══════════════════════════════════════════════════╝");
+    console.log("");
+    return true; // Pretend it was sent successfully in dev
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: "Reset Your Password — Highlight Pro",
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`📧 Password reset email sent to: ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to send password reset email to ${toEmail}:`, err.message);
+    throw new Error("Failed to send password reset email. Please try again later.");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DEALER REGISTRATION STATUS EMAIL
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Send dealer registration status notification email.
+ *
+ * @param {string} toEmail     - Dealer's email
+ * @param {string} dealerName  - Dealer's name
+ * @param {"Approved"|"Rejected"} status - New status
+ */
+export async function sendDealerStatusEmail(toEmail, dealerName, status) {
+  const isApproved = status === "Approved";
+
+  const statusBadge = isApproved
+    ? `<span style="display:inline-block;background-color:#dcfce7;color:#166534;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;">Approved</span>`
+    : `<span style="display:inline-block;background-color:#fee2e2;color:#991b1b;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;">Not Approved</span>`;
+
+  const bodyHtml = isApproved ? `
+    <p style="margin:0 0 16px 0;">${statusBadge}</p>
+
+    <h2 style="color:#111827;margin:0 0 20px 0;font-size:22px;font-weight:700;line-height:1.3;">
+      Welcome to Highlight Pro!
+    </h2>
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">
+      Dear <strong>${escapeHtml(dealerName)}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 8px 0;">
+      We are pleased to inform you that your dealer registration application has been
+      <strong style="color:#166534;">approved</strong>. Your account is now active and ready to use.
+    </p>
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:6px;color:#1f2937;">You can now:</strong>
+        &#10003;&nbsp; Log in to the Highlight Pro dealer portal<br>
+        &#10003;&nbsp; Create and submit solar system quotations<br>
+        &#10003;&nbsp; Track your quotation approval status<br>
+        &#10003;&nbsp; Manage your customer pipeline
+      `,
+      bgColor: "#f0f7f4",
+      borderColor: "#2E7D52",
+    })}
+
+    ${ctaButton({ href: env.clientUrl, label: "Log In to Your Account", color: "#2E7D52" })}
+
+    <p style="color:#9ca3af;font-size:13px;line-height:1.6;margin:24px 0 0 0;">
+      If you have any questions or need assistance, please contact our support team.
+      We look forward to a successful partnership.
+    </p>
+  ` : `
+    <p style="margin:0 0 16px 0;">${statusBadge}</p>
+
+    <h2 style="color:#111827;margin:0 0 20px 0;font-size:22px;font-weight:700;line-height:1.3;">
+      Application Status Update
+    </h2>
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">
+      Dear <strong>${escapeHtml(dealerName)}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px 0;">
+      Thank you for your interest in becoming a Highlight Pro dealer.
+      After carefully reviewing your application, we regret to inform you that we are
+      unable to approve your registration at this time.
+    </p>
+
+    ${infoBox({
+      content: [
+        'If you believe this decision was made in error, or if you have updated your ',
+        'credentials and would like to reapply, please reach out to our team at ',
+        '<a href="mailto:', escapeHtml(env.smtp.fromEmail), '" style="color:#2E7D52;">', escapeHtml(env.smtp.fromEmail), '</a>. ',
+        'We would be happy to guide you through the process.'
+      ].join(''),
+      bgColor: "#f9fafb",
+      borderColor: "#6b7280",
+    })}
+
+    <p style="color:#9ca3af;font-size:13px;line-height:1.6;margin:24px 0 0 0;">
+      We appreciate the time you took to apply and hope to work with you in the future.
+    </p>
+  `;
+
+  const htmlContent = buildEmailHtml({
+    subtitle: "Dealer Registration Update",
+    bodyHtml,
+  });
+
+  if (!transporter) {
+    console.log(`📧 [Dev] Dealer ${status} email for ${toEmail} (${dealerName}) — not sent (no SMTP)`);
+    return true;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: isApproved
+        ? "Your Highlight Pro Dealer Account Has Been Approved"
+        : "Highlight Pro — Dealer Registration Update",
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`📧 Dealer ${status} email sent to: ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to send dealer status email to ${toEmail}:`, err.message);
+    // Don't throw — this is a notification, not critical
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// QUOTATION STATUS EMAIL
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Send quotation status notification to the dealer.
+ *
+ * Called when admin Approves or Rejects a quotation so the dealer
+ * knows without having to manually refresh the portal.
+ *
+ * @param {string} toEmail       - Dealer's email address
+ * @param {string} dealerName    - Dealer's display name
+ * @param {string} quotationNo   - Quotation number (e.g. HP/2025-26/0001)
+ * @param {"Approved"|"Rejected"} status - New quotation status
+ * @returns {boolean} true if sent (or dev mode), false on failure
+ */
+export async function sendQuotationStatusEmail(toEmail, dealerName, quotationNo, status) {
+  const isApproved = status === "Approved";
+
+  const statusBadge = isApproved
+    ? `<span style="display:inline-block;background-color:#dcfce7;color:#166534;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;">Approved</span>`
+    : `<span style="display:inline-block;background-color:#fee2e2;color:#991b1b;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;">Rejected</span>`;
+
+  const bodyHtml = `
+    <p style="margin:0 0 16px 0;">${statusBadge}</p>
+
+    <h2 style="color:#111827;margin:0 0 20px 0;font-size:22px;font-weight:700;line-height:1.3;">
+      ${isApproved ? "Quotation Approved" : "Quotation Rejected"}
+    </h2>
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">
+      Dear <strong>${escapeHtml(dealerName)}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 8px 0;">
+      ${isApproved
+        ? `We are pleased to inform you that your quotation has been <strong style="color:#166534;">approved</strong> by the admin team.`
+        : `Your quotation has been <strong style="color:#991b1b;">rejected</strong> by the admin team.`
+      }
+    </p>
+
+    ${infoBox({
+      content: [
+        '<strong style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Quotation Reference</strong><br>',
+        '<span style="font-family:monospace;font-size:17px;font-weight:700;color:#111827;letter-spacing:0.5px;">', escapeHtml(quotationNo), '</span>'
+      ].join(''),
+      bgColor: "#f8fafc",
+      borderColor: isApproved ? "#2E7D52" : "#dc2626",
+    })}
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:16px 0 0 0;">
+      ${isApproved
+        ? `You can now proceed with the installation. Please log in to your dealer portal to track the project status and upload geo-tagged installation photos once the work is complete.`
+        : `Please log in to your dealer portal to review the details, or contact our admin team for clarification before submitting a revised quotation.`
+      }
+    </p>
+
+    ${ctaButton({
+      href: env.clientUrl,
+      label: "View in Portal",
+      color: isApproved ? "#2E7D52" : "#374151",
+    })}
+
+    <p style="color:#9ca3af;font-size:13px;line-height:1.6;margin:24px 0 0 0;">
+      If you have any questions regarding this update, please contact your Highlight Pro account manager.
+    </p>
+  `;
+
+  const htmlContent = buildEmailHtml({
+    subtitle: "Quotation Status Update",
+    bodyHtml,
+  });
+
+  if (!transporter) {
+    console.log(`📧 [Dev] Quotation ${status} email for ${toEmail} (${quotationNo}) — not sent (no SMTP)`);
+    return true;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: isApproved
+        ? `Quotation ${quotationNo} Approved — Highlight Pro`
+        : `Quotation ${quotationNo} — Action Required`,
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`📧 Quotation ${status} email sent to: ${toEmail} for ${quotationNo}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to send quotation status email to ${toEmail}:`, err.message);
+    // Don't throw — email failure should not block the status update
+    return false;
+  }
+}
+
+// Startup warning if SMTP is not configured
+if (!env.smtp.isConfigured) {
+  console.warn("");
+  console.warn("╔══════════════════════════════════════════════════════════╗");
+  console.warn("║  ⚠️  SMTP NOT CONFIGURED                                ║");
+  console.warn("║  Password reset and dealer notification emails will      ║");
+  console.warn("║  only be logged to console, not actually sent.           ║");
+  console.warn("║  Set SMTP_HOST and SMTP_USER in server/.env to enable.   ║");
+  console.warn("╚══════════════════════════════════════════════════════════╝");
+  console.warn("");
+}
