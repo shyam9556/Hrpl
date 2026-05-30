@@ -238,15 +238,17 @@ router.post("/registrations/:id/reject", async (req, res, next) => {
     }
 
     // Fetch registration before update (for email and response)
+    // Allow rejection from both Pending AND ReuploadRequested states:
+    // admin may finally reject after a dealer fails to re-upload satisfactory docs.
     const findResult = await db.query(
-      "SELECT id, name, email FROM dealer_registrations WHERE id = ? AND status = 'Pending'",
+      "SELECT id, name, email, status FROM dealer_registrations WHERE id = ? AND status IN ('Pending', 'ReuploadRequested')",
       [regId]
     );
 
     if (findResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
-        error: "Registration not found or already processed.",
+        error: "Registration not found or is not in a state that allows rejection.",
       });
     }
 
@@ -255,8 +257,14 @@ router.post("/registrations/:id/reject", async (req, res, next) => {
     await db.query(
       `UPDATE dealer_registrations
          SET status = 'Rejected', reviewed_by = ?, reviewed_at = NOW(), rejection_reason = ?
-       WHERE id = ? AND status = 'Pending'`,
+       WHERE id = ? AND status IN ('Pending', 'ReuploadRequested')`,
       [req.user.id, reason.trim(), regId]
+    );
+
+    // If rejecting a ReuploadRequested registration, also invalidate any active re-upload tokens
+    await db.query(
+      "UPDATE dealer_reupload_tokens SET used = 1 WHERE registration_id = ? AND used = 0",
+      [regId]
     );
 
     res.json({
@@ -364,9 +372,11 @@ router.post("/registrations/:id/request-reupload", async (req, res, next) => {
       return res.status(400).json({ success: false, error: `Invalid document types: ${invalidDocs.join(", ")}` });
     }
 
-    // Fetch the registration — must be Pending or Rejected
+    // Fetch the registration — must be Pending, Rejected, or ReuploadRequested
+    // ReuploadRequested is allowed so admin can "Send Again" when the link has expired
+    // or the dealer reports not receiving it.
     const regResult = await db.query(
-      "SELECT id, name, email FROM dealer_registrations WHERE id = ? AND status IN ('Pending', 'Rejected')",
+      "SELECT id, name, email, status FROM dealer_registrations WHERE id = ? AND status IN ('Pending', 'Rejected', 'ReuploadRequested')",
       [regId]
     );
 

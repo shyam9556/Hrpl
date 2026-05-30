@@ -206,6 +206,8 @@ app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
 app.use("/api/auth/reset-password", authLimiter);
 app.use("/api/auth/change-password", authLimiter);
+// Reupload verify: strict limit to prevent brute-forcing the dealer's registration password
+app.use("/api/auth/reupload/verify", authLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/quotations", quotationRoutes);
 app.use("/api/prices", priceRoutes);
@@ -258,7 +260,19 @@ const startServer = async () => {
       console.log(`[Startup] Cleaned up ${cleanup.rowCount} expired password reset token(s).`);
     }
   } catch (err) {
-    console.warn("[Startup] Could not clean expired tokens:", err.message);
+    console.warn("[Startup] Could not clean expired password reset tokens:", err.message);
+  }
+
+  // Cleanup expired and unused re-upload tokens on startup
+  try {
+    const reuploadCleanup = await db.query(
+      "DELETE FROM dealer_reupload_tokens WHERE expires_at < NOW() AND used = 0"
+    );
+    if (reuploadCleanup.rowCount > 0) {
+      console.log(`[Startup] Cleaned up ${reuploadCleanup.rowCount} expired re-upload token(s).`);
+    }
+  } catch (err) {
+    console.warn("[Startup] Could not clean expired re-upload tokens:", err.message);
   }
 
   app.listen(env.port, () => {

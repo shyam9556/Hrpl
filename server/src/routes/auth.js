@@ -10,6 +10,7 @@ import db from "../config/database.js";
 import env from "../config/env.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
+import rateLimit from "express-rate-limit";
 import {
   loginSchema,
   registerSchema,
@@ -24,6 +25,19 @@ const router = Router();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Strict rate limiter for re-upload verify endpoint.
+// Prevents brute-force attacks against the dealer's registration password.
+// 10 attempts per 15 minutes per IP — sufficient for legitimate use (one attempt),
+// strict enough to make brute-force computationally infeasible.
+const reuploadVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: { success: false, error: "Too many verification attempts. Please try again after 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // Only count failed attempts against the limit
+});
 
 // ─── POST /api/auth/login ────────────────────────────────
 // Public — Authenticate user and return JWT token
@@ -500,10 +514,54 @@ router.post(
   }
 );
 
+// ─── GET /api/auth/reupload/probe ─────────────────────────────
+// Public — Lightweight check whether a raw re-upload token is still valid.
+// Returns 200 if the token is valid (unexpired, unused, registration still ReuploadRequested).
+// Returns 400 if the token is expired, used, or not found.
+// Does NOT require a password — this is intentionally safe because:
+//   - It only reveals "valid vs. invalid", not any personal data.
+//   - Tokens are 64-char hex (256-bit entropy) — not enumerable.
+//   - The endpoint is covered by the general 200-req/15-min rate limiter.
+// Used by DealerReuploadPage on mount to show the 'Link Expired' screen up-front.
+router.get("/reupload/probe", async (req, res, next) => {
+  try {
+    const rawToken = req.query.token;
+
+    if (!rawToken || typeof rawToken !== "string" || rawToken.length < 32) {
+      return res.status(400).json({ success: false, valid: false, error: "Invalid token format." });
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+    const result = await db.query(
+      `SELECT rt.id
+       FROM dealer_reupload_tokens rt
+       JOIN dealer_registrations dr ON dr.id = rt.registration_id
+       WHERE rt.token = ?
+         AND rt.used = 0
+         AND rt.expires_at > NOW()
+         AND dr.status = 'ReuploadRequested'`,
+      [tokenHash]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        error: "This re-upload link is no longer valid.",
+      });
+    }
+
+    return res.json({ success: true, valid: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── POST /api/auth/reupload/verify ──────────────────────────
 // Public — Verify re-upload token + dealer's registration password
 // Returns a short-lived re-upload JWT on success
-router.post("/reupload/verify", async (req, res, next) => {
+router.post("/reupload/verify", reuploadVerifyLimiter, async (req, res, next) => {
   try {
     const { token, password } = req.body;
 
@@ -688,36 +746,54 @@ router.post("/reupload/submit", async (req, res, next) => {
       });
     }
 
-    // Delete old documents of the required types from the DB
-    // (physical file deletion is skipped to avoid complex rollback; orphaned files are acceptable)
-    if (requiredDocs.length > 0) {
-      const placeholders = requiredDocs.map(() => "?").join(", ");
-      await db.query(
-        `DELETE FROM documents
-         WHERE entity_type = 'dealer_registration' AND entity_id = ? AND doc_type IN (${placeholders})`,
-        [regId, ...requiredDocs]
+    // Use a transaction for atomicity:
+    // file writes are NOT transactional, but DB operations are.
+    // If any DB step fails, we roll back so the DB remains consistent.
+    // (Orphaned files from failed writes are acceptable; the next re-upload request
+    //  will DELETE the old DB records, and orphaned files can be cleaned up by a cron.)
+    const client = await db.getClient();
+    try {
+      await client.query("BEGIN");
+
+      // Delete old documents of the required types from the DB
+      if (requiredDocs.length > 0) {
+        const placeholders = requiredDocs.map(() => "?").join(", ");
+        await client.query(
+          `DELETE FROM documents
+           WHERE entity_type = 'dealer_registration' AND entity_id = ? AND doc_type IN (${placeholders})`,
+          [regId, ...requiredDocs]
+        );
+      }
+
+      // Save new documents (these write files to disk — outside transaction scope)
+      if (aadhaarPhoto && requiredDocs.includes("aadhaar")) {
+        await saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar");
+      }
+      if (panPhoto && requiredDocs.includes("pan")) {
+        await saveBase64File(panPhoto, "dealer_registration", regId, "pan");
+      }
+      if (passportPhoto && requiredDocs.includes("passport_photo")) {
+        await saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo");
+      }
+
+      // Mark the re-upload token as used
+      await client.query("UPDATE dealer_reupload_tokens SET used = 1 WHERE id = ?", [tokenId]);
+
+      // Set registration status back to Pending for re-review
+      // (reupload_count is computed dynamically from dealer_reupload_tokens WHERE used=1 —
+      //  marking this token used=1 above automatically increments that count for admin display)
+      await client.query(
+        "UPDATE dealer_registrations SET status = 'Pending', reviewed_by = NULL, reviewed_at = NULL WHERE id = ?",
+        [regId]
       );
-    }
 
-    // Save new documents
-    if (aadhaarPhoto && requiredDocs.includes("aadhaar")) {
-      await saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar");
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
     }
-    if (panPhoto && requiredDocs.includes("pan")) {
-      await saveBase64File(panPhoto, "dealer_registration", regId, "pan");
-    }
-    if (passportPhoto && requiredDocs.includes("passport_photo")) {
-      await saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo");
-    }
-
-    // Mark the re-upload token as used
-    await db.query("UPDATE dealer_reupload_tokens SET used = 1 WHERE id = ?", [tokenId]);
-
-    // Set registration status back to Pending for re-review
-    await db.query(
-      "UPDATE dealer_registrations SET status = 'Pending', reviewed_by = NULL, reviewed_at = NULL WHERE id = ?",
-      [regId]
-    );
 
     // Send confirmation email (fire-and-forget)
     sendReuploadConfirmationEmail(tokenRecord.email, tokenRecord.name)

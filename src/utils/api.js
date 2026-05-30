@@ -385,21 +385,91 @@ export const uploads = {
     request(`/uploads/${id}/coordinates`, { method: "PATCH", body: { latitude, longitude } }),
 };
 
+// ─── Isolated Request (No auto-token injection) ──────────
+// Used for reupload API calls that have their own short-lived JWT.
+// Prevents the main app token from being sent alongside the reupload JWT,
+// which would cause spurious session-expired events on 401 errors.
+async function requestIsolated(endpoint, options = {}) {
+  const config = {
+    ...options,
+    headers: {
+      ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+      ...options.headers, // caller provides Authorization: Bearer <reuploadJwt>
+    },
+  };
+
+  if (options.body && !(options.body instanceof FormData)) {
+    config.body = JSON.stringify(options.body);
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  config.signal = controller.signal;
+
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, config);
+    clearTimeout(timeoutId);
+
+    const contentType = response.headers.get("content-type");
+    if (contentType && !contentType.includes("application/json")) {
+      if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+      return response;
+    }
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      const error = new Error(
+        (data.details && data.details.length > 0)
+          ? data.details[0]
+          : (data.error || "Something went wrong")
+      );
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+
+    return data;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === "AbortError") {
+      const timeoutError = new Error("Request timed out. Please check your connection and try again.");
+      timeoutError.status = 408;
+      throw timeoutError;
+    }
+    if (err instanceof TypeError && err.message.includes("fetch")) {
+      const networkError = new Error("Unable to connect to server. Please check your internet connection.");
+      networkError.status = 0;
+      throw networkError;
+    }
+    throw err;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
-// REUPLOAD API (public — uses re-upload JWT, not main app JWT)
+// REUPLOAD API (public — uses re-upload JWT, NOT main app JWT)
+// Uses requestIsolated() to prevent cross-contamination between
+// the reupload session and any active main-app session.
 // ═══════════════════════════════════════════════════════════
 export const reupload = {
+  // Lightweight validity probe — checks if the raw URL token is still valid.
+  // Returns { valid: true } on success, throws on 400 (expired/used/not found).
+  // Does NOT require a password.
+  probe: (token) =>
+    requestIsolated(`/auth/reupload/probe?token=${encodeURIComponent(token)}`),
+
   // Step 1: Verify token + registration password, get back a short-lived re-upload JWT
+  // No auth header needed — this is a public endpoint (rate-limited on server)
   verify: (token, password) =>
-    request("/auth/reupload/verify", { method: "POST", body: { token, password } }),
+    requestIsolated("/auth/reupload/verify", { method: "POST", body: { token, password } }),
 
   // Get info about the re-upload session (dealer name, reason, required docs)
   getInfo: (reuploadJwt) =>
-    request("/auth/reupload/info", { headers: { Authorization: `Bearer ${reuploadJwt}` } }),
+    requestIsolated("/auth/reupload/info", { headers: { Authorization: `Bearer ${reuploadJwt}` } }),
 
   // Step 2: Submit new documents
   submit: (reuploadJwt, documents) =>
-    request("/auth/reupload/submit", {
+    requestIsolated("/auth/reupload/submit", {
       method: "POST",
       headers: { Authorization: `Bearer ${reuploadJwt}` },
       body: documents,
