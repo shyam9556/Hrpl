@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { quotations as quotationsApi, uploads as uploadsApi } from "../utils/api";
-import { fmt, generatePdfQuotation } from "../utils/helpers";
+import { fmt, generatePdfQuotation, generateBOM } from "../utils/helpers";
 import { Loader2, Inbox, CheckCircle, XCircle, Paperclip, Download, Eye, X, User, Phone, MapPin, Zap, FileText, Camera, Truck, Package, Check, FolderOpen, ChevronLeft, ChevronRight, AlertTriangle, Copy } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ErrorState from "./ErrorState";
@@ -185,25 +185,7 @@ export default function DealerRequestsAdmin() {
   };
 
   const handleDownloadBOM = (q) => {
-    const systemKw = Number(q.system_kw);
-    const panelCount = parseInt(q.panel_count, 10);
-    const dcWire = systemKw * 10;
-    const acWire = systemKw * 8;
-
-    const bom = [
-      { category: "Panel", item: `${q.panel_brand} ${q.panel_watt}W ${q.panel_type} Panel`, qty: panelCount, unit: "pcs" },
-      { category: "Inverter", item: `${q.inverter_brand} ${q.inverter_kw}kW ${q.inverter_type} Inverter`, qty: 1, unit: "pcs" },
-      { category: "Wire", item: "DC Solar Cable (4mm²)", qty: Math.round(dcWire), unit: "meters" },
-      { category: "Wire", item: "AC Cable – Polycab (6mm²)", qty: Math.round(acWire), unit: "meters" },
-      { category: "Structure", item: `Mounting Structure (GI) for ${systemKw.toFixed(2)} kW`, qty: systemKw.toFixed(2), unit: "kW" },
-      { category: "Electrical", item: "ACDB Box (Standard IP65)", qty: 1, unit: "pcs" },
-      { category: "Electrical", item: "DCDB Box (Standard IP65)", qty: 1, unit: "pcs" },
-      { category: "Electrical", item: "MCB / Isolator / SPD", qty: 2, unit: "pcs" },
-      { category: "Earthing", item: "Earthing Kit (Chemical)", qty: systemKw <= 5 ? 2 : 3, unit: "pcs" },
-      { category: "Safety", item: "Lightning Arrester (LA)", qty: 1, unit: "pcs" },
-      { category: "Monitoring", item: "Remote Monitoring Unit (RMU)", qty: 1, unit: "pcs" },
-      ...(q.payment_mode === "Kit Purchase" ? [] : [{ category: "Service", item: "Installation & Commissioning", qty: 1, unit: "lot" }]),
-    ];
+    const bom = generateBOM(q);
 
     const quoteDate = q.created_at ? new Date(q.created_at).toLocaleDateString("en-IN") : new Date().toLocaleDateString("en-IN");
     const downloadDate = new Date().toLocaleDateString("en-IN");

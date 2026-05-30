@@ -706,11 +706,7 @@ ${pdfLine}`;
                       {q.status === "Approved" && q.payment_mode !== "Kit Purchase" && (
                         <button
                           onClick={() => {
-                            const bom = generateBOM({
-                              systemKw: Number(q.system_kw),
-                              panelCount: q.panel_count,
-                              structureHeight: q.structure_height,
-                            }, {});
+                            const bom = generateBOM(q);
                             const bomHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>BOM - ${q.quotation_number}</title></head><body style="font-family:sans-serif;padding:20px"><h2>Bill of Materials</h2><p>Quotation: ${q.quotation_number}</p><table border="1" cellpadding="8" style="border-collapse:collapse;width:100%"><thead><tr><th>Item</th><th>Qty</th><th>Unit</th></tr></thead><tbody>${bom.map(i => `<tr><td>${i.name}</td><td>${i.qty}</td><td>${i.unit}</td></tr>`).join("")}</tbody></table></body></html>`;
                             const blob = new Blob([bomHtml], { type: "text/html" });
                             const url = URL.createObjectURL(blob);

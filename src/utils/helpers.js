@@ -40,30 +40,331 @@ export function getHighestWatt(wattStr) {
   return isNaN(val) ? 0 : val;
 }
 
-export function generateBOM(req, prices) {
-  const systemKw = req.systemKw;
-  const panel = prices.panels.find(p => p.id === req.panelId);
-  const inverter = prices.inverters.find(i => i.id === req.inverterId);
-  if (!panel || !inverter) return [];
+export function generateBOM(req, prices = {}) {
+  const systemKw = Number(req.systemKw || req.system_kw || 0);
 
-  const panelCount = req.panelCount || Math.ceil((systemKw * 1000) / getHighestWatt(panel.watt));
-  const dcWire = systemKw * 10;
-  const acWire = systemKw * 8;
+  // Try to get panel details from req or prices
+  let panelBrand = req.panelBrand || req.panel_brand;
+  let panelWatt = req.panelWatt || req.panel_watt;
+  let panelType = req.panelType || req.panel_type;
 
-  return [
-    { item: `${panel.brand} ${panel.watt}W ${panel.type} Panel`, qty: panelCount, unit: "pcs", category: "Panel" },
-    { item: `${inverter.brand} ${inverter.kw}kW ${inverter.type} Inverter`, qty: 1, unit: "pcs", category: "Inverter" },
-    { item: "DC Solar Cable (4mm²)", qty: dcWire, unit: "meters", category: "Wire" },
-    { item: "AC Cable – Polycab (6mm²)", qty: acWire, unit: "meters", category: "Wire" },
-    { item: "Mounting Structure (GI)", qty: systemKw, unit: "kW", category: "Structure" },
-    { item: "ACDB Box", qty: 1, unit: "pcs", category: "Electrical" },
-    { item: "DCDB Box", qty: 1, unit: "pcs", category: "Electrical" },
-    { item: "MCB / Isolator", qty: 2, unit: "pcs", category: "Electrical" },
-    { item: "Earthing Kit", qty: systemKw <= 5 ? 2 : 3, unit: "pcs", category: "Earthing" },
-    { item: "Lightning Arrester", qty: 1, unit: "pcs", category: "Safety" },
-    { item: "Remote Monitoring Unit", qty: 1, unit: "pcs", category: "Monitoring" },
-    { item: "Installation & Commissioning", qty: 1, unit: "lot", category: "Service" },
+  if (req.panelId && prices?.panels) {
+    const p = prices.panels.find(x => x.id === req.panelId);
+    if (p) {
+      panelBrand = panelBrand || p.brand;
+      panelWatt = panelWatt || p.watt;
+      panelType = panelType || p.type;
+    }
+  }
+
+  // Defaults for panel details
+  panelBrand = panelBrand || "Solar";
+  panelWatt = panelWatt || 540;
+  panelType = panelType || "Bifacial";
+
+  // Try to get inverter details from req or prices
+  let inverterBrand = req.inverterBrand || req.inverter_brand;
+  let inverterKw = req.inverterKw || req.inverter_kw;
+  let inverterType = req.inverterType || req.inverter_type;
+
+  if (req.inverterId && prices?.inverters) {
+    const i = prices.inverters.find(x => x.id === req.inverterId);
+    if (i) {
+      inverterBrand = inverterBrand || i.brand;
+      inverterKw = inverterKw || i.kw;
+      inverterType = inverterType || i.type;
+    }
+  }
+
+  // Defaults for inverter details
+  inverterBrand = inverterBrand || "Polycab";
+  inverterKw = inverterKw || (systemKw ? String(systemKw) : "3.6");
+  inverterType = inverterType || "On-Grid";
+
+  const panelCount = parseInt(req.panelCount || req.panel_count || (systemKw ? Math.ceil((systemKw * 1000) / getHighestWatt(panelWatt)) : 4), 10);
+  const paymentMode = req.paymentMode || req.payment_mode || "Commission";
+
+  const bom = [
+    // 1. Solar Module
+    {
+      category: "Panel",
+      item: `${panelBrand} ${panelWatt}W ${panelType} Panel`,
+      name: `${panelBrand} ${panelWatt}W ${panelType} Panel`,
+      qty: panelCount,
+      unit: "pcs"
+    },
+    // 2. Solar Inverter
+    {
+      category: "Inverter",
+      item: `${inverterBrand} ${inverterKw}kW ${inverterType} Inverter`,
+      name: `${inverterBrand} ${inverterKw}kW ${inverterType} Inverter`,
+      qty: 1,
+      unit: "pcs"
+    },
+    // 3. GI Pipe 60*40
+    {
+      category: "Structure",
+      item: "GI HOT DIP PIPE 60*40 (HINDUSTAR 80 MIC)",
+      name: "GI HOT DIP PIPE 60*40 (HINDUSTAR 80 MIC)",
+      qty: panelCount <= 6 ? 3 : (panelCount <= 8 ? 5 : (panelCount <= 12 ? 6 : 7)),
+      unit: "NOS"
+    },
+    // 4. GI Pipe 80*40
+    {
+      category: "Structure",
+      item: "GI HOT DIP PIPE 80*40 (HINDUSTAR 80 MIC)",
+      name: "GI HOT DIP PIPE 80*40 (HINDUSTAR 80 MIC)",
+      qty: 0,
+      unit: "NOS"
+    },
+    // 5. GI Pipe 40*40
+    {
+      category: "Structure",
+      item: "GI HOT DIP PIPE 40*40 (HINDUSTAR 80 MIC)",
+      name: "GI HOT DIP PIPE 40*40 (HINDUSTAR 80 MIC)",
+      qty: panelCount <= 4 ? 2 : (panelCount <= 8 ? 3 : (panelCount <= 10 ? 4 : (panelCount <= 12 ? 5 : 6))),
+      unit: "NOS"
+    },
+    // 6. Zinc Stud
+    {
+      category: "Structure",
+      item: "12 MM ZINC STUD (12*2 MTR)",
+      name: "12 MM ZINC STUD (12*2 MTR)",
+      qty: panelCount <= 11 ? 2 : 3,
+      unit: "NOS"
+    },
+    // 7. Nut Washer
+    {
+      category: "Structure",
+      item: "NUT WASHER (12 MM)",
+      name: "NUT WASHER (12 MM)",
+      qty: panelCount <= 11 ? 12 : 18,
+      unit: "NOS"
+    },
+    // 8. J Bolt with Flange Nut
+    {
+      category: "Structure",
+      item: "J BOLT WITH FLANGE NUT (SS 304)",
+      name: "J BOLT WITH FLANGE NUT (SS 304)",
+      qty: panelCount === 12 ? 44 : panelCount * 4,
+      unit: "NOS"
+    },
+    // 9. Anchor Fastner
+    {
+      category: "Structure",
+      item: "ANCHOR FASTNER (STANDARD 10MM/3)",
+      name: "ANCHOR FASTNER (STANDARD 10MM/3)",
+      qty: panelCount <= 6 ? 12 : (panelCount <= 8 ? 18 : (panelCount <= 12 ? 24 : 30)),
+      unit: "NOS"
+    },
+    // 10. Base Plate
+    {
+      category: "Structure",
+      item: "BASE PLATE (MS-125*125*3 MM)",
+      name: "BASE PLATE (MS-125*125*3 MM)",
+      qty: 0,
+      unit: "NOS"
+    },
+    // 11. L Angle
+    {
+      category: "Structure",
+      item: "L ANGLE (STANDARD)",
+      name: "L ANGLE (STANDARD)",
+      qty: panelCount <= 6 ? 6 : (panelCount <= 8 ? 9 : (panelCount <= 12 ? 12 : 15)),
+      unit: "NOS"
+    },
+    // 12. Zinc Spray
+    {
+      category: "Structure",
+      item: "ZINC SPRAY (STANDARD)",
+      name: "ZINC SPRAY (STANDARD)",
+      qty: panelCount <= 13 ? 1 : 2,
+      unit: "NOS"
+    },
+    // 13. Foundation Concrete Dry Mix
+    {
+      category: "Structure",
+      item: "FOUNDATION CONCRETE DRY MIX (10 KG)",
+      name: "FOUNDATION CONCRETE DRY MIX (10 KG)",
+      qty: 1,
+      unit: "BAG"
+    },
+    // 14. Foundation PP Sheet
+    {
+      category: "Structure",
+      item: "FOUNDATION PP SHEET (6 INCH)",
+      name: "FOUNDATION PP SHEET (6 INCH)",
+      qty: 2,
+      unit: "NOS"
+    },
+    // 15. ACDB
+    {
+      category: "Electrical",
+      item: "ACDB (L&T ELMEX)",
+      name: "ACDB (L&T ELMEX)",
+      qty: 1,
+      unit: "NOS"
+    },
+    // 16. DCDB
+    {
+      category: "Electrical",
+      item: "DCDB (L&T ELMEX)",
+      name: "DCDB (L&T ELMEX)",
+      qty: 1,
+      unit: "NOS"
+    },
+    // 17. Earthing & LA Electrode
+    {
+      category: "Earthing",
+      item: "EARTHINGC & LA ELECTRODE (STANDARD)",
+      name: "EARTHINGC & LA ELECTRODE (STANDARD)",
+      qty: 1,
+      unit: "SET"
+    },
+    // 18. Earthing Chemical
+    {
+      category: "Earthing",
+      item: "EARTHING CHEMICAL (STANDARD)",
+      name: "EARTHING CHEMICAL (STANDARD)",
+      qty: 1,
+      unit: "BAG"
+    },
+    // 19. DC Cable Red
+    {
+      category: "Wire",
+      item: "POLYCAB DC CABLE 4 SQ MM (RED)",
+      name: "POLYCAB DC CABLE 4 SQ MM (RED)",
+      qty: panelCount <= 10 ? 20 : (panelCount <= 13 ? 23 : 25),
+      unit: "meters"
+    },
+    // 20. DC Cable Black
+    {
+      category: "Wire",
+      item: "POLYCAB DC CABLE 4 SQ MM (BLACK)",
+      name: "POLYCAB DC CABLE 4 SQ MM (BLACK)",
+      qty: panelCount <= 10 ? 20 : (panelCount <= 13 ? 23 : 25),
+      unit: "meters"
+    },
+    // 21. AC Cable Red
+    {
+      category: "Wire",
+      item: "POLYCAB AC CABLE 4 SQ MM (RED)",
+      name: "POLYCAB AC CABLE 4 SQ MM (RED)",
+      qty: panelCount <= 10 ? 10 : 15,
+      unit: "meters"
+    },
+    // 22. AC Cable Black
+    {
+      category: "Wire",
+      item: "POLYCAB AC CABLE 4 SQ MM (BLACK)",
+      name: "POLYCAB AC CABLE 4 SQ MM (BLACK)",
+      qty: panelCount <= 10 ? 10 : 15,
+      unit: "meters"
+    }
   ];
+
+  // 23 & 24. AC Cable Blue and Yellow for 3-Phase Systems (Panel count >= 10)
+  if (panelCount >= 10) {
+    bom.push({
+      category: "Wire",
+      item: "POLYCAB AC CABLE 4 SQ MM (BLUE)",
+      name: "POLYCAB AC CABLE 4 SQ MM (BLUE)",
+      qty: 10,
+      unit: "meters"
+    });
+    bom.push({
+      category: "Wire",
+      item: "POLYCAB AC CABLE 4 SQ MM (YELLOW)",
+      name: "POLYCAB AC CABLE 4 SQ MM (YELLOW)",
+      qty: 10,
+      unit: "meters"
+    });
+  }
+
+  // 25. Addison LA Cable 16 MM
+  bom.push({
+    category: "Wire",
+    item: "ADDISON LA CABLE 16 MM (GREEN)",
+    name: "ADDISON LA CABLE 16 MM (GREEN)",
+    qty: 20,
+    unit: "meters"
+  });
+
+  // 26. Addison Earthing Green 2.5 SQ MM
+  bom.push({
+    category: "Wire",
+    item: "ADDISON EARTHING GREE 2.5 SQ MM (GREEN)",
+    name: "ADDISON EARTHING GREE 2.5 SQ MM (GREEN)",
+    qty: 30,
+    unit: "meters"
+  });
+
+  // 27. Wire Tap (Red) - for systems with >= 6 panels
+  if (panelCount >= 6) {
+    bom.push({
+      category: "Wire",
+      item: "WIRE TAP (RED)",
+      name: "WIRE TAP (RED)",
+      qty: 1,
+      unit: "NOS"
+    });
+  }
+
+  // 28. MC4 Connector
+  bom.push({
+    category: "Wire",
+    item: "MC4 CONNECTOR (SIBAS-1500 VDC)",
+    name: "MC4 CONNECTOR (SIBAS-1500 VDC)",
+    qty: panelCount <= 13 ? 2 : 3,
+    unit: "NOS"
+  });
+
+  // 29. Cable Tie
+  bom.push({
+    category: "Wire",
+    item: "CABLE TIE (KRIPSON 300 MM)",
+    name: "CABLE TIE (KRIPSON 300 MM)",
+    qty: 1,
+    unit: "PKT"
+  });
+
+  // 30. Conduit Pipe 25 MM HMS
+  bom.push({
+    category: "Wire",
+    item: "CONDUIT PIPE 25 MM HMS (OMEGA)",
+    name: "CONDUIT PIPE 25 MM HMS (OMEGA)",
+    qty: 10,
+    unit: "NOS"
+  });
+
+  // 31. PVC Elbow 25 MM
+  bom.push({
+    category: "Wire",
+    item: "PVC ELBOW 25 MM (OMEGA)",
+    name: "PVC ELBOW 25 MM (OMEGA)",
+    qty: 25,
+    unit: "NOS"
+  });
+
+  // 32. PVC Tee 25 MM
+  bom.push({
+    category: "Wire",
+    item: "PVC TEE 25 MM (OMEGA)",
+    name: "PVC TEE 25 MM (OMEGA)",
+    qty: 5,
+    unit: "NOS"
+  });
+
+  // 33. PVC Clip 25 MM
+  bom.push({
+    category: "Wire",
+    item: "PVC CLIP 25 MM (OMEGA)",
+    name: "PVC CLIP 25 MM (OMEGA)",
+    qty: 0.5,
+    unit: "PKT"
+  });
+
+  return bom;
 }
 
 export function calculateSubsidy(systemKw) {
