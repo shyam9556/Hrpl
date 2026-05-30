@@ -18,7 +18,7 @@ import {
   resetPasswordSchema,
   adminResetPasswordSchema,
 } from "../validators/authSchema.js";
-import { sendPasswordResetEmail } from "../services/emailService.js";
+import { sendPasswordResetEmail, sendDealerWelcomeEmail } from "../services/emailService.js";
 
 const router = Router();
 
@@ -230,6 +230,10 @@ router.post("/register", validate(registerSchema), async (req, res, next) => {
     if (passportPhoto) {
       await saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo");
     }
+
+    // Fire-and-forget welcome email — must never block or fail the registration response
+    sendDealerWelcomeEmail(email, name)
+      .catch(err => console.error("[Email] Welcome email failed:", err.message));
 
     res.status(201).json({
       success: true,

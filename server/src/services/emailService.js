@@ -489,6 +489,175 @@ export async function sendQuotationStatusEmail(toEmail, dealerName, quotationNo,
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// DEALER WELCOME EMAIL (on new registration submission)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Send a welcome / application-received email to a newly registered dealer.
+ * Called immediately after a dealer submits the registration form (before admin review).
+ *
+ * @param {string} toEmail    - Dealer's email address
+ * @param {string} dealerName - Dealer's full name
+ * @returns {boolean} true if sent (or dev mode), false on failure
+ */
+export async function sendDealerWelcomeEmail(toEmail, dealerName) {
+  const bodyHtml = `
+    <h2 style="color:#111827;margin:0 0 20px 0;font-size:22px;font-weight:700;line-height:1.3;">
+      Application Received!
+    </h2>
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">
+      Dear <strong>${escapeHtml(dealerName)}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px 0;">
+      Thank you for applying to become a <strong>Highlight Pro</strong> dealer.
+      We have received your registration application and our team will review it shortly.
+    </p>
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:6px;color:#1f2937;">What happens next?</strong>
+        &#10003;&nbsp; Our admin team will review your submitted documents<br>
+        &#10003;&nbsp; You will receive an email once a decision has been made<br>
+        &#10003;&nbsp; Typical review time: <strong>1–3 working days</strong>
+      `,
+      bgColor: "#f0f7f4",
+      borderColor: "#2E7D52",
+    })}
+
+    <p style="color:#9ca3af;font-size:13px;line-height:1.6;margin:24px 0 0 0;">
+      If you have any questions in the meantime, feel free to reach out to us at
+      <a href="mailto:${escapeHtml(env.smtp.fromEmail)}" style="color:#2E7D52;">${escapeHtml(env.smtp.fromEmail)}</a>.
+      We look forward to welcoming you to the Highlight Pro dealer network.
+    </p>
+  `;
+
+  const htmlContent = buildEmailHtml({
+    subtitle: "Dealer Registration",
+    bodyHtml,
+  });
+
+  if (!transporter) {
+    console.log(`📧 [Dev] Welcome email for ${toEmail} (${dealerName}) — not sent (no SMTP)`);
+    return true;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: "Application Received — Highlight Pro",
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`📧 Welcome email sent to: ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to send welcome email to ${toEmail}:`, err.message);
+    // Don't throw — welcome email failure must never block registration
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DELIVERY MILESTONE EMAIL
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Send a delivery milestone notification to the dealer when material
+ * delivery status changes to "Dispatched" or "Delivered".
+ *
+ * @param {string} toEmail        - Dealer's email address
+ * @param {string} dealerName     - Dealer's display name
+ * @param {string} quotationNo    - Quotation number (e.g. HP/2025-26/0001)
+ * @param {string} customerName   - Customer's name (or "N/A" if no customer linked)
+ * @param {"Dispatched"|"Delivered"} deliveryStatus - The new delivery status
+ * @returns {boolean} true if sent (or dev mode), false on failure
+ */
+export async function sendDeliveryMilestoneEmail(toEmail, dealerName, quotationNo, customerName, deliveryStatus) {
+  const isDispatched = deliveryStatus === "Dispatched";
+
+  const statusBadge = isDispatched
+    ? `<span style="display:inline-block;background-color:#dbeafe;color:#1e40af;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;">Dispatched</span>`
+    : `<span style="display:inline-block;background-color:#dcfce7;color:#166534;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;">Delivered</span>`;
+
+  const bodyHtml = `
+    <p style="margin:0 0 16px 0;">${statusBadge}</p>
+
+    <h2 style="color:#111827;margin:0 0 20px 0;font-size:22px;font-weight:700;line-height:1.3;">
+      ${isDispatched ? "Materials Dispatched!" : "Materials Delivered!"}
+    </h2>
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">
+      Dear <strong>${escapeHtml(dealerName)}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px 0;">
+      ${isDispatched
+        ? `Great news! The solar materials for the following quotation have been <strong style="color:#1e40af;">dispatched</strong> and are on their way.`
+        : `The solar materials for the following quotation have been <strong style="color:#166534;">delivered</strong> successfully.`
+      }
+    </p>
+
+    ${infoBox({
+      content: [
+        '<strong style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Quotation Reference</strong><br>',
+        `<span style="font-family:monospace;font-size:17px;font-weight:700;color:#111827;letter-spacing:0.5px;">${escapeHtml(quotationNo)}</span>`,
+        customerName && customerName !== "N/A"
+          ? `<br><span style="font-size:13px;color:#6b7280;margin-top:4px;display:block;">Customer: <strong style="color:#374151;">${escapeHtml(customerName)}</strong></span>`
+          : "",
+      ].join(""),
+      bgColor: "#f8fafc",
+      borderColor: isDispatched ? "#3b82f6" : "#2E7D52",
+    })}
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:16px 0 0 0;">
+      ${isDispatched
+        ? `Please coordinate with the customer to ensure someone is available to receive the delivery. Log in to your dealer portal to track the latest status.`
+        : `Please proceed with the installation at the customer's site. Once the installation is complete, remember to upload <strong>geo-tagged installation photos</strong> through your dealer portal.`
+      }
+    </p>
+
+    ${ctaButton({
+      href: env.clientUrl,
+      label: "View in Portal",
+      color: isDispatched ? "#2563eb" : "#2E7D52",
+    })}
+
+    <p style="color:#9ca3af;font-size:13px;line-height:1.6;margin:24px 0 0 0;">
+      If you have any questions, please contact your Highlight Pro account manager.
+    </p>
+  `;
+
+  const htmlContent = buildEmailHtml({
+    subtitle: `Delivery ${deliveryStatus}`,
+    bodyHtml,
+  });
+
+  if (!transporter) {
+    console.log(`📧 [Dev] Delivery ${deliveryStatus} email for ${toEmail} (${quotationNo}) — not sent (no SMTP)`);
+    return true;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: isDispatched
+        ? `Materials Dispatched for ${quotationNo} — Highlight Pro`
+        : `Materials Delivered for ${quotationNo} — Highlight Pro`,
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`📧 Delivery ${deliveryStatus} email sent to: ${toEmail} for ${quotationNo}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to send delivery milestone email to ${toEmail}:`, err.message);
+    // Don't throw — email failure should not block the delivery status update
+    return false;
+  }
+}
+
 // Startup warning if SMTP is not configured
 if (!env.smtp.isConfigured) {
   console.warn("");

@@ -4,7 +4,7 @@ import Joi from "joi";
 import db from "../config/database.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
-import { sendQuotationStatusEmail } from "../services/emailService.js";
+import { sendQuotationStatusEmail, sendDeliveryMilestoneEmail } from "../services/emailService.js";
 
 const router = Router();
 
@@ -472,16 +472,35 @@ router.patch("/:id/delivery", authorize("admin"), validate(updateDeliverySchema)
       });
     }
 
-    // Fetch updated row
+    // Fetch updated row with dealer and customer info for the milestone email
     const result = await db.query(
-      "SELECT id, quotation_number, delivery_status, status FROM quotations WHERE id = ?",
+      `SELECT q.id, q.quotation_number, q.delivery_status, q.status,
+              u.name AS dealer_name, u.email AS dealer_email,
+              c.name AS customer_name
+       FROM quotations q
+       JOIN users u ON u.id = q.dealer_id
+       LEFT JOIN customers c ON c.id = q.customer_id
+       WHERE q.id = ?`,
       [quotationId]
     );
 
+    const quotation = result.rows[0];
+
+    // Fire-and-forget milestone email for Dispatched and Delivered
+    if (quotation && (status === "Dispatched" || status === "Delivered")) {
+      sendDeliveryMilestoneEmail(
+        quotation.dealer_email,
+        quotation.dealer_name,
+        quotation.quotation_number,
+        quotation.customer_name || "N/A",
+        status
+      ).catch(err => console.error("[Email] Delivery milestone email failed:", err.message));
+    }
+
     res.json({
       success: true,
-      message: `Quotation ${result.rows[0].quotation_number} delivery marked as ${status}.`,
-      quotation: result.rows[0],
+      message: `Quotation ${quotation.quotation_number} delivery marked as ${status}.`,
+      quotation: { id: quotation.id, quotation_number: quotation.quotation_number, delivery_status: quotation.delivery_status, status: quotation.status },
     });
   } catch (err) {
     next(err);
