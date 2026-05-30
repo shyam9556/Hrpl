@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Highlight Pro Solar Business Suite — Backend API",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
+    "start": "npm run migrate && node src/index.js",
+    "dev": "npm run migrate && node --watch src/index.js",
     "migrate": "node scripts/migrate.js",
     "db:setup": "node scripts/setup-db.js"
   },
