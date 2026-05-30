@@ -1,8 +1,32 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { dealers as dealersApi, uploads as uploadsApi } from "../utils/api";
-import { Loader2, UserPlus, CheckCircle, XCircle, Paperclip, X, User, Phone, MapPin, Store, Download, Eye, FileText, Calendar } from "lucide-react";
+import { Loader2, UserPlus, CheckCircle, XCircle, Paperclip, X, User, Phone, MapPin, Store, Download, Eye, FileText, Calendar, RefreshCw, AlertTriangle, Clock, Send, Search } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ErrorState from "./ErrorState";
+
+// Human-readable tab labels
+const TAB_LABELS = {
+  All: "All",
+  Pending: "Pending",
+  Approved: "Approved",
+  Rejected: "Rejected",
+  ReuploadRequested: "Re-upload Requested",
+};
+
+// Color-coded status badge config for the All tab
+const STATUS_BADGE_CONFIG = {
+  Pending:           { label: "Pending",            bg: "#fef9c3", color: "#854d0e", border: "#fde047" },
+  Approved:          { label: "Approved",            bg: "#dcfce7", color: "#166534", border: "#86efac" },
+  Rejected:          { label: "Rejected",            bg: "#fee2e2", color: "#991b1b", border: "#fca5a5" },
+  ReuploadRequested: { label: "Re-upload Requested", bg: "#fff3cd", color: "#856404", border: "#fcd34d" },
+};
+
+// Human-readable document type labels
+const DOC_TYPE_LABELS = {
+  aadhaar: "Aadhaar Card",
+  pan: "PAN Card",
+  passport_photo: "Passport Photo",
+};
 
 // Secure image component — fetches with Authorization header to avoid JWT in src URL
 function SecureImage({ docId, alt, className, style, onClick }) {
@@ -33,7 +57,7 @@ function SecureImage({ docId, alt, className, style, onClick }) {
   return <img src={blobUrl} alt={alt} className={className} style={style} onClick={onClick} />;
 }
 
-export default function DealerRegistrationsAdmin() {
+export default function DealerRegistrationsAdmin({ onClearBadge }) {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("Pending");
@@ -44,19 +68,41 @@ export default function DealerRegistrationsAdmin() {
   const [docViewerUrl, setDocViewerUrl] = useState(null); // blob URL for full-screen viewer
   const [fetchError, setFetchError] = useState(false);
 
+  // Re-upload request modal state
+  const [reuploadModal, setReuploadModal] = useState(null); // { id, name, email }
+  const [reuploadReason, setReuploadReason] = useState("");
+  const [reuploadDocs, setReuploadDocs] = useState({ aadhaar: false, pan: false, passport_photo: false });
+  const [reuploadLoading, setReuploadLoading] = useState(false);
+  const [reuploadSuccess, setReuploadSuccess] = useState(false);
+
+  // Reject modal state
+  const [rejectModal, setRejectModal] = useState(null); // { id, name, email }
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectLoading, setRejectLoading] = useState(false);
+  const [rejectSuccess, setRejectSuccess] = useState(false);
+
+  // Clear the sidebar notification badge as soon as admin opens this page
+  useEffect(() => { onClearBadge?.(); }, []);
+
+  const [search, setSearch] = useState("");
+  // Reset search when switching tabs
+  useEffect(() => { setSearch(""); }, [tab]);
+
   const fetchRegistrations = useCallback(async () => {
     setLoading(true);
     try {
       setFetchError(false);
       const res = await dealersApi.registrations(tab);
       setList(res.registrations || []);
+      // After loading Pending tab, clear the badge — admin has now seen the list
+      if (tab === "Pending") onClearBadge?.();
     } catch (err) {
       console.error("Fetch registrations error:", err);
       setFetchError(true);
     } finally {
       setLoading(false);
     }
-  }, [tab]);
+  }, [tab, onClearBadge]);
 
   useEffect(() => { fetchRegistrations(); }, [fetchRegistrations]);
 
@@ -69,21 +115,74 @@ export default function DealerRegistrationsAdmin() {
     return () => { document.body.style.overflow = ''; };
   }, [selectedRegistration]);
 
+  // Approve only — Reject now uses its own modal with a reason
   const handleAction = async (id, action) => {
+    if (action !== "approve") return; // safety guard
     setActionLoading(id);
-    // Close detail modal immediately to avoid showing stale data
     setSelectedRegistration(null);
     try {
-      if (action === "approve") {
-        await dealersApi.approve(id);
-      } else {
-        await dealersApi.reject(id);
-      }
+      await dealersApi.approve(id);
       fetchRegistrations();
     } catch (err) {
-      setErrorDialog({ open: true, message: err.message || `Failed to ${action} registration.` });
+      setErrorDialog({ open: true, message: err.message || "Failed to approve registration." });
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const openRejectModal = (reg) => {
+    setRejectModal({ id: reg.id, name: reg.name, email: reg.email });
+    setRejectReason("");
+    setRejectSuccess(false);
+    setSelectedRegistration(null);
+  };
+
+  const handleReject = async () => {
+    if (!rejectReason.trim()) {
+      setErrorDialog({ open: true, message: "Please provide a reason for rejection." });
+      return;
+    }
+    setRejectLoading(true);
+    try {
+      await dealersApi.reject(rejectModal.id, rejectReason.trim());
+      setRejectSuccess(true);
+      fetchRegistrations();
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to reject registration." });
+    } finally {
+      setRejectLoading(false);
+    }
+  };
+
+  const openReuploadModal = (reg) => {
+    setReuploadModal({ id: reg.id, name: reg.name, email: reg.email });
+    setReuploadReason("");
+    setReuploadDocs({ aadhaar: false, pan: false, passport_photo: false });
+    setReuploadSuccess(false);
+    setSelectedRegistration(null);
+  };
+
+  const handleRequestReupload = async () => {
+    const selectedDocs = Object.entries(reuploadDocs)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+    if (!reuploadReason.trim()) {
+      setErrorDialog({ open: true, message: "Please provide a reason for requesting re-upload." });
+      return;
+    }
+    if (selectedDocs.length === 0) {
+      setErrorDialog({ open: true, message: "Please select at least one document to re-upload." });
+      return;
+    }
+    setReuploadLoading(true);
+    try {
+      await dealersApi.requestReupload(reuploadModal.id, reuploadReason.trim(), selectedDocs);
+      setReuploadSuccess(true);
+      fetchRegistrations();
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to send re-upload request." });
+    } finally {
+      setReuploadLoading(false);
     }
   };
 
@@ -108,12 +207,53 @@ export default function DealerRegistrationsAdmin() {
         <div className="page-sub">Review and manage new dealer registration applications</div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        {["Pending", "Approved", "Rejected"].map(s => (
+      {/* Tab filter + Search bar inline */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        {["All", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => (
           <button key={s} className={`btn-sm ${tab === s ? "primary" : ""}`} onClick={() => setTab(s)} style={{ padding: "6px 14px", borderRadius: 8 }}>
-            {s}
+            {TAB_LABELS[s] || s}
           </button>
         ))}
+
+        {/* Divider */}
+        <div style={{ width: 1, height: 24, background: "var(--border, #e2e8f0)", margin: "0 4px" }} />
+
+        {/* Search */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          background: "var(--card, white)", border: "1px solid var(--border, #e2e8f0)",
+          borderRadius: 10, padding: "6px 12px", minWidth: 220,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+        }}>
+          <Search size={14} style={{ color: "var(--muted)", flexShrink: 0 }} />
+          <input
+            type="text"
+            placeholder="Search name, email, location..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ border: "none", outline: "none", background: "transparent", flex: 1, fontSize: 13, color: "var(--text)" }}
+          />
+          {search && (
+            <button onClick={() => setSearch("")} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "flex" }}>
+              <X size={13} />
+            </button>
+          )}
+        </div>
+        {search && (
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>
+            {(() => {
+              const count = list.filter(r => {
+                const q = search.toLowerCase();
+                return r.name?.toLowerCase().includes(q) ||
+                       r.email?.toLowerCase().includes(q) ||
+                       r.location?.toLowerCase().includes(q) ||
+                       r.company_name?.toLowerCase().includes(q) ||
+                       r.mobile?.includes(q);
+              }).length;
+              return `${count} result${count !== 1 ? "s" : ""}`;
+            })()}
+          </span>
+        )}
       </div>
 
       {loading ? (
@@ -127,12 +267,35 @@ export default function DealerRegistrationsAdmin() {
           onRetry={() => { setFetchError(false); fetchRegistrations(); }}
           compact
         />
-      ) : list.length === 0 ? (
-        <div className="card" style={{ textAlign: "center", padding: "3rem", color: "var(--muted)" }}>
-          <div style={{ marginBottom: 12 }}><UserPlus size={48} strokeWidth={1} /></div>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>No {tab.toLowerCase()} registrations</div>
-        </div>
-      ) : (
+      ) : (() => {
+        const filteredList = search.trim()
+          ? list.filter(r => {
+              const q = search.toLowerCase();
+              return r.name?.toLowerCase().includes(q) ||
+                     r.email?.toLowerCase().includes(q) ||
+                     r.location?.toLowerCase().includes(q) ||
+                     r.company_name?.toLowerCase().includes(q) ||
+                     r.mobile?.includes(q);
+            })
+          : list;
+        if (list.length === 0) return (
+          <div className="card" style={{ textAlign: "center", padding: "3rem", color: "var(--muted)" }}>
+            <div style={{ marginBottom: 12 }}><UserPlus size={48} strokeWidth={1} /></div>
+            <div style={{ fontSize: 16, fontWeight: 600 }}>
+              {tab === "All" ? "No registrations found" : `No ${TAB_LABELS[tab] || tab} registrations`}
+            </div>
+          </div>
+        );
+        if (filteredList.length === 0) return (
+          <div className="card" style={{ textAlign: "center", padding: "3rem", color: "var(--muted)" }}>
+            <div style={{ marginBottom: 12 }}><Search size={48} strokeWidth={1} /></div>
+            <div style={{ fontSize: 16, fontWeight: 600 }}>No results for "{search}"</div>
+            <button onClick={() => setSearch("")} style={{ marginTop: 12, fontSize: 13, color: "var(--primary)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+              Clear search
+            </button>
+          </div>
+        );
+        return (
         <div className="card">
           <div style={{ overflowX: "auto" }}>
           <table>
@@ -143,13 +306,16 @@ export default function DealerRegistrationsAdmin() {
                 <th>Location</th>
                 <th>Company</th>
                 <th>Submitted</th>
+                {tab === "All" && <th>Status</th>}
+                {tab === "ReuploadRequested" && <th>Re-upload Sent</th>}
                 <th>Documents</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {list.map(reg => (
+              {filteredList.map(reg => (
                 <tr key={reg.id}>
+                  {/* Name cell */}
                   <td style={{ fontWeight: 500 }}>{reg.name}</td>
                   <td>
                     <div>{reg.email}</div>
@@ -157,9 +323,67 @@ export default function DealerRegistrationsAdmin() {
                   </td>
                   <td>{reg.location || "—"}</td>
                   <td>{reg.company_name || "—"}</td>
+                  {/* Submitted date — also shows Re-uploaded indicator if dealer has resubmitted */}
                   <td style={{ color: "var(--muted)", fontSize: 12 }}>
-                    {new Date(reg.submitted_at || reg.created_at).toLocaleDateString("en-IN")}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      <span>{new Date(reg.submitted_at || reg.created_at).toLocaleDateString("en-IN")}</span>
+                      {reg.reupload_count > 0 && (
+                        <span style={{
+                          display: "inline-flex", alignItems: "center", gap: 3,
+                          fontSize: 10, fontWeight: 700,
+                          color: "#856404",
+                        }}>
+                          <RefreshCw size={9} />
+                          Re-uploaded{reg.reupload_count > 1 ? ` ×${reg.reupload_count}` : ""}
+                        </span>
+                      )}
+                    </div>
                   </td>
+
+                  {/* Status badge column — All tab only */}
+                  {tab === "All" && (
+                    <td>
+                      {(() => {
+                        const cfg = STATUS_BADGE_CONFIG[reg.status];
+                        return cfg ? (
+                          <span style={{
+                            display: "inline-flex", alignItems: "center",
+                            padding: "3px 10px", borderRadius: 20,
+                            fontSize: 11, fontWeight: 700,
+                            background: cfg.bg, color: cfg.color,
+                            border: `1px solid ${cfg.border}`,
+                            whiteSpace: "nowrap",
+                          }}>
+                            {cfg.label}
+                          </span>
+                        ) : <span style={{ color: "var(--muted)", fontSize: 11 }}>{reg.status}</span>;
+                      })()}
+                    </td>
+                  )}
+
+                  {/* Re-upload Sent column — ReuploadRequested tab ONLY */}
+                  {tab === "ReuploadRequested" && (
+                    <td style={{ fontSize: 11 }}>
+                      {reg.reupload_requested_at ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--muted)" }}>
+                            <Clock size={10} />
+                            {new Date(reg.reupload_requested_at).toLocaleDateString("en-IN")}
+                          </div>
+                          {reg.reupload_expires_at && new Date(reg.reupload_expires_at) < new Date() ? (
+                            <span style={{ color: "#dc2626", fontWeight: 600, fontSize: 10 }}>Link Expired</span>
+                          ) : (
+                            reg.reupload_requested_at && <span style={{ color: "#2E7D52", fontWeight: 600, fontSize: 10 }}>Link Active</span>
+                          )}
+                          {reg.reupload_required_docs && (
+                            <div style={{ color: "var(--muted)", fontSize: 10 }}>
+                              {reg.reupload_required_docs.split(",").map(d => DOC_TYPE_LABELS[d] || d).join(", ")}
+                            </div>
+                          )}
+                        </div>
+                      ) : <span style={{ color: "var(--muted)" }}>—</span>}
+                    </td>
+                  )}
                   <td>
                     {reg.documents && reg.documents.length > 0 ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -208,36 +432,97 @@ export default function DealerRegistrationsAdmin() {
                       <span style={{ color: "var(--muted)", fontSize: 11 }}>—</span>
                     )}
                   </td>
-                  <td>
-                    <div style={{ display: "flex", gap: 6 }}>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+
+                      {/* View Details — always shown */}
                       <button
-                        className="btn-sm"
-                        style={{ padding: "4px 10px", fontSize: 11, background: "var(--primary-light, #eff6ff)", color: "var(--primary, #3b82f6)", border: "none", display: "flex", alignItems: "center", gap: 3 }}
+                        title="View Details"
                         onClick={() => setSelectedRegistration(reg)}
+                        style={{
+                          width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          background: "#eff6ff", color: "#3b82f6", flexShrink: 0,
+                        }}
                       >
-                        <Eye size={12} /> View Details
+                        <Eye size={13} />
                       </button>
 
-                      {tab === "Pending" && (
-                        <>
-                          <button
-                            className="btn-sm"
-                            style={{ padding: "4px 10px", fontSize: 11, background: "var(--green)", color: "white", border: "none", display: "flex", alignItems: "center", gap: 3 }}
-                            disabled={actionLoading === reg.id}
-                            onClick={() => setActionConfirm({ id: reg.id, action: "approve", name: reg.name })}
-                          >
-                            {actionLoading === reg.id ? "..." : <><CheckCircle size={12} /> Approve</>}
-                          </button>
-                          <button
-                            className="btn-sm danger"
-                            style={{ padding: "4px 10px", fontSize: 11, display: "flex", alignItems: "center", gap: 3 }}
-                            disabled={actionLoading === reg.id}
-                            onClick={() => setActionConfirm({ id: reg.id, action: "reject", name: reg.name })}
-                          >
-                            <XCircle size={12} /> Reject
-                          </button>
-                        </>
-                      )}
+                      {/* effectiveStatus drives action icons */}
+                      {(() => {
+                        const effectiveStatus = tab === "All" ? reg.status : tab;
+                        return (
+                          <>
+                            {effectiveStatus === "Pending" && (
+                              <>
+                                <button
+                                  title="Approve"
+                                  disabled={actionLoading === reg.id}
+                                  onClick={() => setActionConfirm({ id: reg.id, action: "approve", name: reg.name })}
+                                  style={{
+                                    width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    background: "#dcfce7", color: "#166534", flexShrink: 0,
+                                    opacity: actionLoading === reg.id ? 0.5 : 1,
+                                  }}
+                                >
+                                  {actionLoading === reg.id ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle size={13} />}
+                                </button>
+                                <button
+                                  title="Request Re-upload"
+                                  onClick={() => openReuploadModal(reg)}
+                                  style={{
+                                    width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    background: "#fff3cd", color: "#856404", flexShrink: 0,
+                                  }}
+                                >
+                                  <RefreshCw size={13} />
+                                </button>
+                                <button
+                                  title="Reject"
+                                  disabled={actionLoading === reg.id}
+                                  onClick={() => openRejectModal(reg)}
+                                  style={{
+                                    width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    background: "#fee2e2", color: "#991b1b", flexShrink: 0,
+                                    opacity: actionLoading === reg.id ? 0.5 : 1,
+                                  }}
+                                >
+                                  <XCircle size={13} />
+                                </button>
+                              </>
+                            )}
+                            {effectiveStatus === "Rejected" && (
+                              <button
+                                title="Request Re-upload"
+                                onClick={() => openReuploadModal(reg)}
+                                style={{
+                                  width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  background: "#fff3cd", color: "#856404", flexShrink: 0,
+                                }}
+                              >
+                                <RefreshCw size={13} />
+                              </button>
+                            )}
+                            {effectiveStatus === "ReuploadRequested" && (
+                              <button
+                                title="Send Re-upload Link Again"
+                                onClick={() => openReuploadModal(reg)}
+                                style={{
+                                  width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  background: "#fff3cd", color: "#856404", flexShrink: 0,
+                                }}
+                              >
+                                <Send size={13} />
+                              </button>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </td>
                 </tr>
@@ -246,7 +531,9 @@ export default function DealerRegistrationsAdmin() {
           </table>
           </div>
         </div>
-      )}
+        );
+      })()}
+
 
       {/* Detailed Dealer Registration Modal */}
       {selectedRegistration && (
@@ -296,13 +583,30 @@ export default function DealerRegistrationsAdmin() {
               }}
             >
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
                     Dealer Registration Details
                   </span>
-                  <span className={`badge ${selectedRegistration.status === "Approved" ? "badge-green" : selectedRegistration.status === "Rejected" ? "badge-red" : "badge-sun"}`}>
-                    {selectedRegistration.status}
+                  <span className={`badge ${
+                    selectedRegistration.status === "Approved" ? "badge-green" :
+                    selectedRegistration.status === "Rejected" ? "badge-red" :
+                    selectedRegistration.status === "ReuploadRequested" ? "badge-sun" :
+                    "badge-sun"
+                  }`}>
+                    {TAB_LABELS[selectedRegistration.status] || selectedRegistration.status}
                   </span>
+                  {selectedRegistration.reupload_count > 0 && (
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      padding: "3px 10px", borderRadius: 20,
+                      fontSize: 11, fontWeight: 700,
+                      background: "#fff3cd", color: "#856404",
+                      border: "1px solid #fcd34d",
+                    }}>
+                      <RefreshCw size={11} />
+                      Re-uploaded {selectedRegistration.reupload_count > 1 ? `×${selectedRegistration.reupload_count}` : ""}
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
                   <Calendar size={12} />
@@ -372,7 +676,69 @@ export default function DealerRegistrationsAdmin() {
                 </div>
               </div>
 
-              {/* Row 2: Verification Documents Section */}
+              {/* Rejection reason panel — shown for Rejected registrations */}
+              {selectedRegistration.status === "Rejected" && selectedRegistration.rejection_reason && (
+                <div style={{
+                  background: "#fef2f2",
+                  border: "1px solid #fca5a5",
+                  borderLeft: "4px solid #dc2626",
+                  borderRadius: "0 12px 12px 0",
+                  padding: "14px 16px",
+                  marginBottom: 16,
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#991b1b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>
+                    Rejection Reason
+                  </div>
+                  <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.6 }}>
+                    {selectedRegistration.rejection_reason}
+                  </div>
+                </div>
+              )}
+
+              {/* Re-upload context panel — shown for ReuploadRequested registrations */}
+              {selectedRegistration.status === "ReuploadRequested" && (
+                <div style={{
+                  background: "#fffbeb",
+                  border: "1px solid #fbbf24",
+                  borderLeft: "4px solid #f59e0b",
+                  borderRadius: "0 12px 12px 0",
+                  padding: "14px 16px",
+                  marginBottom: 16,
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#856404", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 8 }}>
+                    Re-upload Request Sent
+                  </div>
+                  {selectedRegistration.reupload_requested_at && (
+                    <div style={{ fontSize: 12, color: "#374151", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                      <Clock size={12} />
+                      Sent on {new Date(selectedRegistration.reupload_requested_at).toLocaleString("en-IN")}
+                      {selectedRegistration.reupload_expires_at && (
+                        <span style={{
+                          marginLeft: 6,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: new Date(selectedRegistration.reupload_expires_at) < new Date() ? "#dc2626" : "#2E7D52",
+                        }}>
+                          ({new Date(selectedRegistration.reupload_expires_at) < new Date() ? "Link Expired" : "Link Active"})
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {selectedRegistration.reupload_required_docs && (
+                    <div style={{ fontSize: 12, color: "#374151", marginBottom: 4 }}>
+                      <strong>Documents requested:</strong>{" "}
+                      {selectedRegistration.reupload_required_docs.split(",").map(d => DOC_TYPE_LABELS[d] || d).join(", ")}
+                    </div>
+                  )}
+                  {selectedRegistration.reupload_reason && (
+                    <div style={{ fontSize: 12, color: "#374151", marginTop: 6, padding: "8px 10px", background: "rgba(0,0,0,0.03)", borderRadius: 8 }}>
+                      <strong>Note to dealer:</strong>{" "}{selectedRegistration.reupload_reason}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Verification Documents Section */}
               <div style={{ marginBottom: 8 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
@@ -523,17 +889,66 @@ export default function DealerRegistrationsAdmin() {
                     <CheckCircle size={14} /> Approve Request
                   </button>
                   <button
+                    className="btn-sm"
+                    style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fbbf24", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    onClick={() => openReuploadModal(selectedRegistration)}
+                  >
+                    <RefreshCw size={14} /> Request Re-upload
+                  </button>
+                  <button
                     className="btn-sm danger"
                     style={{ borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
                     disabled={actionLoading === selectedRegistration.id}
-                    onClick={() => {
-                      setActionConfirm({ id: selectedRegistration.id, action: "reject", name: selectedRegistration.name });
-                      setSelectedRegistration(null);
-                    }}
+                    onClick={() => openRejectModal(selectedRegistration)}
                   >
                     <XCircle size={14} /> Reject Request
                   </button>
                 </div>
+              )}
+
+              {selectedRegistration.status === "ReuploadRequested" && (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  flex: 1,
+                  background: "#fffbeb",
+                  border: "1px solid #fbbf24",
+                  borderRadius: 10,
+                  padding: "8px 14px",
+                  fontSize: 12,
+                  color: "#856404",
+                  marginRight: "auto",
+                }}>
+                  <Clock size={14} style={{ flexShrink: 0 }} />
+                  <span style={{ lineHeight: 1.4 }}>
+                    Waiting for dealer to re-upload documents.
+                    {selectedRegistration.reupload_expires_at && new Date(selectedRegistration.reupload_expires_at) < new Date() && (
+                      <strong style={{ color: "#dc2626", marginLeft: 4 }}>Link has expired.</strong>
+                    )}
+                  </span>
+                  <button
+                    style={{
+                      flexShrink: 0, padding: "6px 12px",
+                      background: "#f59e0b", color: "white",
+                      border: "none", borderRadius: 7,
+                      fontSize: 11, fontWeight: 700, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 5,
+                    }}
+                    onClick={() => openReuploadModal(selectedRegistration)}
+                  >
+                    <Send size={11} /> Send Again
+                  </button>
+                </div>
+              )}
+              {selectedRegistration.status === "Rejected" && (
+                <button
+                  className="btn-sm"
+                  style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fbbf24", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                  onClick={() => openReuploadModal(selectedRegistration)}
+                >
+                  <RefreshCw size={14} /> Request Re-upload
+                </button>
               )}
             </div>
           </div>
@@ -549,13 +964,13 @@ export default function DealerRegistrationsAdmin() {
         onConfirm={() => setErrorDialog({ open: false, message: "" })}
         onCancel={() => setErrorDialog({ open: false, message: "" })}
       />
-      {actionConfirm && (
+      {actionConfirm && actionConfirm.action === "approve" && (
         <ConfirmDialog
           open={true}
-          title={actionConfirm.action === "approve" ? "Approve Dealer?" : "Reject Dealer?"}
-          message={`Are you sure you want to ${actionConfirm.action} the registration for "${actionConfirm.name}"?${actionConfirm.action === "approve" ? " A dealer account will be created and they will receive login access." : " They will be notified via email."}`}
-          variant={actionConfirm.action === "approve" ? "info" : "danger"}
-          confirmText={actionConfirm.action === "approve" ? "Approve" : "Reject"}
+          title="Approve Dealer?"
+          message={`Are you sure you want to approve the registration for "${actionConfirm.name}"? A dealer account will be created and they will receive login access.`}
+          variant="info"
+          confirmText="Approve"
           onConfirm={() => {
             const { id, action } = actionConfirm;
             setActionConfirm(null);
@@ -582,6 +997,331 @@ export default function DealerRegistrationsAdmin() {
           >
             <X size={20} />
           </button>
+        </div>
+      )}
+
+      {/* Re-upload Request Modal */}
+      {reuploadModal && (
+        <div
+          style={{
+            position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
+            background: "rgba(15,23,42,0.5)", backdropFilter: "blur(8px)",
+            display: "flex", justifyContent: "center", alignItems: "center",
+            zIndex: 1500, padding: 16,
+          }}
+          onClick={() => { if (!reuploadLoading) setReuploadModal(null); }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: "#ffffff", borderRadius: 20, width: "100%", maxWidth: 480,
+              boxShadow: "0 25px 60px rgba(0,0,0,0.25)", overflow: "hidden",
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "20px 24px", borderBottom: "1px solid rgba(0,0,0,0.06)",
+              background: reuploadSuccess ? "#f0fdf4" : "#fffbeb",
+            }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", display: "flex", alignItems: "center", gap: 8 }}>
+                  <RefreshCw size={16} color="#856404" />
+                  {reuploadSuccess ? "Request Sent" : "Request Document Re-upload"}
+                </div>
+                {!reuploadSuccess && (
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                    {reuploadModal.name} — {reuploadModal.email}
+                  </div>
+                )}
+              </div>
+              {!reuploadLoading && (
+                <button
+                  onClick={() => setReuploadModal(null)}
+                  style={{ background: "#f1f5f9", border: "none", borderRadius: "50%", width: 32, height: 32, display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer", color: "var(--text)" }}
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: 24 }}>
+              {reuploadSuccess ? (
+                <div style={{ textAlign: "center", padding: "8px 0" }}>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: "50%",
+                    background: "linear-gradient(135deg, #dcfce7, #bbf7d0)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    margin: "0 auto 16px",
+                  }}>
+                    <CheckCircle size={28} color="#2E7D52" />
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 8 }}>Request Sent Successfully</div>
+                  <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6, marginBottom: 20 }}>
+                    An email with a secure re-upload link has been sent to <strong>{reuploadModal.email}</strong>.
+                    The registration is now marked as <strong>Re-upload Requested</strong>.
+                  </div>
+                  <button
+                    onClick={() => setReuploadModal(null)}
+                    style={{ padding: "10px 24px", background: "var(--green)", color: "white", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    Done
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Documents to re-upload */}
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>Select Documents to Re-upload</div>
+                    {[
+                      { key: "aadhaar", label: "Aadhaar Card" },
+                      { key: "pan", label: "PAN Card" },
+                      { key: "passport_photo", label: "Passport Photo" },
+                    ].map(({ key, label }) => (
+                      <label
+                        key={key}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+                          border: `1.5px solid ${reuploadDocs[key] ? "#2E7D52" : "rgba(0,0,0,0.08)"}`,
+                          borderRadius: 10, marginBottom: 8, cursor: "pointer",
+                          background: reuploadDocs[key] ? "rgba(46,125,82,0.04)" : "#fafafa",
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={reuploadDocs[key]}
+                          onChange={(e) => setReuploadDocs(p => ({ ...p, [key]: e.target.checked }))}
+                          style={{ width: 16, height: 16, accentColor: "#2E7D52", cursor: "pointer" }}
+                        />
+                        <FileText size={14} color={reuploadDocs[key] ? "#2E7D52" : "#6b7280"} />
+                        <span style={{ fontSize: 13, fontWeight: 500, color: reuploadDocs[key] ? "#1C3A2A" : "#374151" }}>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* Reason */}
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 8 }}>
+                      Reason / Note for Dealer *
+                    </label>
+                    <textarea
+                      value={reuploadReason}
+                      onChange={(e) => setReuploadReason(e.target.value)}
+                      placeholder="e.g. The Aadhaar card photo is blurry and unreadable. Please re-upload a clear, well-lit photo."
+                      rows={4}
+                      style={{
+                        width: "100%", padding: "12px 14px",
+                        border: "1.5px solid #e5e7eb", borderRadius: 10,
+                        fontSize: 13, color: "#111827", resize: "vertical",
+                        background: "#fafafa", outline: "none", boxSizing: "border-box",
+                        fontFamily: "inherit", lineHeight: 1.6,
+                      }}
+                      onFocus={e => e.target.style.borderColor = "#2E7D52"}
+                      onBlur={e => e.target.style.borderColor = "#e5e7eb"}
+                    />
+                    <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>This note will be shown to the dealer in the email.</div>
+                  </div>
+
+                  {/* Info box */}
+                  <div style={{
+                    background: "#fff8e6", border: "1px solid #fbbf24",
+                    borderLeft: "4px solid #f59e0b", borderRadius: "0 8px 8px 0",
+                    padding: "10px 12px", marginBottom: 20, fontSize: 12, color: "#374151", lineHeight: 1.6,
+                  }}>
+                    <AlertTriangle size={12} style={{ display: "inline", marginRight: 4, color: "#f59e0b" }} />
+                    The registration will be marked <strong>Re-upload Requested</strong> and moved out of the Rejected tab.
+                    The dealer will receive a secure email link valid for <strong>48 hours</strong>.
+                  </div>
+
+                  {/* Actions */}
+                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                    <button
+                      onClick={() => setReuploadModal(null)}
+                      disabled={reuploadLoading}
+                      style={{ padding: "10px 18px", background: "white", color: "#374151", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleRequestReupload}
+                      disabled={reuploadLoading || !reuploadReason.trim() || !Object.values(reuploadDocs).some(Boolean)}
+                      style={{
+                        padding: "10px 18px",
+                        background: reuploadLoading || !reuploadReason.trim() || !Object.values(reuploadDocs).some(Boolean)
+                          ? "#9ca3af"
+                          : "#f59e0b",
+                        color: "white",
+                        border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                        cursor: reuploadLoading || !reuploadReason.trim() || !Object.values(reuploadDocs).some(Boolean) ? "not-allowed" : "pointer",
+                        display: "flex", alignItems: "center", gap: 6,
+                      }}
+                    >
+                      {reuploadLoading
+                        ? <><Loader2 size={14} className="animate-spin" /> Sending...</>
+                        : <><RefreshCw size={14} /> Send Re-upload Request</>
+                      }
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Reject Registration Modal */}
+      {rejectModal && (
+        <div
+          style={{
+            position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
+            background: "rgba(15,23,42,0.5)", backdropFilter: "blur(8px)",
+            display: "flex", justifyContent: "center", alignItems: "center",
+            zIndex: 1500, padding: 16,
+          }}
+          onClick={() => { if (!rejectLoading) setRejectModal(null); }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: "#ffffff", borderRadius: 20, width: "100%", maxWidth: 480,
+              boxShadow: "0 25px 60px rgba(0,0,0,0.25)", overflow: "hidden",
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "20px 24px", borderBottom: "1px solid rgba(0,0,0,0.06)",
+              background: rejectSuccess ? "#f0fdf4" : "#fff5f5",
+            }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", display: "flex", alignItems: "center", gap: 8 }}>
+                  <XCircle size={16} color={rejectSuccess ? "#2E7D52" : "#dc2626"} />
+                  {rejectSuccess ? "Registration Rejected" : "Reject Registration"}
+                </div>
+                {!rejectSuccess && (
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                    {rejectModal.name} — {rejectModal.email}
+                  </div>
+                )}
+              </div>
+              {!rejectLoading && (
+                <button
+                  onClick={() => setRejectModal(null)}
+                  style={{ background: "#f1f5f9", border: "none", borderRadius: "50%", width: 32, height: 32, display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer", color: "var(--text)" }}
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: 24 }}>
+              {rejectSuccess ? (
+                <div style={{ textAlign: "center", padding: "8px 0" }}>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: "50%",
+                    background: "linear-gradient(135deg, #dcfce7, #bbf7d0)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    margin: "0 auto 16px",
+                  }}>
+                    <CheckCircle size={28} color="#2E7D52" />
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 8 }}>
+                    Registration Rejected
+                  </div>
+                  <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6, marginBottom: 20 }}>
+                    The registration for <strong>{rejectModal.name}</strong> has been rejected.<br />
+                    A notification email with the reason has been sent to <strong>{rejectModal.email}</strong>.
+                  </div>
+                  <button
+                    onClick={() => setRejectModal(null)}
+                    style={{ padding: "10px 24px", background: "var(--green)", color: "white", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    Done
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Warning banner */}
+                  <div style={{
+                    background: "#fef2f2", border: "1px solid #fca5a5",
+                    borderLeft: "4px solid #dc2626", borderRadius: "0 10px 10px 0",
+                    padding: "12px 14px", marginBottom: 20, fontSize: 13,
+                    color: "#374151", lineHeight: 1.6,
+                  }}>
+                    <strong style={{ display: "block", marginBottom: 4, color: "#991b1b" }}>
+                      This action cannot be undone
+                    </strong>
+                    The dealer will receive an email with your rejection reason. You can still send
+                    them a re-upload request later if needed.
+                  </div>
+
+                  {/* Reason textarea */}
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={{
+                      display: "block", fontSize: 12, fontWeight: 700, color: "#374151",
+                      textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 8,
+                    }}>
+                      Reason for Rejection *
+                    </label>
+                    <textarea
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                      placeholder="e.g. The submitted documents are not valid. The Aadhaar card number is not visible clearly."
+                      rows={4}
+                      autoFocus
+                      style={{
+                        width: "100%", padding: "12px 14px",
+                        border: "1.5px solid #e5e7eb", borderRadius: 10,
+                        fontSize: 13, color: "#111827", resize: "vertical",
+                        background: "#fafafa", outline: "none", boxSizing: "border-box",
+                        fontFamily: "inherit", lineHeight: 1.6,
+                      }}
+                      onFocus={e => e.target.style.borderColor = "#dc2626"}
+                      onBlur={e => e.target.style.borderColor = "#e5e7eb"}
+                    />
+                    <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
+                      This reason will be shown to the dealer in the rejection email.
+                    </div>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                    <button
+                      onClick={() => setRejectModal(null)}
+                      disabled={rejectLoading}
+                      style={{
+                        padding: "10px 18px", background: "white", color: "#374151",
+                        border: "1px solid rgba(0,0,0,0.12)", borderRadius: 8,
+                        fontSize: 13, fontWeight: 600, cursor: "pointer",
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleReject}
+                      disabled={rejectLoading || !rejectReason.trim()}
+                      style={{
+                        padding: "10px 18px",
+                        background: rejectLoading || !rejectReason.trim() ? "#9ca3af" : "#dc2626",
+                        color: "white",
+                        border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                        cursor: rejectLoading || !rejectReason.trim() ? "not-allowed" : "pointer",
+                        display: "flex", alignItems: "center", gap: 6,
+                        transition: "background 0.2s",
+                      }}
+                    >
+                      {rejectLoading
+                        ? <><Loader2 size={14} className="animate-spin" /> Rejecting...</>
+                        : <><XCircle size={14} /> Reject Registration</>
+                      }
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

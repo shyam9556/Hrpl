@@ -7,6 +7,7 @@ import {
   Shield
 } from "lucide-react";
 import ResetPasswordPage from "./components/ResetPasswordPage";
+import DealerReuploadPage from "./components/DealerReuploadPage";
 
 // Components
 import LoginPage from "./components/LoginPage";
@@ -69,6 +70,14 @@ export default function App() {
   const [resetToken, setResetToken] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("token") || "";
+  });
+
+  // ── Document Re-upload Deep-Link Detection ────────────────────────────────
+  // When a dealer clicks the re-upload link from their email (CLIENT_URL?reupload=TOKEN)
+  // we render the DealerReuploadPage instead of login or the main app.
+  const [reuploadToken, setReuploadToken] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("reupload") || "";
   });
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -165,6 +174,9 @@ export default function App() {
 
   const [pendingQuotationsCount, setPendingQuotationsCount] = useState(0);
   const [pendingDealersCount, setPendingDealersCount] = useState(0);
+  // Track page in a ref so fetchPendingCounts (in a setInterval) sees the latest value
+  const pageRef = useRef(page);
+  useEffect(() => { pageRef.current = page; }, [page]);
 
   // Guard: fetchPendingCounts is a no-op when user is null.
   // This prevents phantom API calls during the logout state-transition window.
@@ -175,8 +187,14 @@ export default function App() {
         quotationsApi.list({ status: "Pending", limit: 1 }),
         dealersApi.registrations("Pending")
       ]);
-      setPendingQuotationsCount(qRes.pagination?.total || qRes.quotations?.length || 0);
-      setPendingDealersCount(dRes.registrations?.length || 0);
+      // Don't update the quotations badge while admin is actively viewing that page
+      if (pageRef.current !== "requests") {
+        setPendingQuotationsCount(qRes.pagination?.total || qRes.quotations?.length || 0);
+      }
+      // Don't update the dealer registrations badge while admin is actively viewing that page
+      if (pageRef.current !== "dealer_registrations") {
+        setPendingDealersCount(dRes.registrations?.length || 0);
+      }
     } catch {
       // Silently ignore — badges are non-critical. Session expiry is handled
       // by the hp:session-expired event listener above.
@@ -197,6 +215,13 @@ export default function App() {
   const navigateTo = useCallback((pageId) => {
     setPage(pageId);
     setSidebarOpen(false);
+    // CRITICAL: update ref SYNCHRONOUSLY before the async fetchPendingCounts call.
+    // If we don't do this, fetchPendingCounts runs with the stale (old) pageRef
+    // and overwrites the zeroed badge count before React has re-rendered.
+    pageRef.current = pageId;
+    // Zero out the badge for the page admin is opening
+    if (pageId === "dealer_registrations") setPendingDealersCount(0);
+    if (pageId === "requests") setPendingQuotationsCount(0);
     fetchPendingCounts();
   }, [fetchPendingCounts]);
 
@@ -241,6 +266,21 @@ export default function App() {
           url.searchParams.delete("token");
           window.history.replaceState({}, document.title, url.pathname);
           setResetToken("");
+        }}
+      />
+    );
+  }
+
+  // ── Render the re-upload page when the URL has ?reupload=TOKEN ────────────
+  if (reuploadToken) {
+    return (
+      <DealerReuploadPage
+        token={reuploadToken}
+        onDone={() => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("reupload");
+          window.history.replaceState({}, document.title, url.pathname);
+          setReuploadToken("");
         }}
       />
     );
@@ -370,7 +410,7 @@ export default function App() {
           {page === "customers" && <CustomerManager />}
           {user.role === "admin" && page === "dashboard" && <AdminDashboard onNavigate={navigateTo} />}
           {user.role === "admin" && page === "requests" && <DealerRequestsAdmin />}
-          {user.role === "admin" && page === "dealer_registrations" && <DealerRegistrationsAdmin />}
+          {user.role === "admin" && page === "dealer_registrations" && <DealerRegistrationsAdmin onClearBadge={() => setPendingDealersCount(0)} />}
           {user.role === "admin" && page === "dealers" && <DealersList />}
           {user.role === "admin" && page === "prices" && <PriceManager />}
           {user.role === "admin" && page === "stock" && <StockManager />}

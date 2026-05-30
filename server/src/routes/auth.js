@@ -18,7 +18,7 @@ import {
   resetPasswordSchema,
   adminResetPasswordSchema,
 } from "../validators/authSchema.js";
-import { sendPasswordResetEmail, sendDealerWelcomeEmail } from "../services/emailService.js";
+import { sendPasswordResetEmail, sendDealerWelcomeEmail, sendReuploadConfirmationEmail } from "../services/emailService.js";
 
 const router = Router();
 
@@ -499,5 +499,239 @@ router.post(
     }
   }
 );
+
+// ─── POST /api/auth/reupload/verify ──────────────────────────
+// Public — Verify re-upload token + dealer's registration password
+// Returns a short-lived re-upload JWT on success
+router.post("/reupload/verify", async (req, res, next) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return res.status(400).json({ success: false, error: "Token and password are required." });
+    }
+
+    // Hash the incoming token to compare against stored hash
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    // Find valid, unexpired, unused token + linked registration
+    const result = await db.query(
+      `SELECT rt.id AS token_id, rt.registration_id, rt.reason, rt.required_docs,
+              dr.name, dr.email, dr.password_hash, dr.status
+       FROM dealer_reupload_tokens rt
+       JOIN dealer_registrations dr ON dr.id = rt.registration_id
+       WHERE rt.token = ?
+         AND rt.used = 0
+         AND rt.expires_at > NOW()`,
+      [tokenHash]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "This re-upload link is invalid, has already been used, or has expired. Please contact admin for a new link.",
+      });
+    }
+
+    const record = result.rows[0];
+
+    // Verify the registration is still in ReuploadRequested status
+    if (record.status !== "ReuploadRequested") {
+      return res.status(400).json({
+        success: false,
+        error: "This re-upload request is no longer valid. The registration status may have changed.",
+      });
+    }
+
+    // Verify password against registration password_hash
+    const isPasswordValid = await bcrypt.compare(password, record.password_hash);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        error: "Incorrect password. Please enter the password you used when you registered.",
+      });
+    }
+
+    // Issue a short-lived re-upload JWT (separate from main app JWT)
+    const reuploadToken = jwt.sign(
+      { type: "reupload", regId: record.registration_id, tokenId: record.token_id },
+      env.jwt.secret,
+      { expiresIn: "1h" }
+    );
+
+    const requiredDocs = record.required_docs
+      ? record.required_docs.split(",").filter(Boolean)
+      : [];
+
+    res.json({
+      success: true,
+      reuploadToken,
+      registration: {
+        name: record.name,
+        email: record.email,
+        reason: record.reason,
+        requiredDocs,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/auth/reupload/info ──────────────────────────────
+// Protected (reupload JWT) — Get re-upload session info
+router.get("/reupload/info", async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ success: false, error: "Re-upload token required." });
+    }
+    const reuploadToken = authHeader.split(" ")[1];
+
+    let decoded;
+    try {
+      decoded = jwt.verify(reuploadToken, env.jwt.secret);
+    } catch {
+      return res.status(401).json({ success: false, error: "Invalid or expired re-upload session. Please use the link from your email again." });
+    }
+
+    if (decoded.type !== "reupload") {
+      return res.status(401).json({ success: false, error: "Invalid token type." });
+    }
+
+    // Re-fetch token and registration to get current state
+    const result = await db.query(
+      `SELECT rt.reason, rt.required_docs, dr.name, dr.email
+       FROM dealer_reupload_tokens rt
+       JOIN dealer_registrations dr ON dr.id = rt.registration_id
+       WHERE rt.id = ? AND rt.used = 0 AND rt.expires_at > NOW()`,
+      [decoded.tokenId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ success: false, error: "This re-upload session is no longer valid." });
+    }
+
+    const record = result.rows[0];
+    const requiredDocs = record.required_docs ? record.required_docs.split(",").filter(Boolean) : [];
+
+    res.json({
+      success: true,
+      registration: {
+        name: record.name,
+        email: record.email,
+        reason: record.reason,
+        requiredDocs,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/auth/reupload/submit ──────────────────────────
+// Protected (reupload JWT) — Submit new documents
+router.post("/reupload/submit", async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ success: false, error: "Re-upload token required." });
+    }
+    const reuploadToken = authHeader.split(" ")[1];
+
+    let decoded;
+    try {
+      decoded = jwt.verify(reuploadToken, env.jwt.secret);
+    } catch {
+      return res.status(401).json({ success: false, error: "Invalid or expired re-upload session. Please use the link from your email again." });
+    }
+
+    if (decoded.type !== "reupload") {
+      return res.status(401).json({ success: false, error: "Invalid token type." });
+    }
+
+    const { regId, tokenId } = decoded;
+    const { aadhaarPhoto, panPhoto, passportPhoto } = req.body;
+
+    // Re-validate the token is still valid (not used/expired)
+    const tokenResult = await db.query(
+      `SELECT rt.id, rt.required_docs, dr.name, dr.email, dr.status
+       FROM dealer_reupload_tokens rt
+       JOIN dealer_registrations dr ON dr.id = rt.registration_id
+       WHERE rt.id = ? AND rt.used = 0 AND rt.expires_at > NOW() AND rt.registration_id = ?`,
+      [tokenId, regId]
+    );
+
+    if (tokenResult.rows.length === 0) {
+      return res.status(400).json({ success: false, error: "This re-upload session is no longer valid." });
+    }
+
+    const tokenRecord = tokenResult.rows[0];
+    if (tokenRecord.status !== "ReuploadRequested") {
+      return res.status(400).json({ success: false, error: "Registration status has changed. Please contact admin." });
+    }
+
+    const requiredDocs = tokenRecord.required_docs ? tokenRecord.required_docs.split(",").filter(Boolean) : [];
+
+    // Validate that all required documents are provided
+    const providedDocs = [];
+    if (requiredDocs.includes("aadhaar") && aadhaarPhoto) providedDocs.push("aadhaar");
+    if (requiredDocs.includes("pan") && panPhoto) providedDocs.push("pan");
+    if (requiredDocs.includes("passport_photo") && passportPhoto) providedDocs.push("passport_photo");
+
+    const missingDocs = requiredDocs.filter(d => !providedDocs.includes(d));
+    if (missingDocs.length > 0) {
+      const docLabels = { aadhaar: "Aadhaar Card", pan: "PAN Card", passport_photo: "Passport Photo" };
+      return res.status(400).json({
+        success: false,
+        error: `Missing required documents: ${missingDocs.map(d => docLabels[d] || d).join(", ")}`,
+      });
+    }
+
+    // Delete old documents of the required types from the DB
+    // (physical file deletion is skipped to avoid complex rollback; orphaned files are acceptable)
+    if (requiredDocs.length > 0) {
+      const placeholders = requiredDocs.map(() => "?").join(", ");
+      await db.query(
+        `DELETE FROM documents
+         WHERE entity_type = 'dealer_registration' AND entity_id = ? AND doc_type IN (${placeholders})`,
+        [regId, ...requiredDocs]
+      );
+    }
+
+    // Save new documents
+    if (aadhaarPhoto && requiredDocs.includes("aadhaar")) {
+      await saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar");
+    }
+    if (panPhoto && requiredDocs.includes("pan")) {
+      await saveBase64File(panPhoto, "dealer_registration", regId, "pan");
+    }
+    if (passportPhoto && requiredDocs.includes("passport_photo")) {
+      await saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo");
+    }
+
+    // Mark the re-upload token as used
+    await db.query("UPDATE dealer_reupload_tokens SET used = 1 WHERE id = ?", [tokenId]);
+
+    // Set registration status back to Pending for re-review
+    await db.query(
+      "UPDATE dealer_registrations SET status = 'Pending', reviewed_by = NULL, reviewed_at = NULL WHERE id = ?",
+      [regId]
+    );
+
+    // Send confirmation email (fire-and-forget)
+    sendReuploadConfirmationEmail(tokenRecord.email, tokenRecord.name)
+      .catch(err => console.error(`[EMAIL] Failed to send re-upload confirmation to ${tokenRecord.email}:`, err.message));
+
+    console.log(`[AUDIT] Re-upload submitted for registration ID ${regId} (${tokenRecord.email}) at ${new Date().toISOString()}`);
+
+    res.json({
+      success: true,
+      message: "Documents re-uploaded successfully. Your registration is now back under review.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;

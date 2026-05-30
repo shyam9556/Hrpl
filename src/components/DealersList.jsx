@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { dealers as dealersApi } from "../utils/api";
-import { Loader2, Store, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, Store, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ErrorState from "./ErrorState";
 
@@ -12,6 +12,7 @@ export default function DealersList() {
   const [confirmToggle, setConfirmToggle] = useState(null);
   const [errorDialog, setErrorDialog] = useState({ open: false, message: "" });
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
   const PAGE_SIZE = 20;
 
   const fetchDealers = useCallback(async (showSpinner = true) => {
@@ -29,13 +30,13 @@ export default function DealersList() {
   }, []);
 
   useEffect(() => { fetchDealers(); }, [fetchDealers]);
+  useEffect(() => { setPage(1); }, [search]);
 
   const handleToggle = async (id) => {
     setConfirmToggle(null);
     setActionLoading(id);
     try {
       await dealersApi.toggleActive(id);
-      // Background refetch — no full spinner, just update silently
       await fetchDealers(false);
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to toggle dealer status." });
@@ -44,11 +45,61 @@ export default function DealersList() {
     }
   };
 
+  const filteredList = search.trim()
+    ? list.filter(d => {
+        const q = search.toLowerCase();
+        return (
+          d.name?.toLowerCase().includes(q) ||
+          d.email?.toLowerCase().includes(q) ||
+          d.location?.toLowerCase().includes(q) ||
+          d.company_name?.toLowerCase().includes(q) ||
+          d.mobile?.includes(q)
+        );
+      })
+    : list;
+
+  const totalPages = Math.ceil(filteredList.length / PAGE_SIZE);
+  const paginatedList = filteredList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   return (
     <div>
       <div className="page-header">
         <div className="page-title">Dealers</div>
         <div className="page-sub">Manage approved dealer accounts</div>
+      </div>
+
+      {/* Search bar */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          background: "var(--card, white)", border: "1px solid var(--border, #e2e8f0)",
+          borderRadius: 10, padding: "8px 14px", maxWidth: 380,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+        }}>
+          <Search size={15} style={{ color: "var(--muted)", flexShrink: 0 }} />
+          <input
+            type="text"
+            placeholder="Search by name, email, location..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{
+              border: "none", outline: "none", background: "transparent",
+              flex: 1, fontSize: 13, color: "var(--text)",
+            }}
+          />
+          {search && (
+            <button onClick={() => setSearch("")} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "flex" }}>
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        {search && (
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
+            {filteredList.length === 0
+              ? `No results for "${search}"`
+              : `${filteredList.length} result${filteredList.length !== 1 ? "s" : ""} for "${search}"`}
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -68,6 +119,14 @@ export default function DealersList() {
           <div style={{ fontSize: 16, fontWeight: 600 }}>No dealers yet</div>
           <div style={{ fontSize: 13, marginTop: 4 }}>Approved dealer registrations will appear here.</div>
         </div>
+      ) : filteredList.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "3rem", color: "var(--muted)" }}>
+          <div style={{ marginBottom: 12 }}><Search size={48} strokeWidth={1} /></div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>No dealers match "{search}"</div>
+          <button onClick={() => setSearch("")} style={{ marginTop: 12, fontSize: 13, color: "var(--primary)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+            Clear search
+          </button>
+        </div>
       ) : (
         <div className="card">
           <div style={{ overflowX: "auto" }}>
@@ -84,10 +143,7 @@ export default function DealersList() {
                 </tr>
               </thead>
               <tbody>
-                {(() => {
-                  const totalPages = Math.ceil(list.length / PAGE_SIZE);
-                  const paginatedList = list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-                  return paginatedList.map(d => (
+                {paginatedList.map(d => (
                   <tr key={d.id} style={{ opacity: d.is_active ? 1 : 0.5 }}>
                     <td style={{ fontWeight: 500 }}>{d.name}</td>
                     <td>
@@ -119,27 +175,27 @@ export default function DealersList() {
                       </button>
                     </td>
                   </tr>
-                ));
-                })()}
+                ))}
               </tbody>
             </table>
           </div>
 
-          {/* Pagination Controls */}
-          {list.length > PAGE_SIZE && (
+          {filteredList.length > PAGE_SIZE && (
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderTop: "1px solid var(--border, #e2e8f0)" }}>
               <span style={{ fontSize: 12, color: "var(--muted)" }}>
-                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, list.length)} of {list.length}
+                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredList.length)} of {filteredList.length}
+                {search && ` (filtered from ${list.length})`}
               </span>
               <div style={{ display: "flex", gap: 6 }}>
                 <button className="btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: "4px 12px", fontSize: 12, borderRadius: 8, display: "flex", alignItems: "center", gap: 4 }}><ChevronLeft size={14} /> Prev</button>
-                <span style={{ display: "flex", alignItems: "center", fontSize: 12, color: "var(--text)", fontWeight: 600, padding: "0 8px" }}>{page} / {Math.ceil(list.length / PAGE_SIZE)}</span>
-                <button className="btn-sm" disabled={page >= Math.ceil(list.length / PAGE_SIZE)} onClick={() => setPage(p => p + 1)} style={{ padding: "4px 12px", fontSize: 12, borderRadius: 8, display: "flex", alignItems: "center", gap: 4 }}>Next <ChevronRight size={14} /></button>
+                <span style={{ display: "flex", alignItems: "center", fontSize: 12, color: "var(--text)", fontWeight: 600, padding: "0 8px" }}>{page} / {totalPages}</span>
+                <button className="btn-sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ padding: "4px 12px", fontSize: 12, borderRadius: 8, display: "flex", alignItems: "center", gap: 4 }}>Next <ChevronRight size={14} /></button>
               </div>
             </div>
           )}
         </div>
       )}
+
       {confirmToggle && (
         <ConfirmDialog
           open={true}

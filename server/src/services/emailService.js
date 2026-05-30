@@ -291,8 +291,9 @@ export async function sendPasswordResetEmail(toEmail, userName, resetToken) {
  * @param {string} toEmail     - Dealer's email
  * @param {string} dealerName  - Dealer's name
  * @param {"Approved"|"Rejected"} status - New status
+ * @param {string|null} [reason] - Admin's rejection reason (shown in email, Rejected only)
  */
-export async function sendDealerStatusEmail(toEmail, dealerName, status) {
+export async function sendDealerStatusEmail(toEmail, dealerName, status, reason = null) {
   const isApproved = status === "Approved";
 
   const statusBadge = isApproved
@@ -347,6 +348,15 @@ export async function sendDealerStatusEmail(toEmail, dealerName, status) {
       After carefully reviewing your application, we regret to inform you that we are
       unable to approve your registration at this time.
     </p>
+
+    ${reason ? infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:6px;color:#1f2937;">Reason for Rejection:</strong>
+        <span style="color:#374151;font-size:14px;line-height:1.6;">${escapeHtml(reason)}</span>
+      `,
+      bgColor: "#fef2f2",
+      borderColor: "#dc2626",
+    }) : ""}
 
     ${infoBox({
       content: [
@@ -654,6 +664,186 @@ export async function sendDeliveryMilestoneEmail(toEmail, dealerName, quotationN
   } catch (err) {
     console.error(`❌ Failed to send delivery milestone email to ${toEmail}:`, err.message);
     // Don't throw — email failure should not block the delivery status update
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DOCUMENT RE-UPLOAD REQUEST EMAIL
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Send a document re-upload request email to a dealer whose registration was rejected.
+ * Contains a secure link for the dealer to authenticate and re-upload the flagged documents.
+ *
+ * @param {string} toEmail      - Dealer's email address
+ * @param {string} dealerName   - Dealer's full name
+ * @param {string} reuploadUrl  - Full re-upload link (CLIENT_URL?reupload=<raw_token>)
+ * @param {string} reason       - Admin's reason for requesting re-upload
+ * @param {string[]} docTypes   - Array of doc type keys that need re-uploading e.g. ['aadhaar','pan']
+ * @returns {boolean} true if sent (or dev mode), false on failure
+ */
+export async function sendDocumentReuploadEmail(toEmail, dealerName, reuploadUrl, reason, docTypes = []) {
+  // Human-readable document names
+  const docLabels = {
+    aadhaar: "Aadhaar Card",
+    pan: "PAN Card",
+    passport_photo: "Passport Photo",
+  };
+
+  const docListHtml = docTypes.length > 0
+    ? docTypes.map(d => `&#10007;&nbsp; <strong>${docLabels[d] || d}</strong>`).join("<br>")
+    : "All submitted documents";
+
+  const bodyHtml = `
+    <span style="display:inline-block;background-color:#fff3cd;color:#856404;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:16px;">Action Required</span>
+
+    <h2 style="color:#111827;margin:0 0 20px 0;font-size:22px;font-weight:700;line-height:1.3;">
+      Document Re-upload Required
+    </h2>
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">
+      Dear <strong>${escapeHtml(dealerName)}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px 0;">
+      Our admin team has reviewed your dealer registration application and found that one or more of
+      your submitted documents need to be re-uploaded. Please use the secure link below to submit
+      updated documents.
+    </p>
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:6px;color:#1f2937;">Admin's Note:</strong>
+        <span style="color:#374151;font-size:14px;line-height:1.6;">${escapeHtml(reason)}</span>
+      `,
+      bgColor: "#fff8e6",
+      borderColor: "#f59e0b",
+    })}
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:8px;color:#1f2937;">Documents to Re-upload:</strong>
+        <span style="font-size:14px;line-height:1.8;color:#374151;">${docListHtml}</span>
+      `,
+      bgColor: "#fef2f2",
+      borderColor: "#dc2626",
+    })}
+
+    ${ctaButton({ href: reuploadUrl, label: "Re-upload Documents", color: "#2E7D52" })}
+
+    ${infoBox({
+      content: [
+        '<strong style="display:block;margin-bottom:4px;color:#1f2937;">&#9888;&#65039; Important</strong>',
+        'This link is valid for <strong>3 days</strong> and can only be used once.<br>',
+        'You will need to enter the <strong>password you used during registration</strong> to access the re-upload page.'
+      ].join(''),
+      bgColor: "#fffbeb",
+      borderColor: "#f59e0b",
+    })}
+
+    <p style="color:#9ca3af;font-size:12px;line-height:1.6;margin:20px 0 0 0;">
+      If the button above doesn't work, copy and paste the link below into your browser:<br>
+      <a href="${escapeHtml(reuploadUrl)}" style="color:#2E7D52;word-break:break-all;">${escapeHtml(reuploadUrl)}</a>
+    </p>
+  `;
+
+  const htmlContent = buildEmailHtml({ subtitle: "Document Re-upload Request", bodyHtml });
+
+  if (!transporter) {
+    console.log("");
+    console.log("╔══════════════════════════════════════════════════════╗");
+    console.log("║  📧 REUPLOAD REQUEST EMAIL (Dev Mode — Not Sent)   ║");
+    console.log("╠══════════════════════════════════════════════════════╣");
+    console.log(`║  To:     ${toEmail}`);
+    console.log(`║  Name:   ${dealerName}`);
+    console.log(`║  Reason: ${reason}`);
+    console.log(`║  Docs:   ${docTypes.join(", ")}`);
+    console.log(`║  Link:   ${reuploadUrl}`);
+    console.log("╚══════════════════════════════════════════════════════╝");
+    console.log("");
+    return true;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: "Action Required: Re-upload Documents — Highlight Pro",
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`📧 Re-upload request email sent to: ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to send re-upload request email to ${toEmail}:`, err.message);
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// REUPLOAD CONFIRMATION EMAIL (sent after dealer re-uploads docs)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Send a confirmation email to the dealer after they successfully re-upload their documents.
+ * Informs them their application is back under review.
+ *
+ * @param {string} toEmail    - Dealer's email address
+ * @param {string} dealerName - Dealer's full name
+ * @returns {boolean} true if sent (or dev mode), false on failure
+ */
+export async function sendReuploadConfirmationEmail(toEmail, dealerName) {
+  const bodyHtml = `
+    <span style="display:inline-block;background-color:#dbeafe;color:#1e40af;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:16px;">Under Review</span>
+
+    <h2 style="color:#111827;margin:0 0 20px 0;font-size:22px;font-weight:700;line-height:1.3;">
+      Documents Received — Application Under Review
+    </h2>
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">
+      Dear <strong>${escapeHtml(dealerName)}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px 0;">
+      Thank you for re-uploading your documents. We have successfully received your updated
+      documents and your <strong>registration application is now back under review</strong> by our admin team.
+    </p>
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:6px;color:#1f2937;">What happens next?</strong>
+        &#10003;&nbsp; Our admin team will review your updated documents<br>
+        &#10003;&nbsp; You will receive an email once a decision has been made<br>
+        &#10003;&nbsp; Typical review time: <strong>1–3 working days</strong>
+      `,
+      bgColor: "#f0f7f4",
+      borderColor: "#2E7D52",
+    })}
+
+    <p style="color:#9ca3af;font-size:13px;line-height:1.6;margin:24px 0 0 0;">
+      If you have any questions in the meantime, feel free to reach out to us at
+      <a href="mailto:${escapeHtml(env.smtp.fromEmail)}" style="color:#2E7D52;">${escapeHtml(env.smtp.fromEmail)}</a>.
+    </p>
+  `;
+
+  const htmlContent = buildEmailHtml({ subtitle: "Application Status Update", bodyHtml });
+
+  if (!transporter) {
+    console.log(`📧 [Dev] Re-upload confirmation email for ${toEmail} (${dealerName}) — not sent (no SMTP)`);
+    return true;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: "Documents Received — Application Under Review — Highlight Pro",
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`📧 Re-upload confirmation email sent to: ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to send re-upload confirmation email to ${toEmail}:`, err.message);
     return false;
   }
 }

@@ -1,0 +1,521 @@
+import { useState, useRef, useCallback } from "react";
+import { reupload as reuploadApi } from "../utils/api";
+import {
+  Lock, Eye, EyeOff, Upload, CheckCircle2, AlertTriangle,
+  FileText, X, Image, ArrowRight, RefreshCw, ShieldCheck
+} from "lucide-react";
+
+// ─── Document labels ────────────────────────────────────────
+const DOC_LABELS = {
+  aadhaar: "Aadhaar Card",
+  pan: "PAN Card",
+  passport_photo: "Passport Photo",
+};
+
+const DOC_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
+const MAX_SIZE_MB = 10;
+
+// ─── File dropzone for a single document ────────────────────
+function DocumentZone({ docType, file, onChange }) {
+  const inputRef = useRef(null);
+  const [drag, setDrag] = useState(false);
+
+  const label = DOC_LABELS[docType] || docType;
+  const isImage = file && file.type && file.type.startsWith("image/");
+
+  const processFile = (f) => {
+    if (!f) return;
+    if (f.size > MAX_SIZE_MB * 1024 * 1024) {
+      alert(`File too large. Maximum size is ${MAX_SIZE_MB} MB.`);
+      return;
+    }
+    onChange(f);
+  };
+
+  return (
+    <div
+      onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+      onDragLeave={() => setDrag(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDrag(false);
+        processFile(e.dataTransfer.files[0]);
+      }}
+      onClick={() => !file && inputRef.current?.click()}
+      style={{
+        border: `2px dashed ${file ? "#2E7D52" : drag ? "#2E7D52" : "rgba(0,0,0,0.15)"}`,
+        borderRadius: 16,
+        background: file ? "rgba(46,125,82,0.04)" : drag ? "rgba(46,125,82,0.06)" : "#fafafa",
+        padding: file ? "12px" : "32px 16px",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: file ? "default" : "pointer",
+        transition: "all 0.2s",
+        position: "relative",
+        minHeight: 120,
+        gap: 8,
+      }}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept={DOC_ACCEPT}
+        style={{ display: "none" }}
+        onChange={(e) => processFile(e.target.files?.[0])}
+      />
+
+      {file ? (
+        <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 12 }}>
+          {isImage ? (
+            <img
+              src={URL.createObjectURL(file)}
+              alt={label}
+              style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, flexShrink: 0, border: "1px solid rgba(0,0,0,0.08)" }}
+            />
+          ) : (
+            <div style={{
+              width: 64, height: 64, borderRadius: 8, background: "#f0f7f4",
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              flexShrink: 0, color: "#2E7D52", gap: 2
+            }}>
+              <FileText size={24} />
+              <span style={{ fontSize: 9, fontWeight: 700 }}>PDF</span>
+            </div>
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: "#111827", marginBottom: 2 }}>{label}</div>
+            <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
+            <div style={{ fontSize: 11, color: "#6b7280" }}>{(file.size / 1024).toFixed(0)} KB</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
+              style={{ background: "#f0f7f4", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: "#2E7D52", cursor: "pointer", fontWeight: 600 }}
+            >
+              Replace
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onChange(null); }}
+              style={{ background: "#fee2e2", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: "#dc2626", cursor: "pointer", fontWeight: 600 }}
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{
+            width: 48, height: 48, borderRadius: 12,
+            background: "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
+            display: "flex", alignItems: "center", justifyContent: "center", color: "white"
+          }}>
+            {docType === "passport_photo" ? <Image size={22} /> : <FileText size={22} />}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{label}</div>
+          <div style={{ fontSize: 11, color: "#6b7280" }}>Click to browse or drag & drop</div>
+          <div style={{ fontSize: 10, color: "#9ca3af" }}>JPG, PNG, PDF — max {MAX_SIZE_MB}MB</div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── File → base64 ──────────────────────────────────────────
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      resolve({ data: result, name: file.name, type: file.type, size: file.size });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ─── Main Component ──────────────────────────────────────────
+export default function DealerReuploadPage({ token, onDone }) {
+  // ── Step state: "verify" → "upload" → "success" → "error"
+  const [step, setStep] = useState("verify");
+
+  // Step 1 state
+  const [password, setPassword] = useState("");
+  const [showPwd, setShowPwd] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState("");
+
+  // Session data (returned after verify)
+  const [reuploadJwt, setReuploadJwt] = useState(null);
+  const [sessionInfo, setSessionInfo] = useState(null); // { name, email, reason, requiredDocs }
+
+  // Step 2 state
+  const [files, setFiles] = useState({}); // { aadhaar: File, pan: File, ... }
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+
+  // ── Step 1: Verify token + password ─────────────────────────
+  const handleVerify = useCallback(async (e) => {
+    e.preventDefault();
+    if (!password.trim()) return;
+    setVerifying(true);
+    setVerifyError("");
+    try {
+      const res = await reuploadApi.verify(token, password);
+      setReuploadJwt(res.reuploadToken);
+      setSessionInfo(res.registration);
+      // Pre-initialise files state
+      const initial = {};
+      (res.registration.requiredDocs || []).forEach(d => { initial[d] = null; });
+      setFiles(initial);
+      setStep("upload");
+    } catch (err) {
+      setVerifyError(err.message || "Verification failed. Please try again.");
+    } finally {
+      setVerifying(false);
+    }
+  }, [token, password]);
+
+  // ── Step 2: Submit documents ─────────────────────────────────
+  const handleSubmit = useCallback(async (e) => {
+    e.preventDefault();
+    if (!sessionInfo?.requiredDocs) return;
+
+    // Check all required docs are provided
+    const missing = sessionInfo.requiredDocs.filter(d => !files[d]);
+    if (missing.length > 0) {
+      setSubmitError(`Please upload all required documents: ${missing.map(d => DOC_LABELS[d] || d).join(", ")}`);
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      // Convert files to base64
+      const payload = {};
+      if (files.aadhaar) payload.aadhaarPhoto = await fileToBase64(files.aadhaar);
+      if (files.pan) payload.panPhoto = await fileToBase64(files.pan);
+      if (files.passport_photo) payload.passportPhoto = await fileToBase64(files.passport_photo);
+
+      await reuploadApi.submit(reuploadJwt, payload);
+      setStep("success");
+    } catch (err) {
+      setSubmitError(err.message || "Failed to submit documents. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [reuploadJwt, sessionInfo, files]);
+
+  const allDocsProvided = sessionInfo?.requiredDocs?.every(d => files[d]) ?? false;
+
+  // ── Render ───────────────────────────────────────────────────
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "linear-gradient(135deg, #0f2419 0%, #1a3a27 40%, #0f1f15 100%)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16,
+      fontFamily: "'Segoe UI', Arial, Helvetica, sans-serif",
+    }}>
+      {/* Background decorative circles */}
+      <div style={{ position: "fixed", top: -80, right: -80, width: 300, height: 300, borderRadius: "50%", background: "rgba(46,125,82,0.08)", pointerEvents: "none" }} />
+      <div style={{ position: "fixed", bottom: -60, left: -60, width: 250, height: 250, borderRadius: "50%", background: "rgba(46,125,82,0.06)", pointerEvents: "none" }} />
+
+      <div style={{
+        background: "#ffffff",
+        borderRadius: 24,
+        width: "100%",
+        maxWidth: 520,
+        boxShadow: "0 40px 80px rgba(0,0,0,0.35)",
+        overflow: "hidden",
+        position: "relative",
+        zIndex: 1,
+      }}>
+        {/* Header */}
+        <div style={{
+          background: "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
+          padding: "32px 32px 28px",
+          textAlign: "center",
+        }}>
+          <img
+            src="/logo.png"
+            alt="Highlight Pro"
+            style={{ width: 56, height: 56, objectFit: "contain", background: "white", padding: 6, borderRadius: 14, marginBottom: 16, boxShadow: "0 4px 12px rgba(0,0,0,0.2)" }}
+          />
+          <div style={{ color: "white", fontSize: 20, fontWeight: 700, letterSpacing: "-0.3px" }}>Highlight Pro</div>
+          <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 11, textTransform: "uppercase", letterSpacing: "2px", fontWeight: 600, marginTop: 4 }}>
+            Document Re-upload
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: "28px 32px 32px" }}>
+
+          {/* ── Step: Verify ──────────────────────────────────── */}
+          {step === "verify" && (
+            <>
+              <div style={{ textAlign: "center", marginBottom: 24 }}>
+                <div style={{
+                  width: 56, height: 56, borderRadius: "50%",
+                  background: "linear-gradient(135deg, #f0f7f4, #dcfce7)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  margin: "0 auto 12px",
+                  boxShadow: "0 4px 12px rgba(46,125,82,0.15)"
+                }}>
+                  <Lock size={24} color="#2E7D52" />
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#111827", marginBottom: 6 }}>Verify Identity</div>
+                <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6 }}>
+                  Enter the password you used when you first registered as a dealer.
+                </div>
+              </div>
+
+              {/* Info box */}
+              <div style={{
+                background: "#fff8e6",
+                border: "1px solid #fbbf24",
+                borderLeft: "4px solid #f59e0b",
+                borderRadius: "0 8px 8px 0",
+                padding: "12px 14px",
+                marginBottom: 24,
+                fontSize: 13,
+                color: "#374151",
+                lineHeight: 1.6,
+              }}>
+                <strong style={{ display: "block", marginBottom: 4, color: "#1f2937" }}>🔐 Security Note</strong>
+                This is your <strong>registration password</strong> — the one you entered when you first signed up.
+                This is not the same as your dealer login (which only activates after admin approval).
+              </div>
+
+              <form onSubmit={handleVerify}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Registration Password
+                </label>
+                <div style={{ position: "relative", marginBottom: 16 }}>
+                  <input
+                    type={showPwd ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your registration password"
+                    required
+                    autoFocus
+                    style={{
+                      width: "100%",
+                      padding: "12px 44px 12px 14px",
+                      border: `1.5px solid ${verifyError ? "#ef4444" : "#e5e7eb"}`,
+                      borderRadius: 10,
+                      fontSize: 14,
+                      color: "#111827",
+                      background: "#fafafa",
+                      outline: "none",
+                      boxSizing: "border-box",
+                      transition: "border-color 0.2s",
+                    }}
+                    onFocus={(e) => { if (!verifyError) e.target.style.borderColor = "#2E7D52"; }}
+                    onBlur={(e) => { if (!verifyError) e.target.style.borderColor = "#e5e7eb"; }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwd(p => !p)}
+                    style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#6b7280", display: "flex", alignItems: "center" }}
+                  >
+                    {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+
+                {verifyError && (
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "10px 12px", marginBottom: 16, fontSize: 13, color: "#dc2626" }}>
+                    <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <span>{verifyError}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={verifying || !password.trim()}
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    background: verifying || !password.trim()
+                      ? "#9ca3af"
+                      : "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 10,
+                    fontSize: 15,
+                    fontWeight: 600,
+                    cursor: verifying || !password.trim() ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    transition: "all 0.2s",
+                    boxShadow: verifying || !password.trim() ? "none" : "0 4px 12px rgba(46,125,82,0.3)",
+                  }}
+                >
+                  {verifying ? (
+                    <><RefreshCw size={16} style={{ animation: "spin 1s linear infinite" }} /> Verifying...</>
+                  ) : (
+                    <><ShieldCheck size={16} /> Verify &amp; Continue <ArrowRight size={16} /></>
+                  )}
+                </button>
+              </form>
+            </>
+          )}
+
+          {/* ── Step: Upload ──────────────────────────────────── */}
+          {step === "upload" && sessionInfo && (
+            <>
+              {/* Welcome back */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 4 }}>
+                  Hello, {sessionInfo.name}
+                </div>
+                <div style={{ fontSize: 13, color: "#6b7280" }}>{sessionInfo.email}</div>
+              </div>
+
+              {/* Admin's reason */}
+              <div style={{
+                background: "#fff8e6",
+                border: "1px solid #fbbf24",
+                borderLeft: "4px solid #f59e0b",
+                borderRadius: "0 10px 10px 0",
+                padding: "14px 16px",
+                marginBottom: 24,
+                fontSize: 13,
+                color: "#374151",
+                lineHeight: 1.6,
+              }}>
+                <strong style={{ display: "block", marginBottom: 6, color: "#1f2937", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Admin's Note
+                </strong>
+                {sessionInfo.reason}
+              </div>
+
+              {/* Document upload zones */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 12 }}>
+                  Documents to Re-upload ({sessionInfo.requiredDocs?.length || 0})
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {sessionInfo.requiredDocs?.map(docType => (
+                    <DocumentZone
+                      key={docType}
+                      docType={docType}
+                      file={files[docType]}
+                      onChange={(f) => setFiles(prev => ({ ...prev, [docType]: f }))}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {submitError && (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "10px 12px", marginBottom: 16, fontSize: 13, color: "#dc2626" }}>
+                  <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span>{submitError}</span>
+                </div>
+              )}
+
+              <button
+                onClick={handleSubmit}
+                disabled={submitting || !allDocsProvided}
+                style={{
+                  width: "100%",
+                  padding: "14px",
+                  background: submitting || !allDocsProvided
+                    ? "#9ca3af"
+                    : "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 10,
+                  fontSize: 15,
+                  fontWeight: 600,
+                  cursor: submitting || !allDocsProvided ? "not-allowed" : "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  transition: "all 0.2s",
+                  boxShadow: submitting || !allDocsProvided ? "none" : "0 4px 12px rgba(46,125,82,0.3)",
+                }}
+              >
+                {submitting ? (
+                  <><RefreshCw size={16} style={{ animation: "spin 1s linear infinite" }} /> Uploading documents...</>
+                ) : (
+                  <><Upload size={16} /> Submit Documents</>
+                )}
+              </button>
+
+              {!allDocsProvided && (
+                <div style={{ textAlign: "center", fontSize: 12, color: "#9ca3af", marginTop: 8 }}>
+                  Upload all required documents to continue
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── Step: Success ─────────────────────────────────── */}
+          {step === "success" && (
+            <div style={{ textAlign: "center", padding: "8px 0" }}>
+              <div style={{
+                width: 72, height: 72, borderRadius: "50%",
+                background: "linear-gradient(135deg, #dcfce7, #bbf7d0)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                margin: "0 auto 20px",
+                boxShadow: "0 8px 24px rgba(46,125,82,0.2)"
+              }}>
+                <CheckCircle2 size={36} color="#2E7D52" />
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#111827", marginBottom: 8 }}>
+                Documents Submitted!
+              </div>
+              <div style={{ fontSize: 14, color: "#6b7280", lineHeight: 1.7, marginBottom: 28 }}>
+                Your updated documents have been received. Our admin team will review your
+                application and you'll receive an email with the decision shortly.
+              </div>
+              <div style={{
+                background: "#f0f7f4",
+                border: "1px solid rgba(46,125,82,0.2)",
+                borderRadius: 12,
+                padding: "14px 16px",
+                marginBottom: 24,
+                fontSize: 13,
+                color: "#374151",
+                lineHeight: 1.6,
+                textAlign: "left",
+              }}>
+                <strong style={{ display: "block", marginBottom: 6, color: "#1f2937" }}>What's next?</strong>
+                ✓ You'll receive a confirmation email shortly<br />
+                ✓ Admin team will review your documents (1–3 working days)<br />
+                ✓ You'll get an email with the final decision
+              </div>
+              <button
+                onClick={onDone}
+                style={{
+                  padding: "12px 32px",
+                  background: "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 10,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  boxShadow: "0 4px 12px rgba(46,125,82,0.25)",
+                }}
+              >
+                Back to Home
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
+    </div>
+  );
+}

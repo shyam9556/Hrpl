@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { quotations as quotationsApi, uploads as uploadsApi } from "../utils/api";
 import { fmt, generatePdfQuotation, generateBOM } from "../utils/helpers";
-import { Loader2, Inbox, CheckCircle, XCircle, Paperclip, Download, Eye, X, User, Phone, MapPin, Zap, FileText, Camera, Truck, Package, Check, FolderOpen, ChevronLeft, ChevronRight, AlertTriangle, Copy } from "lucide-react";
+import { Loader2, Inbox, CheckCircle, XCircle, Paperclip, Download, Eye, X, User, Phone, MapPin, Zap, FileText, Camera, Truck, Package, Check, FolderOpen, ChevronLeft, ChevronRight, AlertTriangle, Copy, Search } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ErrorState from "./ErrorState";
 
@@ -31,6 +31,7 @@ export default function DealerRequestsAdmin() {
   const [fetchError, setFetchError] = useState(false);
   // UX-6: tracks whether quotation number was just copied in the modal
   const [copiedQuotationNumber, setCopiedQuotationNumber] = useState(false);
+  const [search, setSearch] = useState("");
 
   // Coordinate editing state for manual tagging
   const [editingCoordsDocId, setEditingCoordsDocId] = useState(null);
@@ -98,6 +99,7 @@ export default function DealerRequestsAdmin() {
   }, [filter, page]);
 
   useEffect(() => { setPage(1); }, [filter]);
+  useEffect(() => { setPage(1); }, [search]);
   useEffect(() => { setLoading(true); fetchQuotations(); }, [filter, page]);
 
   // Load secure blob URLs for documents when modal opens.
@@ -456,12 +458,52 @@ export default function DealerRequestsAdmin() {
         <div className="page-sub">Review and manage dealer quotation requests</div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+      {/* Status filter + Search bar */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         {["", "Pending", "Approved", "Rejected"].map(s => (
           <button key={s} className={`btn-sm ${filter === s ? "primary" : ""}`} onClick={() => setFilter(s)} style={{ padding: "6px 14px", borderRadius: 8 }}>
             {s || "All"}
           </button>
         ))}
+
+        {/* Divider */}
+        <div style={{ width: 1, height: 24, background: "var(--border, #e2e8f0)", margin: "0 4px" }} />
+
+        {/* Search */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          background: "var(--card, white)", border: "1px solid var(--border, #e2e8f0)",
+          borderRadius: 10, padding: "6px 12px", minWidth: 240,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+        }}>
+          <Search size={14} style={{ color: "var(--muted)", flexShrink: 0 }} />
+          <input
+            type="text"
+            placeholder="Search quotation, dealer, customer..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ border: "none", outline: "none", background: "transparent", flex: 1, fontSize: 13, color: "var(--text)" }}
+          />
+          {search && (
+            <button onClick={() => setSearch("")} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "flex" }}>
+              <X size={13} />
+            </button>
+          )}
+        </div>
+        {search && (
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>
+            {(() => {
+              const count = list.filter(q => {
+                const s = search.toLowerCase();
+                return q.quotation_number?.toLowerCase().includes(s) ||
+                       q.dealer_name?.toLowerCase().includes(s) ||
+                       q.customer_name?.toLowerCase().includes(s) ||
+                       q.customer_city?.toLowerCase().includes(s);
+              }).length;
+              return `${count} result${count !== 1 ? "s" : ""}`;
+            })()}
+          </span>
+        )}
       </div>
 
       {loading ? (
@@ -507,7 +549,16 @@ export default function DealerRequestsAdmin() {
               </tr>
             </thead>
             <tbody>
-              {list.map(q => (
+              {(search
+                ? list.filter(q => {
+                    const s = search.toLowerCase();
+                    return q.quotation_number?.toLowerCase().includes(s) ||
+                           q.dealer_name?.toLowerCase().includes(s) ||
+                           q.customer_name?.toLowerCase().includes(s) ||
+                           q.customer_city?.toLowerCase().includes(s);
+                  })
+                : list
+              ).map(q => (
                 <tr key={q.id} style={{ borderBottom: "1px solid rgba(0,0,0,0.04)", transition: "background 0.2s" }} className="table-row-hover">
                   <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
                     <div style={{ fontWeight: 600, fontFamily: "var(--mono)", color: "var(--text)", fontSize: "13px" }}>{q.quotation_number}</div>

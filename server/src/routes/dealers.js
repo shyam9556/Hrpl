@@ -1,9 +1,11 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 
 import db from "../config/database.js";
+import env from "../config/env.js";
 import { authenticate, authorize } from "../middleware/auth.js";
-import { sendDealerStatusEmail } from "../services/emailService.js";
+import { sendDealerStatusEmail, sendDocumentReuploadEmail } from "../services/emailService.js";
 
 const router = Router();
 
@@ -17,16 +19,76 @@ router.get("/registrations", async (req, res, next) => {
   try {
     const { status = "Pending" } = req.query;
 
-    const result = await db.query(
-      `SELECT dr.*, u.name as reviewed_by_name
-       FROM dealer_registrations dr
-       LEFT JOIN users u ON u.id = dr.reviewed_by
-       WHERE dr.status = ?
-       ORDER BY dr.submitted_at DESC`,
-      [status]
-    );
+    // Shared reupload token JOIN fragment — used for ReuploadRequested and All
+    const reuploadJoin = `
+      LEFT JOIN dealer_reupload_tokens rt
+        ON rt.registration_id = dr.id
+        AND rt.id = (
+          SELECT id FROM dealer_reupload_tokens
+          WHERE registration_id = dr.id
+          ORDER BY created_at DESC LIMIT 1
+        )`;
 
-    const registrations = result.rows;
+    const reuploadSelect = `,
+           rt.reason        AS reupload_reason,
+           rt.required_docs AS reupload_required_docs,
+           rt.created_at    AS reupload_requested_at,
+           rt.expires_at    AS reupload_expires_at,
+           rt.used          AS reupload_used`;
+
+    // Subquery that counts how many times a dealer has successfully re-uploaded
+    // (used=1 means dealer clicked the link and submitted new docs)
+    const reuploadCountSelect = `,
+           (SELECT COUNT(*) FROM dealer_reupload_tokens
+            WHERE registration_id = dr.id AND used = 1) AS reupload_count`;
+
+    let registrationsQuery;
+
+    if (status === "All") {
+      // Return ALL registrations — no status filter
+      // JOIN latest token for context + count of completed re-uploads
+      registrationsQuery = await db.query(
+        `SELECT dr.*, u.name AS reviewed_by_name${reuploadSelect}${reuploadCountSelect}
+         FROM dealer_registrations dr
+         LEFT JOIN users u ON u.id = dr.reviewed_by
+         ${reuploadJoin}
+         ORDER BY dr.submitted_at DESC`
+      );
+    } else if (status === "ReuploadRequested") {
+      // Filter to ReuploadRequested + JOIN reupload tokens for context
+      registrationsQuery = await db.query(
+        `SELECT dr.*, u.name AS reviewed_by_name${reuploadSelect}${reuploadCountSelect}
+         FROM dealer_registrations dr
+         LEFT JOIN users u ON u.id = dr.reviewed_by
+         ${reuploadJoin}
+         WHERE dr.status = ?
+         ORDER BY dr.submitted_at DESC`,
+        [status]
+      );
+    } else if (status === "Pending") {
+      // For Pending, include reupload_count so we can show the "Re-uploaded" badge
+      // for registrations that went through the re-upload flow and are back for re-review
+      registrationsQuery = await db.query(
+        `SELECT dr.*, u.name AS reviewed_by_name${reuploadCountSelect}
+         FROM dealer_registrations dr
+         LEFT JOIN users u ON u.id = dr.reviewed_by
+         WHERE dr.status = ?
+         ORDER BY dr.submitted_at DESC`,
+        [status]
+      );
+    } else {
+      // Approved, Rejected — simple filter, no extra join needed
+      registrationsQuery = await db.query(
+        `SELECT dr.*, u.name AS reviewed_by_name
+         FROM dealer_registrations dr
+         LEFT JOIN users u ON u.id = dr.reviewed_by
+         WHERE dr.status = ?
+         ORDER BY dr.submitted_at DESC`,
+        [status]
+      );
+    }
+
+    const registrations = registrationsQuery.rows;
 
     if (registrations.length > 0) {
       const regIds = registrations.map(r => r.id);
@@ -160,13 +222,19 @@ router.post("/registrations/:id/approve", async (req, res, next) => {
 });
 
 // ─── POST /api/dealers/registrations/:id/reject ──────────
-// Reject a dealer registration
+// Reject a dealer registration — accepts optional { reason } in request body
 router.post("/registrations/:id/reject", async (req, res, next) => {
   try {
     const regId = parseInt(req.params.id, 10);
 
     if (isNaN(regId)) {
       return res.status(400).json({ success: false, error: "Invalid registration ID." });
+    }
+
+    const { reason } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ success: false, error: "A reason for rejection is required." });
     }
 
     // Fetch registration before update (for email and response)
@@ -185,9 +253,10 @@ router.post("/registrations/:id/reject", async (req, res, next) => {
     const reg = findResult.rows[0];
 
     await db.query(
-      `UPDATE dealer_registrations SET status = 'Rejected', reviewed_by = ?, reviewed_at = NOW()
+      `UPDATE dealer_registrations
+         SET status = 'Rejected', reviewed_by = ?, reviewed_at = NOW(), rejection_reason = ?
        WHERE id = ? AND status = 'Pending'`,
-      [req.user.id, regId]
+      [req.user.id, reason.trim(), regId]
     );
 
     res.json({
@@ -195,9 +264,11 @@ router.post("/registrations/:id/reject", async (req, res, next) => {
       message: `Dealer registration for '${reg.name}' rejected.`,
     });
 
-    // Fire-and-forget email notification
-    sendDealerStatusEmail(reg.email, reg.name, "Rejected")
+    // Fire-and-forget email — includes admin's reason
+    sendDealerStatusEmail(reg.email, reg.name, "Rejected", reason.trim())
       .catch(err => console.error(`[EMAIL] Failed to send dealer Rejected email to ${reg.email}:`, err.message));
+
+    console.log(`[AUDIT] Rejection: admin ID ${req.user.id} rejected registration ID ${regId} (${reg.email}). Reason: ${reason.trim()}`);
   } catch (err) {
     next(err);
   }
@@ -260,6 +331,88 @@ router.patch("/:id/toggle-active", async (req, res, next) => {
         email: dealer.email,
         is_active: newActiveState === 1,
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/dealers/registrations/:id/request-reupload ────
+// Admin only — Request dealer to re-upload documents.
+// Allowed from both Pending and Rejected statuses.
+router.post("/registrations/:id/request-reupload", async (req, res, next) => {
+  try {
+    const regId = parseInt(req.params.id, 10);
+
+    if (isNaN(regId)) {
+      return res.status(400).json({ success: false, error: "Invalid registration ID." });
+    }
+
+    const { reason, documents } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ success: false, error: "A reason for re-upload is required." });
+    }
+
+    if (!documents || !Array.isArray(documents) || documents.length === 0) {
+      return res.status(400).json({ success: false, error: "At least one document type must be selected." });
+    }
+
+    const allowedDocTypes = ["aadhaar", "pan", "passport_photo"];
+    const invalidDocs = documents.filter(d => !allowedDocTypes.includes(d));
+    if (invalidDocs.length > 0) {
+      return res.status(400).json({ success: false, error: `Invalid document types: ${invalidDocs.join(", ")}` });
+    }
+
+    // Fetch the registration — must be Pending or Rejected
+    const regResult = await db.query(
+      "SELECT id, name, email FROM dealer_registrations WHERE id = ? AND status IN ('Pending', 'Rejected')",
+      [regId]
+    );
+
+    if (regResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Registration not found or is not in a state that allows re-upload requests.",
+      });
+    }
+
+    const reg = regResult.rows[0];
+
+    // Invalidate any existing unused re-upload tokens for this registration
+    await db.query(
+      "UPDATE dealer_reupload_tokens SET used = 1 WHERE registration_id = ? AND used = 0",
+      [regId]
+    );
+
+    // Generate a secure random token (raw token goes in email, hash goes in DB)
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+    const requiredDocsStr = documents.join(",");
+
+    // Store token in DB with 72-hour expiry (3 days)
+    await db.query(
+      `INSERT INTO dealer_reupload_tokens (registration_id, token, reason, required_docs, expires_at)
+       VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 72 HOUR))`,
+      [regId, tokenHash, reason.trim(), requiredDocsStr]
+    );
+
+    // Update registration status to ReuploadRequested
+    await db.query(
+      "UPDATE dealer_registrations SET status = 'ReuploadRequested', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
+      [req.user.id, regId]
+    );
+
+    // Build re-upload URL and send email (fire-and-forget)
+    const reuploadUrl = `${env.clientUrl}?reupload=${rawToken}`;
+    sendDocumentReuploadEmail(reg.email, reg.name, reuploadUrl, reason.trim(), documents)
+      .catch(err => console.error(`[EMAIL] Failed to send re-upload email to ${reg.email}:`, err.message));
+
+    console.log(`[AUDIT] Re-upload requested: admin ID ${req.user.id} requested re-upload for registration ID ${regId} (${reg.email})`);
+
+    res.json({
+      success: true,
+      message: `Re-upload request sent to ${reg.name} (${reg.email}).`,
     });
   } catch (err) {
     next(err);

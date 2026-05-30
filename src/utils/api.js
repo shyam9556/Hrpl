@@ -287,11 +287,14 @@ export const dealers = {
   approve: (id) =>
     request(`/dealers/registrations/${id}/approve`, { method: "POST" }),
 
-  reject: (id) =>
-    request(`/dealers/registrations/${id}/reject`, { method: "POST" }),
+  reject: (id, reason) =>
+    request(`/dealers/registrations/${id}/reject`, { method: "POST", body: { reason } }),
 
   toggleActive: (id) =>
     request(`/dealers/${id}/toggle-active`, { method: "PATCH" }),
+
+  requestReupload: (id, reason, documents) =>
+    request(`/dealers/registrations/${id}/request-reupload`, { method: "POST", body: { reason, documents } }),
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -383,6 +386,27 @@ export const uploads = {
 };
 
 // ═══════════════════════════════════════════════════════════
+// REUPLOAD API (public — uses re-upload JWT, not main app JWT)
+// ═══════════════════════════════════════════════════════════
+export const reupload = {
+  // Step 1: Verify token + registration password, get back a short-lived re-upload JWT
+  verify: (token, password) =>
+    request("/auth/reupload/verify", { method: "POST", body: { token, password } }),
+
+  // Get info about the re-upload session (dealer name, reason, required docs)
+  getInfo: (reuploadJwt) =>
+    request("/auth/reupload/info", { headers: { Authorization: `Bearer ${reuploadJwt}` } }),
+
+  // Step 2: Submit new documents
+  submit: (reuploadJwt, documents) =>
+    request("/auth/reupload/submit", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${reuploadJwt}` },
+      body: documents,
+    }),
+};
+
+// ═══════════════════════════════════════════════════════════
 // SETTINGS API
 // ═══════════════════════════════════════════════════════════
 export const settings = {
@@ -459,6 +483,7 @@ export default {
   customers,
   dealers,
   uploads,
+  reupload,
   settings,
   dashboard,
   reports,
