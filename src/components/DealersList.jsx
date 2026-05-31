@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { dealers as dealersApi } from "../utils/api";
-import { Loader2, Store, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
+import { Loader2, Store, ChevronLeft, ChevronRight, Search, X, KeyRound, Eye, EyeOff, CheckCircle, XCircle } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ErrorState from "./ErrorState";
 
@@ -14,6 +14,40 @@ export default function DealersList() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const PAGE_SIZE = 20;
+
+  // ── Admin Reset Password modal state ─────────────────────────────────────
+  const [resetModal, setResetModal]           = useState(null); // null | dealer object
+  const [rpNew, setRpNew]                     = useState("");
+  const [rpConfirm, setRpConfirm]             = useState("");
+  const [rpShowNew, setRpShowNew]             = useState(false);
+  const [rpShowConfirm, setRpShowConfirm]     = useState(false);
+  const [rpLoading, setRpLoading]             = useState(false);
+  const [rpError, setRpError]                 = useState("");
+  const [rpSuccess, setRpSuccess]             = useState(false);
+
+  const openResetModal = (dealer) => {
+    setRpNew(""); setRpConfirm("");
+    setRpShowNew(false); setRpShowConfirm(false);
+    setRpLoading(false); setRpError(""); setRpSuccess(false);
+    setResetModal(dealer);
+  };
+  const closeResetModal = () => { if (!rpLoading) setResetModal(null); };
+
+  const handleAdminReset = async (e) => {
+    e.preventDefault();
+    setRpError("");
+    if (rpNew.length < 8)      { setRpError("Password must be at least 8 characters."); return; }
+    if (rpNew !== rpConfirm)   { setRpError("Passwords do not match."); return; }
+    setRpLoading(true);
+    try {
+      await dealersApi.adminResetPassword(resetModal.id, rpNew);
+      setRpSuccess(true);
+    } catch (err) {
+      setRpError(err.message || "Failed to reset password. Please try again.");
+    } finally {
+      setRpLoading(false);
+    }
+  };
 
   const fetchDealers = useCallback(async (showSpinner = true) => {
     try {
@@ -177,18 +211,28 @@ export default function DealersList() {
                       {new Date(d.created_at).toLocaleDateString("en-IN")}
                     </td>
                     <td>
-                      <button
-                        className="btn-sm"
-                        style={{
-                          padding: "4px 12px", fontSize: 11, borderRadius: 6,
-                          background: d.is_active ? "var(--red)" : "var(--green)",
-                          color: "white", border: "none",
-                        }}
-                        disabled={actionLoading === d.id}
-                        onClick={() => setConfirmToggle(d)}
-                      >
-                        {actionLoading === d.id ? "..." : (d.is_active ? "Deactivate" : "Activate")}
-                      </button>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          className="btn-sm"
+                          style={{
+                            padding: "4px 12px", fontSize: 11, borderRadius: 6,
+                            background: d.is_active ? "var(--red)" : "var(--green)",
+                            color: "white", border: "none",
+                          }}
+                          disabled={actionLoading === d.id}
+                          onClick={() => setConfirmToggle(d)}
+                        >
+                          {actionLoading === d.id ? "..." : (d.is_active ? "Deactivate" : "Activate")}
+                        </button>
+                        <button
+                          className="btn-sm"
+                          style={{ padding: "4px 12px", fontSize: 11, borderRadius: 6,
+                            display: "flex", alignItems: "center", gap: 4 }}
+                          onClick={() => openResetModal(d)}
+                        >
+                          <KeyRound size={12} /> Reset Pwd
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -233,6 +277,158 @@ export default function DealersList() {
         onConfirm={() => setErrorDialog({ open: false, message: "" })}
         onCancel={() => setErrorDialog({ open: false, message: "" })}
       />
+
+      {/* ── Admin Reset Password Modal ───────────────────────────────────── */}
+      {resetModal && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 9999, padding: 16 }}
+          onClick={closeResetModal}
+        >
+          <div
+            style={{ background: "white", borderRadius: 16, width: "100%", maxWidth: 400,
+              boxShadow: "0 24px 64px rgba(0,0,0,0.3)", overflow: "hidden" }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ background: "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
+              padding: "18px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <KeyRound size={18} color="white" />
+                <div>
+                  <div style={{ color: "white", fontWeight: 700, fontSize: 15 }}>Reset Dealer Password</div>
+                  <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 12, marginTop: 2 }}>{resetModal.name}</div>
+                </div>
+              </div>
+              <button onClick={closeResetModal} disabled={rpLoading}
+                style={{ background: "none", border: "none", cursor: rpLoading ? "not-allowed" : "pointer",
+                  color: "rgba(255,255,255,0.8)", display: "flex", padding: 4 }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: "22px 22px 26px" }}>
+              {rpSuccess ? (
+                <div style={{ textAlign: "center", padding: "8px 0" }}>
+                  <div style={{ width: 60, height: 60, borderRadius: "50%",
+                    background: "linear-gradient(135deg, #dcfce7, #bbf7d0)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    margin: "0 auto 14px", boxShadow: "0 8px 20px rgba(46,125,82,0.2)" }}>
+                    <CheckCircle size={30} color="#2E7D52" />
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>Password Reset!</div>
+                  <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 18 }}>
+                    {resetModal.name}'s password has been updated.
+                  </div>
+                  <button className="btn-primary" onClick={() => setResetModal(null)}>Done</button>
+                </div>
+              ) : (
+                <form onSubmit={handleAdminReset}>
+                  {/* New Password */}
+                  <div className="field" style={{ marginBottom: 14 }}>
+                    <label>New Password</label>
+                    <div className="field-pwd-wrapper">
+                      <input
+                        type={rpShowNew ? "text" : "password"}
+                        value={rpNew}
+                        onChange={e => { setRpNew(e.target.value); setRpError(""); }}
+                        placeholder="Min. 8 characters"
+                        autoComplete="new-password"
+                        disabled={rpLoading}
+                        autoFocus
+                      />
+                      <button type="button" className="pwd-toggle-btn" onClick={() => setRpShowNew(v => !v)}>
+                        {rpShowNew ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                    {/* Strength meter */}
+                    {rpNew.length > 0 && (() => {
+                      const hasLen   = rpNew.length >= 8;
+                      const hasUpper = /[A-Z]/.test(rpNew);
+                      const hasNum   = /\d/.test(rpNew);
+                      const score    = [hasLen, hasUpper, hasNum].filter(Boolean).length;
+                      const label    = score === 0 ? "" : score === 1 ? "Weak" : score === 2 ? "Fair" : "Strong";
+                      const color    = score === 0 ? "var(--muted)" : score === 1 ? "#ef4444" : score === 2 ? "#f59e0b" : "#22c55e";
+                      return (
+                        <div style={{ marginTop: 6 }}>
+                          <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+                            {[1,2,3].map(i => (
+                              <div key={i} style={{ flex: 1, height: 3, borderRadius: 2,
+                                background: i <= score ? color : "var(--border)",
+                                transition: "background 0.2s" }} />
+                            ))}
+                          </div>
+                          <div style={{ fontSize: 11, color, fontWeight: 600 }}>
+                            {label}
+                            {!hasLen && <span style={{ color: "var(--muted)", fontWeight: 400 }}> — min. 8 characters</span>}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Confirm Password */}
+                  <div className="field" style={{ marginBottom: 16 }}>
+                    <label>Confirm Password</label>
+                    <div className="field-pwd-wrapper">
+                      <input
+                        type={rpShowConfirm ? "text" : "password"}
+                        value={rpConfirm}
+                        onChange={e => { setRpConfirm(e.target.value); setRpError(""); }}
+                        placeholder="Re-enter new password"
+                        autoComplete="new-password"
+                        disabled={rpLoading}
+                      />
+                      <button type="button" className="pwd-toggle-btn" onClick={() => setRpShowConfirm(v => !v)}>
+                        {rpShowConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                    {rpConfirm.length > 0 && (
+                      <div style={{ fontSize: 11, marginTop: 4, fontWeight: 500,
+                        display: "flex", alignItems: "center", gap: 4,
+                        color: rpNew === rpConfirm ? "var(--green)" : "#ef4444" }}>
+                        {rpNew === rpConfirm
+                          ? <><CheckCircle size={12} /> Passwords match</>
+                          : <><XCircle size={12} /> Passwords do not match</>
+                        }
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Error */}
+                  {rpError && (
+                    <div style={{ background: "#fef2f2", border: "1px solid #fca5a5",
+                      borderRadius: 8, padding: "10px 12px", marginBottom: 14,
+                      fontSize: 13, color: "#dc2626" }}>
+                      {rpError}
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button type="button" onClick={closeResetModal} disabled={rpLoading}
+                      style={{ flex: 1, padding: "10px", border: "1.5px solid var(--border)",
+                        background: "transparent", borderRadius: 8, fontWeight: 600,
+                        fontSize: 14, cursor: rpLoading ? "not-allowed" : "pointer",
+                        color: "var(--text)" }}>
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={rpLoading || rpNew.length < 8 || rpNew !== rpConfirm}
+                      className="btn-primary" style={{ flex: 2, padding: "10px" }}>
+                      {rpLoading
+                        ? <><Loader2 size={14} className="animate-spin" /> Resetting...</>
+                        : <><KeyRound size={14} /> Reset Password</>
+                      }
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

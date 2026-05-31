@@ -620,8 +620,8 @@ export default function App() {
                       const hasUpper = /[A-Z]/.test(cpNew);
                       const hasNum   = /\d/.test(cpNew);
                       const score    = [hasLen, hasUpper, hasNum].filter(Boolean).length;
-                      const label    = score === 1 ? "Weak" : score === 2 ? "Fair" : "Strong";
-                      const color    = score === 1 ? "#ef4444" : score === 2 ? "#f59e0b" : "#22c55e";
+                      const label    = score === 0 ? "" : score === 1 ? "Weak" : score === 2 ? "Fair" : "Strong";
+                      const color    = score === 0 ? "var(--muted, #9ca3af)" : score === 1 ? "#ef4444" : score === 2 ? "#f59e0b" : "#22c55e";
                       return (
                         <div style={{ marginTop: 6 }}>
                           <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>

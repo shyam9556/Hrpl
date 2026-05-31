@@ -307,6 +307,9 @@ export const dealers = {
 
   requestReupload: (id, reason, documents) =>
     request(`/dealers/registrations/${id}/request-reupload`, { method: "POST", body: { reason, documents } }),
+
+  adminResetPassword: (userId, newPassword) =>
+    request(`/auth/admin-reset-password/${userId}`, { method: "POST", body: { newPassword } }),
 };
 
 // ═══════════════════════════════════════════════════════════

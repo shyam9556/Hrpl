@@ -17,6 +17,8 @@ export default function LoginPage({ onLogin }) {
   const [passportPhoto, setPassportPhoto] = useState(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [confirmPass, setConfirmPass]   = useState("");
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [err, setErr] = useState("");
   const [success, setSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -50,6 +52,10 @@ export default function LoginPage({ onLogin }) {
       }
       if (!pass || pass.length < 8) {
         setErr("Password must be at least 8 characters");
+        return;
+      }
+      if (pass !== confirmPass) {
+        setErr("Passwords do not match");
         return;
       }
 
@@ -160,6 +166,7 @@ export default function LoginPage({ onLogin }) {
               setRole("dealer");
               setEmail("");
               setPass("");
+              setConfirmPass("");
               setName("");
               setMobile("");
               setLocation("");
@@ -315,7 +322,7 @@ export default function LoginPage({ onLogin }) {
                   const hasNumber = /\d/.test(pass);
                   const strengthScore = [hasMinLength, hasUpperCase, hasNumber].filter(Boolean).length;
                   const strengthLabel = strengthScore === 0 ? "" : strengthScore === 1 ? "Weak" : strengthScore === 2 ? "Fair" : "Strong";
-                  const strengthColor = strengthScore === 1 ? "#ef4444" : strengthScore === 2 ? "#f59e0b" : "#22c55e";
+                  const strengthColor = strengthScore === 0 ? "var(--muted)" : strengthScore === 1 ? "#ef4444" : strengthScore === 2 ? "#f59e0b" : "#22c55e";
                   return (
                     <div style={{ marginTop: 6 }}>
                       <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
@@ -338,6 +345,38 @@ export default function LoginPage({ onLogin }) {
                   );
                 })()}
               </div>
+            </div>
+
+            {/* Confirm Password — full-width below the grid */}
+            <div className="field" style={{ marginBottom: "1rem" }}>
+              <label>Confirm Password</label>
+              <div className="field-pwd-wrapper">
+                <input
+                  type={showConfirmPass ? "text" : "password"}
+                  placeholder="Re-enter your password"
+                  value={confirmPass}
+                  disabled={isLoading}
+                  autoComplete="new-password"
+                  onChange={e => setConfirmPass(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="pwd-toggle-btn"
+                  onClick={() => setShowConfirmPass(!showConfirmPass)}
+                >
+                  {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {confirmPass.length > 0 && (
+                <div style={{ fontSize: 11, marginTop: 4, fontWeight: 500,
+                  display: "flex", alignItems: "center", gap: 4,
+                  color: pass === confirmPass ? "var(--green)" : "#ef4444" }}>
+                  {pass === confirmPass
+                    ? <><CheckCircle size={12} /> Passwords match</>
+                    : <><XCircle size={12} /> Passwords do not match</>
+                  }
+                </div>
+              )}
             </div>
 
             <div style={{ marginBottom: "1.5rem" }}>
@@ -368,8 +407,8 @@ export default function LoginPage({ onLogin }) {
 
             <button
               type="submit"
-              className={`btn-primary`}
-              disabled={isLoading}
+              className="btn-primary"
+              disabled={isLoading || pass.length < 8 || pass !== confirmPass}
               style={{ position: "relative" }}
             >
               {isLoading ? (
