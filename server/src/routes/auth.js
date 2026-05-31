@@ -109,7 +109,7 @@ router.post("/login", validate(loginSchema), async (req, res, next) => {
 });
 
 // Helper to save base64 verification documents
-const saveBase64File = async (fileObj, entityType, entityId, docType) => {
+const saveBase64File = async (fileObj, entityType, entityId, docType, dbClient = db) => {
   if (!fileObj || !fileObj.data) return null;
 
   // Resolve upload directory from env config (honours UPLOAD_DIR in production)
@@ -153,7 +153,7 @@ const saveBase64File = async (fileObj, entityType, entityId, docType) => {
 
   // Insert document record into database
   // MySQL does not support RETURNING — we insert then fetch by LAST_INSERT_ID()
-  const insertResult = await db.query(
+  const insertResult = await dbClient.query(
     `INSERT INTO documents (entity_type, entity_id, doc_type, file_path, original_name, mime_type, file_size_bytes, uploaded_by, public_token)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -170,7 +170,7 @@ const saveBase64File = async (fileObj, entityType, entityId, docType) => {
   );
 
   // Fetch the inserted document
-  const docResult = await db.query(
+  const docResult = await dbClient.query(
     "SELECT id, entity_type, entity_id, doc_type, original_name, mime_type, file_size_bytes, uploaded_at, public_token FROM documents WHERE id = ?",
     [insertResult.insertId]
   );
@@ -767,13 +767,13 @@ router.post("/reupload/submit", async (req, res, next) => {
 
       // Save new documents (these write files to disk — outside transaction scope)
       if (aadhaarPhoto && requiredDocs.includes("aadhaar")) {
-        await saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar");
+        await saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar", client);
       }
       if (panPhoto && requiredDocs.includes("pan")) {
-        await saveBase64File(panPhoto, "dealer_registration", regId, "pan");
+        await saveBase64File(panPhoto, "dealer_registration", regId, "pan", client);
       }
       if (passportPhoto && requiredDocs.includes("passport_photo")) {
-        await saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo");
+        await saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo", client);
       }
 
       // Mark the re-upload token as used
