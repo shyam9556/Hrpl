@@ -4,7 +4,7 @@ import { auth as authApi, setToken, quotations as quotationsApi, dealers as deal
 import {
   FilePlus, ClipboardList, Users, LayoutDashboard, Inbox, UserPlus,
   Store, IndianRupee, Package, BarChart3, Settings, LogOut, Menu, X,
-  Shield
+  Shield, KeyRound, Eye, EyeOff, Loader2, CheckCircle
 } from "lucide-react";
 import ResetPasswordPage from "./components/ResetPasswordPage";
 import DealerReuploadPage from "./components/DealerReuploadPage";
@@ -92,6 +92,19 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inquiryDataForQuote, setInquiryDataForQuote] = useState(null);
 
+  // ── Change Password Modal state ───────────────────────────────────────────
+  const [showChangePwd, setShowChangePwd] = useState(false);
+  const [cpCurrent, setCpCurrent]         = useState("");
+  const [cpNew, setCpNew]                 = useState("");
+  const [cpConfirm, setCpConfirm]         = useState("");
+  const [cpShowCurrent, setCpShowCurrent] = useState(false);
+  const [cpShowNew, setCpShowNew]         = useState(false);
+  const [cpShowConfirm, setCpShowConfirm] = useState(false);
+  const [cpLoading, setCpLoading]         = useState(false);
+  const [cpError, setCpError]             = useState("");
+  const [cpSuccess, setCpSuccess]         = useState(false);
+
+
   // Ref to hold the polling interval so we can clear it immediately on logout
   const pollIntervalRef = useRef(null);
 
@@ -116,6 +129,17 @@ export default function App() {
 
     const tokenAtCallTime = localStorage.getItem("hp_token");
     const savedUser = localStorage.getItem("hp_user");
+
+    // Guard: if hp_user exists but hp_token is missing, storage is in an inconsistent
+    // state (partial clear, devtools edit, or extremely rare race). The app would show
+    // authenticated UI but every API call would fail silently — the 401 handler does NOT
+    // fire session-expired when no token is sent (tokenSentInThisRequest is null).
+    // Clear the orphaned hp_user immediately and force the user back to login.
+    if (savedUser && !tokenAtCallTime) {
+      localStorage.removeItem("hp_user");
+      setUser(null);
+      return;
+    }
 
     if (!tokenAtCallTime || !savedUser) {
       // No stored session — nothing to validate.
@@ -266,7 +290,42 @@ export default function App() {
     setPendingDealersCount(0);
   }, []);
 
-  // ── If a password reset token is in the URL, show the reset form ────────
+  // ── Change Password handlers (MUST be after logout — they reference it) ───
+  const openChangePwd = useCallback(() => {
+    setCpCurrent(""); setCpNew(""); setCpConfirm("");
+    setCpShowCurrent(false); setCpShowNew(false); setCpShowConfirm(false);
+    setCpLoading(false); setCpError(""); setCpSuccess(false);
+    setShowChangePwd(true);
+    setSidebarOpen(false);
+  }, []);
+
+  const closeChangePwd = useCallback(() => {
+    if (cpLoading) return;
+    setShowChangePwd(false);
+  }, [cpLoading]);
+
+  const handleChangePwd = useCallback(async (e) => {
+    e.preventDefault();
+    setCpError("");
+    if (!cpCurrent.trim()) { setCpError("Current password is required."); return; }
+    if (cpNew.length < 8)  { setCpError("New password must be at least 8 characters."); return; }
+    if (cpNew !== cpConfirm) { setCpError("Passwords do not match."); return; }
+    if (cpNew === cpCurrent) { setCpError("New password must be different from current password."); return; }
+    setCpLoading(true);
+    try {
+      await authApi.changePassword(cpCurrent, cpNew);
+      setCpSuccess(true);
+      // JWT is now invalidated server-side (password_changed_at bumped).
+      // Log out after a short delay so user reads the success message.
+      setTimeout(() => logout(), 2000);
+    } catch (err) {
+      setCpError(err.message || "Failed to change password. Please try again.");
+    } finally {
+      setCpLoading(false);
+    }
+  }, [cpCurrent, cpNew, cpConfirm, logout]);
+
+
   // This intercepts before both the login page and the main app.
   // After the user completes the reset (or cancels), we clear the token from
   // the URL so a normal page-reload doesn't show the reset form again.
@@ -411,6 +470,16 @@ export default function App() {
               </div>
               <div className="sidebar-user-email" title={user.email}>{user.email}</div>
             </div>
+            {/* Change Password button */}
+            <button
+              className="logout-btn"
+              onClick={openChangePwd}
+              style={{ gap: 8, opacity: 0.85 }}
+              title="Change password"
+            >
+              <KeyRound size={16} />
+              <span className="nav-label">Change Password</span>
+            </button>
             <button className="logout-btn" onClick={logout}>
               <LogOut size={16} />
               <span className="nav-label">Logout</span>
@@ -447,6 +516,204 @@ export default function App() {
           {user.role === "admin" && page === "settings" && <SettingsPage />}
         </div>
       </div>
+
+      {/* ── Change Password Modal ────────────────────────────────────────────── */}
+      {showChangePwd && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 9999, padding: 16,
+          }}
+          onClick={closeChangePwd}
+        >
+          <div
+            style={{
+              background: "var(--surface, #fff)", borderRadius: 16,
+              width: "100%", maxWidth: 420,
+              boxShadow: "0 24px 64px rgba(0,0,0,0.3)",
+              overflow: "hidden",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{
+              background: "linear-gradient(135deg, var(--dark, #1C3A2A) 0%, var(--green, #2E7D52) 100%)",
+              padding: "20px 24px", display: "flex", alignItems: "center",
+              justifyContent: "space-between",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <KeyRound size={20} color="white" />
+                <span style={{ color: "white", fontWeight: 700, fontSize: 16 }}>Change Password</span>
+              </div>
+              <button
+                onClick={closeChangePwd}
+                disabled={cpLoading}
+                style={{ background: "none", border: "none", cursor: cpLoading ? "not-allowed" : "pointer",
+                  color: "rgba(255,255,255,0.8)", display: "flex", alignItems: "center", padding: 4 }}
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: "24px 24px 28px" }}>
+              {cpSuccess ? (
+                <div style={{ textAlign: "center", padding: "8px 0" }}>
+                  <div style={{
+                    width: 64, height: 64, borderRadius: "50%",
+                    background: "linear-gradient(135deg, #dcfce7, #bbf7d0)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    margin: "0 auto 16px",
+                    boxShadow: "0 8px 20px rgba(46,125,82,0.2)",
+                  }}>
+                    <CheckCircle size={32} color="#2E7D52" />
+                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text, #111)", marginBottom: 8 }}>
+                    Password Changed!
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--muted, #6b7280)" }}>
+                    You will be logged out in a moment. Please log in with your new password.
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleChangePwd}>
+                  {/* Current password */}
+                  <div className="field" style={{ marginBottom: 14 }}>
+                    <label>Current Password</label>
+                    <div className="field-pwd-wrapper">
+                      <input
+                        type={cpShowCurrent ? "text" : "password"}
+                        value={cpCurrent}
+                        onChange={(e) => { setCpCurrent(e.target.value); setCpError(""); }}
+                        placeholder="Enter current password"
+                        autoComplete="current-password"
+                        disabled={cpLoading}
+                      />
+                      <button type="button" className="pwd-toggle-btn"
+                        onClick={() => setCpShowCurrent(v => !v)}>
+                        {cpShowCurrent ? <EyeOff size={16}/> : <Eye size={16}/>}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* New password + strength */}
+                  <div className="field" style={{ marginBottom: 14 }}>
+                    <label>New Password</label>
+                    <div className="field-pwd-wrapper">
+                      <input
+                        type={cpShowNew ? "text" : "password"}
+                        value={cpNew}
+                        onChange={(e) => { setCpNew(e.target.value); setCpError(""); }}
+                        placeholder="Min. 8 characters"
+                        autoComplete="new-password"
+                        disabled={cpLoading}
+                      />
+                      <button type="button" className="pwd-toggle-btn"
+                        onClick={() => setCpShowNew(v => !v)}>
+                        {cpShowNew ? <EyeOff size={16}/> : <Eye size={16}/>}
+                      </button>
+                    </div>
+                    {/* Strength indicator */}
+                    {cpNew.length > 0 && (() => {
+                      const hasLen   = cpNew.length >= 8;
+                      const hasUpper = /[A-Z]/.test(cpNew);
+                      const hasNum   = /\d/.test(cpNew);
+                      const score    = [hasLen, hasUpper, hasNum].filter(Boolean).length;
+                      const label    = score === 1 ? "Weak" : score === 2 ? "Fair" : "Strong";
+                      const color    = score === 1 ? "#ef4444" : score === 2 ? "#f59e0b" : "#22c55e";
+                      return (
+                        <div style={{ marginTop: 6 }}>
+                          <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+                            {[1,2,3].map(i => (
+                              <div key={i} style={{ flex: 1, height: 3, borderRadius: 2,
+                                background: i <= score ? color : "var(--border, #e5e7eb)",
+                                transition: "background 0.2s" }} />
+                            ))}
+                          </div>
+                          <div style={{ fontSize: 11, color, fontWeight: 600 }}>
+                            {label}
+                            {!hasLen && <span style={{ color: "var(--muted, #9ca3af)", fontWeight: 400 }}> — min. 8 characters</span>}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Confirm new password */}
+                  <div className="field" style={{ marginBottom: 18 }}>
+                    <label>Confirm New Password</label>
+                    <div className="field-pwd-wrapper">
+                      <input
+                        type={cpShowConfirm ? "text" : "password"}
+                        value={cpConfirm}
+                        onChange={(e) => { setCpConfirm(e.target.value); setCpError(""); }}
+                        placeholder="Re-enter new password"
+                        autoComplete="new-password"
+                        disabled={cpLoading}
+                      />
+                      <button type="button" className="pwd-toggle-btn"
+                        onClick={() => setCpShowConfirm(v => !v)}>
+                        {cpShowConfirm ? <EyeOff size={16}/> : <Eye size={16}/>}
+                      </button>
+                    </div>
+                    {cpConfirm.length > 0 && cpNew !== cpConfirm && (
+                      <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4, fontWeight: 500 }}>
+                        Passwords do not match
+                      </div>
+                    )}
+                    {cpConfirm.length > 0 && cpNew === cpConfirm && cpNew.length >= 8 && (
+                      <div style={{ fontSize: 11, color: "#22c55e", marginTop: 4, fontWeight: 500 }}>
+                        Passwords match ✓
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Error */}
+                  {cpError && (
+                    <div style={{
+                      background: "#fef2f2", border: "1px solid #fca5a5",
+                      borderRadius: 8, padding: "10px 12px", marginBottom: 14,
+                      fontSize: 13, color: "#dc2626"
+                    }}>
+                      {cpError}
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button
+                      type="button"
+                      onClick={closeChangePwd}
+                      disabled={cpLoading}
+                      style={{
+                        flex: 1, padding: "11px", border: "1.5px solid var(--border, #e5e7eb)",
+                        background: "transparent", borderRadius: 8,
+                        fontWeight: 600, fontSize: 14, cursor: cpLoading ? "not-allowed" : "pointer",
+                        color: "var(--text, #111)",
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={cpLoading}
+                      className="btn-primary"
+                      style={{ flex: 2, padding: "11px" }}
+                    >
+                      {cpLoading
+                        ? <><Loader2 size={15} className="animate-spin" /> Changing...</>
+                        : <><KeyRound size={15} /> Change Password</>
+                      }
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -262,15 +262,35 @@ router.post("/register", validate(registerSchema), async (req, res, next) => {
       [regId]
     );
 
-    // Save uploaded documents if provided
-    if (aadhaarPhoto) {
-      await saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar");
-    }
-    if (panPhoto) {
-      await saveBase64File(panPhoto, "dealer_registration", regId, "pan");
-    }
-    if (passportPhoto) {
-      await saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo");
+    // Save uploaded documents if provided.
+    // ATOMICITY GUARD: if any document save fails (disk full, magic-byte failure, I/O error),
+    // we delete the just-inserted registration row so the dealer gets a clean error
+    // and can retry the entire registration. Without this, a partial failure would leave
+    // a DB record with missing documents that admin cannot properly review.
+    // Note: Any disk files written before the failure remain (filesystem is not transactional),
+    // but they are non-functional without a DB record pointing to them.
+    try {
+      if (aadhaarPhoto) {
+        await saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar");
+      }
+      if (panPhoto) {
+        await saveBase64File(panPhoto, "dealer_registration", regId, "pan");
+      }
+      if (passportPhoto) {
+        await saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo");
+      }
+    } catch (docErr) {
+      // Compensating delete: remove the registration row so the dealer can retry cleanly
+      try {
+        await db.query("DELETE FROM dealer_registrations WHERE id = ?", [regId]);
+      } catch (deleteErr) {
+        console.error(`[Registration] Failed to clean up registration ID ${regId} after document error:`, deleteErr.message);
+      }
+      console.error(`[Registration] Document save failed for reg ID ${regId}:`, docErr.message);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to process uploaded documents. Please check your files and try again.",
+      });
     }
 
     // Fire-and-forget welcome email — must never block or fail the registration response
@@ -404,8 +424,12 @@ router.post("/forgot-password", validate(forgotPasswordSchema), async (req, res,
       [user.id, tokenHash]
     );
 
-    // Send reset email
-    await sendPasswordResetEmail(user.email, user.name, resetToken);
+    // Send reset email — fire-and-forget so SMTP failures never:
+    // 1) Return a 500 to the user (which leaks that the email exists), or
+    // 2) Block the response while the email service is slow/unreachable.
+    // Failures are logged server-side for ops visibility.
+    sendPasswordResetEmail(user.email, user.name, resetToken)
+      .catch(err => console.error(`[Email] Password reset email failed for ${user.email}:`, err.message));
 
     res.json({
       success: true,

@@ -208,6 +208,8 @@ app.use("/api/auth/reset-password", authLimiter);
 app.use("/api/auth/change-password", authLimiter);
 // Reupload verify: strict limit to prevent brute-forcing the dealer's registration password
 app.use("/api/auth/reupload/verify", authLimiter);
+// Quotation reupload verify: same strict limit as dealer reupload verify
+app.use("/api/auth/reupload-quotation/verify", authLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/quotations", quotationRoutes);
 app.use("/api/prices", priceRoutes);

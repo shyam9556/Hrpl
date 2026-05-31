@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { auth as authApi } from "../utils/api";
-import { Store, Shield, Eye, EyeOff, Loader2, CheckCircle, IdCard, CreditCard, User } from "lucide-react";
+import { Store, Shield, Eye, EyeOff, Loader2, CheckCircle, IdCard, CreditCard, User, XCircle } from "lucide-react";
 import UploadZone from "./UploadZone";
 
 export default function LoginPage({ onLogin }) {
@@ -48,8 +48,8 @@ export default function LoginPage({ onLogin }) {
         setErr("Working location is required (minimum 3 characters)");
         return;
       }
-      if (!pass || pass.length < 6) {
-        setErr("Password must be at least 6 characters");
+      if (!pass || pass.length < 8) {
+        setErr("Password must be at least 8 characters");
         return;
       }
 
@@ -308,6 +308,35 @@ export default function LoginPage({ onLogin }) {
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
+                {/* Password strength indicator — mirrors ResetPasswordPage */}
+                {pass.length > 0 && (() => {
+                  const hasMinLength = pass.length >= 8;
+                  const hasUpperCase = /[A-Z]/.test(pass);
+                  const hasNumber = /\d/.test(pass);
+                  const strengthScore = [hasMinLength, hasUpperCase, hasNumber].filter(Boolean).length;
+                  const strengthLabel = strengthScore === 0 ? "" : strengthScore === 1 ? "Weak" : strengthScore === 2 ? "Fair" : "Strong";
+                  const strengthColor = strengthScore === 1 ? "#ef4444" : strengthScore === 2 ? "#f59e0b" : "#22c55e";
+                  return (
+                    <div style={{ marginTop: 6 }}>
+                      <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+                        {[1, 2, 3].map((i) => (
+                          <div
+                            key={i}
+                            style={{
+                              flex: 1, height: 3, borderRadius: 2,
+                              background: i <= strengthScore ? strengthColor : "var(--border)",
+                              transition: "background 0.2s"
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 11, color: strengthColor, fontWeight: 600 }}>
+                        {strengthLabel}
+                        {!hasMinLength && <span style={{ color: "var(--muted)", fontWeight: 400 }}> — min. 8 characters</span>}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 

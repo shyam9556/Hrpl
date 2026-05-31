@@ -18,8 +18,8 @@ export const registerSchema = Joi.object({
     .messages({ "string.min": "Dealer name must be at least 3 characters" }),
   email: Joi.string().email().required().lowercase().trim()
     .messages({ "string.email": "Please enter a valid email address" }),
-  password: Joi.string().required().min(6).max(100)
-    .messages({ "string.min": "Password must be at least 6 characters" }),
+  password: Joi.string().required().min(8).max(100)
+    .messages({ "string.min": "Password must be at least 8 characters" }),
   mobile: Joi.string().required().pattern(/^\d{10}$/)
     .messages({ "string.pattern.base": "Please enter a valid 10-digit mobile number" }),
   location: Joi.string().required().trim().min(3).max(255)
@@ -48,8 +48,8 @@ export const registerSchema = Joi.object({
 export const changePasswordSchema = Joi.object({
   currentPassword: Joi.string().required()
     .messages({ "string.empty": "Current password is required" }),
-  newPassword: Joi.string().required().min(6).max(100)
-    .messages({ "string.min": "New password must be at least 6 characters" }),
+  newPassword: Joi.string().required().min(8).max(100)
+    .messages({ "string.min": "New password must be at least 8 characters" }),
 });
 
 export const forgotPasswordSchema = Joi.object({
@@ -60,11 +60,11 @@ export const forgotPasswordSchema = Joi.object({
 export const resetPasswordSchema = Joi.object({
   token: Joi.string().required()
     .messages({ "string.empty": "Reset token is required" }),
-  newPassword: Joi.string().required().min(6).max(100)
-    .messages({ "string.min": "Password must be at least 6 characters" }),
+  newPassword: Joi.string().required().min(8).max(100)
+    .messages({ "string.min": "Password must be at least 8 characters" }),
 });
 
 export const adminResetPasswordSchema = Joi.object({
-  newPassword: Joi.string().required().min(6).max(100)
-    .messages({ "string.min": "Password must be at least 6 characters" }),
+  newPassword: Joi.string().required().min(8).max(100)
+    .messages({ "string.min": "Password must be at least 8 characters" }),
 });

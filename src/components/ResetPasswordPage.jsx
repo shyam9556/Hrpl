@@ -26,7 +26,7 @@ export default function ResetPasswordPage({ token, onDone }) {
   const tokenMissing = !token || token.trim().length === 0;
 
   // Password strength helpers
-  const hasMinLength  = newPassword.length >= 6;
+  const hasMinLength  = newPassword.length >= 8;
   const hasUpperCase  = /[A-Z]/.test(newPassword);
   const hasNumber     = /\d/.test(newPassword);
   const passwordsMatch = newPassword === confirmPassword && confirmPassword.length > 0;
@@ -45,7 +45,7 @@ export default function ResetPasswordPage({ token, onDone }) {
     }
 
     if (!hasMinLength) {
-      setErr("Password must be at least 6 characters.");
+      setErr("Password must be at least 8 characters.");
       return;
     }
 
@@ -181,7 +181,7 @@ export default function ResetPasswordPage({ token, onDone }) {
                 </div>
                 <div style={{ fontSize: 11, color: strengthColor, fontWeight: 600 }}>
                   {strengthLabel}
-                  {!hasMinLength && <span style={{ color: "var(--muted)", fontWeight: 400 }}> — min. 6 characters</span>}
+                  {!hasMinLength && <span style={{ color: "var(--muted)", fontWeight: 400 }}> — min. 8 characters</span>}
                 </div>
               </div>
             )}
