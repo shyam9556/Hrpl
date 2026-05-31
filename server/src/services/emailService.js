@@ -848,6 +848,181 @@ export async function sendReuploadConfirmationEmail(toEmail, dealerName) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// QUOTATION DOCUMENT & GEOTAG RE-UPLOAD REQUEST EMAIL
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Send a document/geotag re-upload request email to a dealer for a customer's quotation.
+ * Contains a secure link for the dealer to authenticate and re-upload the flagged files.
+ */
+export async function sendQuotationReuploadEmail(toEmail, dealerName, customerName, quotationNo, reuploadUrl, reason, docTypes = []) {
+  const docLabels = {
+    aadhaar: "Aadhaar Card",
+    pan: "PAN Card",
+    passbook: "Bank Passbook",
+    site_photo: "Latest Light Bill/Site Photo",
+    vera_bill: "Vera Bill",
+    house_photo_1: "House Photo 1",
+    house_photo_2: "House Photo 2",
+    house_photo_3: "House Photo 3",
+    geotag_1: "Site / Inverter Photo (Geotagged)",
+    geotag_2: "Solar Panels Photo (Geotagged)",
+    geotag_3: "ACDB / Net Meter Photo (Geotagged)",
+  };
+
+  const docListHtml = docTypes.length > 0
+    ? docTypes.map(d => `&#10007;&nbsp; <strong>${docLabels[d] || d}</strong>`).join("<br>")
+    : "All customer documents / geotag photos";
+
+  const bodyHtml = `
+    <span style="display:inline-block;background-color:#fff3cd;color:#856404;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:16px;">Action Required</span>
+
+    <h2 style="color:#111827;margin:0 0 20px 0;font-size:22px;font-weight:700;line-height:1.3;">
+      Quotation Documents/Geotag Re-upload Required
+    </h2>
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">
+      Dear <strong>${escapeHtml(dealerName)}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px 0;">
+      Our admin team has reviewed the documents submitted for customer <strong>${escapeHtml(customerName)}</strong> (Quotation: <strong>${escapeHtml(quotationNo)}</strong>) and found that some files or geotags need to be replaced. Please use the secure link below to re-upload them.
+    </p>
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:6px;color:#1f2937;">Admin's Note:</strong>
+        <span style="color:#374151;font-size:14px;line-height:1.6;">${escapeHtml(reason)}</span>
+      `,
+      bgColor: "#fff8e6",
+      borderColor: "#f59e0b",
+    })}
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:8px;color:#1f2937;">Required Replacements:</strong>
+        <span style="font-size:14px;line-height:1.8;color:#374151;">${docListHtml}</span>
+      `,
+      bgColor: "#fef2f2",
+      borderColor: "#dc2626",
+    })}
+
+    ${ctaButton({ href: reuploadUrl, label: "Re-upload Files", color: "#2E7D52" })}
+
+    ${infoBox({
+      content: [
+        '<strong style="display:block;margin-bottom:4px;color:#1f2937;">&#9888;&#65039; Important</strong>',
+        'This secure link is valid for <strong>3 days</strong> (72 hours) and can only be used once.<br>',
+        'You will need to verify your identity with your <strong>dealer portal password</strong> to proceed.'
+      ].join(''),
+      bgColor: "#fffbeb",
+      borderColor: "#f59e0b",
+    })}
+
+    <p style="color:#9ca3af;font-size:12px;line-height:1.6;margin:20px 0 0 0;">
+      If the button above doesn't work, copy and paste the link below into your browser:<br>
+      <a href="${escapeHtml(reuploadUrl)}" style="color:#2E7D52;word-break:break-all;">${escapeHtml(reuploadUrl)}</a>
+    </p>
+  `;
+
+  const htmlContent = buildEmailHtml({ subtitle: "Quotation Document Re-upload", bodyHtml });
+
+  if (!transporter) {
+    console.log("");
+    console.log("╔══════════════════════════════════════════════════════╗");
+    console.log("║  📧 QUOTATION REUPLOAD REQUEST (Dev Mode — Not Sent) ║");
+    console.log("╠══════════════════════════════════════════════════════╣");
+    console.log(`║  To:       ${toEmail}`);
+    console.log(`║  Name:     ${dealerName}`);
+    console.log(`║  Customer: ${customerName}`);
+    console.log(`║  Quote:    ${quotationNo}`);
+    console.log(`║  Reason:   ${reason}`);
+    console.log(`║  Files:    ${docTypes.join(", ")}`);
+    console.log(`║  Link:     ${reuploadUrl}`);
+    console.log("╚══════════════════════════════════════════════════════╝");
+    console.log("");
+    return true;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: `Action Required: Re-upload documents for ${customerName} — Highlight Pro`,
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`📧 Quotation re-upload request email sent to: ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to send quotation re-upload request email to ${toEmail}:`, err.message);
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// QUOTATION REUPLOAD CONFIRMATION EMAIL (after submission)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Send a confirmation email to the dealer after they successfully re-upload quotation files.
+ */
+export async function sendQuotationReuploadConfirmationEmail(toEmail, dealerName, customerName, quotationNo) {
+  const bodyHtml = `
+    <span style="display:inline-block;background-color:#dbeafe;color:#1e40af;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:16px;">Under Review</span>
+
+    <h2 style="color:#111827;margin:0 0 20px 0;font-size:22px;font-weight:700;line-height:1.3;">
+      Files Received — Quotation Under Re-review
+    </h2>
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">
+      Dear <strong>${escapeHtml(dealerName)}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px 0;">
+      Thank you for re-uploading the requested documents for customer <strong>${escapeHtml(customerName)}</strong>. We have successfully received your updated files for Quotation <strong>${escapeHtml(quotationNo)}</strong>, and the quotation is now back under review by our admin team.
+    </p>
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:6px;color:#1f2937;">What happens next?</strong>
+        &#10003;&nbsp; Our admin team will re-review the newly uploaded files/geotags<br>
+        &#10003;&nbsp; You will receive an email once the quotation status changes<br>
+        &#10003;&nbsp; Review time: <strong>1–2 working days</strong>
+      `,
+      bgColor: "#f0f7f4",
+      borderColor: "#2E7D52",
+    })}
+
+    <p style="color:#9ca3af;font-size:13px;line-height:1.6;margin:24px 0 0 0;">
+      If you have any questions in the meantime, feel free to reach out to us at
+      <a href="mailto:${escapeHtml(env.smtp.fromEmail)}" style="color:#2E7D52;">${escapeHtml(env.smtp.fromEmail)}</a>.
+    </p>
+  `;
+
+  const htmlContent = buildEmailHtml({ subtitle: "Quotation Status Update", bodyHtml });
+
+  if (!transporter) {
+    console.log(`📧 [Dev] Quotation re-upload confirmation email for ${toEmail} (${quotationNo}) — not sent (no SMTP)`);
+    return true;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: `Documents Received: Quotation ${quotationNo} Under Review — Highlight Pro`,
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`📧 Quotation re-upload confirmation email sent to: ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to send quotation re-upload confirmation email to ${toEmail}:`, err.message);
+    return false;
+  }
+}
+
+
 // Startup warning if SMTP is not configured
 if (!env.smtp.isConfigured) {
   console.warn("");

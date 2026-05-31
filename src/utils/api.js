@@ -229,6 +229,9 @@ export const quotations = {
 
   delete: (id) =>
     request(`/quotations/${id}`, { method: "DELETE" }),
+
+  requestReupload: (id, reason, documents) =>
+    request(`/quotations/${id}/request-reupload`, { method: "POST", body: { reason, documents } }),
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -476,6 +479,24 @@ export const reupload = {
     }),
 };
 
+export const reuploadQuotation = {
+  probe: (token) =>
+    requestIsolated(`/auth/reupload-quotation/probe?token=${encodeURIComponent(token)}`),
+
+  verify: (token, password) =>
+    requestIsolated("/auth/reupload-quotation/verify", { method: "POST", body: { token, password } }),
+
+  getInfo: (reuploadJwt) =>
+    requestIsolated("/auth/reupload-quotation/info", { headers: { Authorization: `Bearer ${reuploadJwt}` } }),
+
+  submit: (reuploadJwt, documents) =>
+    requestIsolated("/auth/reupload-quotation/submit", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${reuploadJwt}` },
+      body: documents,
+    }),
+};
+
 // ═══════════════════════════════════════════════════════════
 // SETTINGS API
 // ═══════════════════════════════════════════════════════════
@@ -554,6 +575,7 @@ export default {
   dealers,
   uploads,
   reupload,
+  reuploadQuotation,
   settings,
   dashboard,
   reports,

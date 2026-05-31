@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { quotations as quotationsApi, uploads as uploadsApi } from "../utils/api";
 import { fmt, generatePdfQuotation, generateBOM } from "../utils/helpers";
-import { Loader2, Inbox, CheckCircle, XCircle, Paperclip, Download, Eye, X, User, Phone, MapPin, Zap, FileText, Camera, Truck, Package, Check, FolderOpen, ChevronLeft, ChevronRight, AlertTriangle, Copy, Search } from "lucide-react";
+import { Loader2, Inbox, CheckCircle, XCircle, Paperclip, Download, Eye, X, User, Phone, MapPin, Zap, FileText, Camera, Truck, Package, Check, FolderOpen, ChevronLeft, ChevronRight, AlertTriangle, Copy, Search, RefreshCw } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ErrorState from "./ErrorState";
 
@@ -32,6 +32,117 @@ export default function DealerRequestsAdmin() {
   // UX-6: tracks whether quotation number was just copied in the modal
   const [copiedQuotationNumber, setCopiedQuotationNumber] = useState(false);
   const [search, setSearch] = useState("");
+
+  // Quotation Re-upload request modal state
+  const [reuploadModal, setReuploadModal] = useState(null); // { id, number, customerName }
+  const [reuploadReason, setReuploadReason] = useState("");
+  const [reuploadDocs, setReuploadDocs] = useState({
+    aadhaar: false,
+    pan: false,
+    passbook: false,
+    site_photo: false,
+    vera_bill: false,
+    house_photo_1: false,
+    house_photo_2: false,
+    house_photo_3: false,
+    geotag_1: false,
+    geotag_2: false,
+    geotag_3: false,
+  });
+  const [reuploadLoading, setReuploadLoading] = useState(false);
+  const [reuploadSuccess, setReuploadSuccess] = useState(false);
+
+  const openReuploadModal = (q) => {
+    setReuploadModal({ id: q.id, number: q.quotation_number, customerName: q.customer_name || "Valued Customer" });
+    setReuploadReason(q.reupload_reason || "");
+    if (q.reupload_required_docs) {
+      const prevDocs = q.reupload_required_docs.split(",").map(d => d.trim());
+      setReuploadDocs({
+        aadhaar: prevDocs.includes("aadhaar"),
+        pan: prevDocs.includes("pan"),
+        passbook: prevDocs.includes("passbook"),
+        site_photo: prevDocs.includes("site_photo"),
+        vera_bill: prevDocs.includes("vera_bill"),
+        house_photo_1: prevDocs.includes("house_photo_1"),
+        house_photo_2: prevDocs.includes("house_photo_2"),
+        house_photo_3: prevDocs.includes("house_photo_3"),
+        geotag_1: prevDocs.includes("geotag_1"),
+        geotag_2: prevDocs.includes("geotag_2"),
+        geotag_3: prevDocs.includes("geotag_3"),
+      });
+    } else {
+      setReuploadDocs({
+        aadhaar: false,
+        pan: false,
+        passbook: false,
+        site_photo: false,
+        vera_bill: false,
+        house_photo_1: false,
+        house_photo_2: false,
+        house_photo_3: false,
+        geotag_1: false,
+        geotag_2: false,
+        geotag_3: false,
+      });
+    }
+    setReuploadSuccess(false);
+  };
+
+  const handleRequestReupload = async () => {
+    const selectedDocs = Object.entries(reuploadDocs)
+      .filter(([_, checked]) => checked)
+      .map(([key]) => key);
+
+    if (!reuploadReason.trim()) {
+      setErrorDialog({ open: true, message: "Please provide a reason for requesting re-upload." });
+      return;
+    }
+    if (selectedDocs.length === 0) {
+      setErrorDialog({ open: true, message: "Please select at least one document or geotag to re-upload." });
+      return;
+    }
+
+    setReuploadLoading(true);
+    try {
+      await quotationsApi.requestReupload(reuploadModal.id, reuploadReason.trim(), selectedDocs);
+      setReuploadSuccess(true);
+      
+      // Update local state in the list & selectedQuotation
+      setList(prev => prev.map(q => {
+        if (q.id === reuploadModal.id) {
+          return {
+            ...q,
+            status: "ReuploadRequested",
+            reupload_reason: reuploadReason.trim(),
+            reupload_required_docs: selectedDocs.join(","),
+            reupload_requested_at: new Date().toISOString(),
+            reupload_expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+            reupload_used: 0,
+          };
+        }
+        return q;
+      }));
+
+      setSelectedQuotation(prev => {
+        if (prev && prev.id === reuploadModal.id) {
+          return {
+            ...prev,
+            status: "ReuploadRequested",
+            reupload_reason: reuploadReason.trim(),
+            reupload_required_docs: selectedDocs.join(","),
+            reupload_requested_at: new Date().toISOString(),
+            reupload_expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+            reupload_used: 0,
+          };
+        }
+        return prev;
+      });
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to send re-upload request." });
+    } finally {
+      setReuploadLoading(false);
+    }
+  };
 
   // Coordinate editing state for manual tagging
   const [editingCoordsDocId, setEditingCoordsDocId] = useState(null);
@@ -460,9 +571,9 @@ export default function DealerRequestsAdmin() {
 
       {/* Status filter + Search bar */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        {["", "Pending", "Approved", "Rejected"].map(s => (
+        {["", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => (
           <button key={s} className={`btn-sm ${filter === s ? "primary" : ""}`} onClick={() => setFilter(s)} style={{ padding: "6px 14px", borderRadius: 8 }}>
-            {s || "All"}
+            {s === "ReuploadRequested" ? "Re-upload Requested" : s || "All"}
           </button>
         ))}
 
@@ -561,7 +672,23 @@ export default function DealerRequestsAdmin() {
               ).map(q => (
                 <tr key={q.id} style={{ borderBottom: "1px solid rgba(0,0,0,0.04)", transition: "background 0.2s" }} className="table-row-hover">
                   <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
-                    <div style={{ fontWeight: 600, fontFamily: "var(--mono)", color: "var(--text)", fontSize: "13px" }}>{q.quotation_number}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <div style={{ fontWeight: 600, fontFamily: "var(--mono)", color: "var(--text)", fontSize: "13px" }}>{q.quotation_number}</div>
+                      {q.reupload_count > 0 && (
+                        <span style={{
+                          display: "inline-block",
+                          fontSize: 9,
+                          fontWeight: 700,
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                          background: "#E8F5EE",
+                          color: "#2E7D52",
+                          border: "1px solid rgba(46, 125, 82, 0.2)",
+                        }}>
+                          Re-uploaded {q.reupload_count > 1 ? `×${q.reupload_count}` : ""}
+                        </span>
+                      )}
+                    </div>
                     <span style={{ 
                       display: "inline-block",
                       marginTop: 4,
@@ -967,6 +1094,71 @@ export default function DealerRequestsAdmin() {
 
             {/* Modal Content */}
             <div style={{ padding: 24 }}>
+              {selectedQuotation.status === "ReuploadRequested" && (
+                <div style={{
+                  background: "#fffbeb",
+                  border: "1.5px solid #fbbf24",
+                  borderRadius: 16,
+                  padding: 16,
+                  marginBottom: 20,
+                  display: "flex",
+                  gap: 12,
+                  alignItems: "flex-start",
+                }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: "50%", background: "#fff3cd",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#d97706", flexShrink: 0
+                  }}>
+                    <RefreshCw size={18} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#92400e", marginBottom: 2 }}>Re-upload Request Active</div>
+                    <div style={{ fontSize: 12, color: "#b45309", marginBottom: 8 }}>
+                      {selectedQuotation.reupload_requested_at && (
+                        <span>Sent: <strong>{new Date(selectedQuotation.reupload_requested_at).toLocaleString("en-IN")}</strong></span>
+                      )}
+                      {selectedQuotation.reupload_expires_at && (
+                        <span style={{ marginLeft: 12 }}>
+                          Expiry:{" "}
+                          <strong style={{ color: new Date(selectedQuotation.reupload_expires_at) < new Date() ? "#dc2626" : "#b45309" }}>
+                            {new Date(selectedQuotation.reupload_expires_at).toLocaleString("en-IN")}
+                          </strong>{" "}
+                          ({new Date(selectedQuotation.reupload_expires_at) < new Date() ? "Link Expired" : "Link Active"})
+                        </span>
+                      )}
+                    </div>
+                    {selectedQuotation.reupload_required_docs && (
+                      <div style={{ fontSize: 12, color: "#451a03", marginBottom: 6 }}>
+                        <strong>Files flagged:</strong>{" "}
+                        <span style={{ display: "inline-block", background: "#fef3c7", padding: "2px 8px", borderRadius: 6, fontWeight: 600 }}>
+                          {selectedQuotation.reupload_required_docs.split(",").map(d => {
+                            const labels = {
+                              aadhaar: "Aadhaar Card",
+                              pan: "PAN Card",
+                              passbook: "Bank Passbook",
+                              site_photo: "Latest Light Bill/Site Photo",
+                              vera_bill: "Vera Bill",
+                              house_photo_1: "House Photo 1",
+                              house_photo_2: "House Photo 2",
+                              house_photo_3: "House Photo 3",
+                              geotag_1: "Site / Inverter Photo",
+                              geotag_2: "Solar Panels Photo",
+                              geotag_3: "ACDB / Net Meter Photo",
+                            };
+                            return labels[d] || d;
+                          }).join(", ")}
+                        </span>
+                      </div>
+                    )}
+                    {selectedQuotation.reupload_reason && (
+                      <div style={{ fontSize: 12, color: "#451a03", lineHeight: 1.5, background: "rgba(255,255,255,0.5)", padding: 10, borderRadius: 8, border: "1px dashed rgba(217,119,6,0.2)" }}>
+                        <strong>Reason:</strong> {selectedQuotation.reupload_reason}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               {/* Row 1: Customer & Dealer Details */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 24 }}>
                 {/* Customer info */}
@@ -1651,6 +1843,47 @@ export default function DealerRequestsAdmin() {
                   >
                     <XCircle size={14} /> Reject Request
                   </button>
+                  <button
+                    className="btn-sm"
+                    style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600 }}
+                    disabled={actionLoading === selectedQuotation.id}
+                    onClick={() => openReuploadModal(selectedQuotation)}
+                  >
+                    <RefreshCw size={14} /> Request Re-upload
+                  </button>
+                </div>
+              )}
+
+              {selectedQuotation.status === "Rejected" && (
+                <button
+                  className="btn-sm"
+                  style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600 }}
+                  onClick={() => openReuploadModal(selectedQuotation)}
+                >
+                  <RefreshCw size={14} /> Request Re-upload
+                </button>
+              )}
+
+              {selectedQuotation.status === "ReuploadRequested" && (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="btn-sm"
+                    style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600 }}
+                    onClick={() => openReuploadModal(selectedQuotation)}
+                  >
+                    <RefreshCw size={14} /> Send Link Again
+                  </button>
+                  <button
+                    className="btn-sm danger"
+                    style={{ borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    disabled={actionLoading === selectedQuotation.id}
+                    onClick={async () => {
+                      setStatusConfirm({ id: selectedQuotation.id, status: "Rejected", number: selectedQuotation.quotation_number });
+                      setSelectedQuotation(null);
+                    }}
+                  >
+                    <XCircle size={14} /> Reject Request
+                  </button>
                 </div>
               )}
 
@@ -1691,6 +1924,204 @@ export default function DealerRequestsAdmin() {
           }}
           onCancel={() => setStatusConfirm(null)}
         />
+      )}
+
+      {/* Re-upload Request Modal */}
+      {reuploadModal && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(15,23,42,0.4)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 9999, padding: 16
+        }}>
+          <div style={{
+            background: "white", borderRadius: 20, width: "100%", maxWidth: 640,
+            boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", overflow: "hidden",
+            display: "flex", flexDirection: "column", maxHeight: "90vh"
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: "20px 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
+              borderBottom: "1px solid rgba(0,0,0,0.06)",
+              background: reuploadSuccess ? "#f0fdf4" : "#fffbeb",
+            }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: reuploadSuccess ? "#15803d" : "#92400e", display: "flex", alignItems: "center", gap: 8 }}>
+                  <RefreshCw size={16} />
+                  {reuploadSuccess ? "Request Sent" : "Request Document / Geotag Re-upload"}
+                </div>
+                {!reuploadSuccess && (
+                  <div style={{ fontSize: 12, color: "#b45309", marginTop: 2, fontWeight: 600 }}>
+                    Quotation: {reuploadModal.number} — Customer: {reuploadModal.customerName}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => { if (!reuploadLoading) setReuploadModal(null); }}
+                style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", display: "flex", padding: 4 }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: 24, overflowY: "auto", flex: 1 }}>
+              {reuploadSuccess ? (
+                <div style={{ textAlign: "center", padding: "16px 0" }}>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: "50%", background: "#dcfce7",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#15803d", margin: "0 auto 16px",
+                  }}>
+                    <Check size={28} strokeWidth={3} />
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 6 }}>Re-upload Request Sent Successfully!</div>
+                  <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.6, margin: "0 0 20px 0" }}>
+                    An email with a secure re-upload link has been sent to the dealer.
+                    The quotation is now marked as <strong>Re-upload Requested</strong>.
+                  </p>
+                  <button
+                    onClick={() => setReuploadModal(null)}
+                    className="btn-sm primary"
+                    style={{ padding: "8px 24px", borderRadius: 8, margin: "0 auto" }}
+                  >
+                    Done
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  {/* Category 1: Customer Documents */}
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>Customer Documents</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 20 }}>
+                    {[
+                      { key: "aadhaar", label: "Aadhaar Card" },
+                      { key: "pan", label: "PAN Card" },
+                      { key: "passbook", label: "Bank Passbook" },
+                      { key: "site_photo", label: "Latest Light Bill/Site Photo" },
+                      { key: "vera_bill", label: "Vera Bill" },
+                      { key: "house_photo_1", label: "House Photo 1" },
+                      { key: "house_photo_2", label: "House Photo 2" },
+                      { key: "house_photo_3", label: "House Photo 3" }
+                    ].map(({ key, label }) => (
+                      <label
+                        key={key}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "10px 12px",
+                          borderRadius: 10,
+                          border: `1.5px solid ${reuploadDocs[key] ? "#2E7D52" : "rgba(0,0,0,0.08)"}`,
+                          background: reuploadDocs[key] ? "rgba(46,125,82,0.04)" : "#fafafa",
+                          cursor: "pointer",
+                          userSelect: "none",
+                          transition: "all 0.2s"
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={reuploadDocs[key]}
+                          onChange={(e) => setReuploadDocs(p => ({ ...p, [key]: e.target.checked }))}
+                          style={{ cursor: "pointer", accentColor: "#2E7D52" }}
+                        />
+                        <FileText size={14} color={reuploadDocs[key] ? "#2E7D52" : "#6b7280"} />
+                        <span style={{ fontSize: 13, fontWeight: 500, color: reuploadDocs[key] ? "#1C3A2A" : "#374151" }}>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* Category 2: Installation Geotags */}
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>Installation Geotags</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 24 }}>
+                    {[
+                      { key: "geotag_1", label: "Site / Inverter Photo" },
+                      { key: "geotag_2", label: "Solar Panels Photo" },
+                      { key: "geotag_3", label: "ACDB / Net Meter Photo" }
+                    ].map(({ key, label }) => (
+                      <label
+                        key={key}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "10px 12px",
+                          borderRadius: 10,
+                          border: `1.5px solid ${reuploadDocs[key] ? "#2E7D52" : "rgba(0,0,0,0.08)"}`,
+                          background: reuploadDocs[key] ? "rgba(46,125,82,0.04)" : "#fafafa",
+                          cursor: "pointer",
+                          userSelect: "none",
+                          transition: "all 0.2s"
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={reuploadDocs[key]}
+                          onChange={(e) => setReuploadDocs(p => ({ ...p, [key]: e.target.checked }))}
+                          style={{ cursor: "pointer", accentColor: "#2E7D52" }}
+                        />
+                        <Camera size={14} color={reuploadDocs[key] ? "#2E7D52" : "#6b7280"} />
+                        <span style={{ fontSize: 13, fontWeight: 500, color: reuploadDocs[key] ? "#1C3A2A" : "#374151" }}>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* Reason text area */}
+                  <div style={{ marginBottom: 8 }}>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>Reason for Re-upload Request</label>
+                    <textarea
+                      value={reuploadReason}
+                      onChange={(e) => setReuploadReason(e.target.value)}
+                      placeholder="e.g. The Site Photo is blurry and unreadable. The Solar Panels Photo is missing appropriate geotag coordinates. Please re-upload clear photos."
+                      rows={3}
+                      style={{
+                        width: "100%", padding: 12, border: "1.5px solid rgba(0,0,0,0.08)", borderRadius: 10,
+                        fontSize: 13, color: "#111827", background: "#fafafa", resize: "none", outline: "none",
+                        boxSizing: "border-box", transition: "border-color 0.2s"
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = "#2E7D52"}
+                      onBlur={(e) => e.target.style.borderColor = "rgba(0,0,0,0.08)"}
+                    />
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5, display: "flex", gap: 6, alignItems: "flex-start", background: "#f8fafc", padding: 10, borderRadius: 8 }}>
+                    <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1, color: "#d97706" }} />
+                    <span>The quotation status will change to <strong>Re-upload Requested</strong>. An email with a secure link (expires in 72 hours) will be automatically dispatched to the dealer.</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            {!reuploadSuccess && (
+              <div style={{ padding: "16px 24px", display: "flex", justifyContent: "flex-end", gap: 8, borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+                <button
+                  onClick={() => setReuploadModal(null)}
+                  className="btn-sm"
+                  style={{ background: "white", color: "var(--text)", border: "1px solid rgba(0,0,0,0.1)", borderRadius: 8, padding: "8px 16px", cursor: reuploadLoading ? "not-allowed" : "pointer" }}
+                  disabled={reuploadLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRequestReupload}
+                  disabled={reuploadLoading || !reuploadReason.trim() || !Object.values(reuploadDocs).some(Boolean)}
+                  className="btn-sm"
+                  style={{
+                    borderRadius: 8, padding: "8px 20px", cursor: reuploadLoading || !reuploadReason.trim() || !Object.values(reuploadDocs).some(Boolean) ? "not-allowed" : "pointer",
+                    background: reuploadLoading || !reuploadReason.trim() || !Object.values(reuploadDocs).some(Boolean) ? "#9ca3af" : "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
+                    color: "white", border: "none", fontWeight: 600, display: "flex", alignItems: "center", gap: 6,
+                    boxShadow: reuploadLoading || !reuploadReason.trim() || !Object.values(reuploadDocs).some(Boolean) ? "none" : "0 4px 12px rgba(46,125,82,0.2)"
+                  }}
+                >
+                  {reuploadLoading ? (
+                    <><Loader2 size={14} className="animate-spin" /> Sending...</>
+                  ) : (
+                    <><RefreshCw size={14} /> Send Re-upload Request</>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

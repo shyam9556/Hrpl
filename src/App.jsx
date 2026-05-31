@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import ResetPasswordPage from "./components/ResetPasswordPage";
 import DealerReuploadPage from "./components/DealerReuploadPage";
+import QuotationReuploadPage from "./components/QuotationReuploadPage";
 
 // Components
 import LoginPage from "./components/LoginPage";
@@ -78,6 +79,14 @@ export default function App() {
   const [reuploadToken, setReuploadToken] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("reupload") || "";
+  });
+
+  // ── Quotation Document & Geotag Re-upload Deep-Link Detection ──────────────
+  // When a dealer clicks the quotation re-upload link from their email (CLIENT_URL?q_reupload=TOKEN)
+  // we render the QuotationReuploadPage instead of login or the main app.
+  const [qReuploadToken, setQReuploadToken] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("q_reupload") || "";
   });
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -281,6 +290,21 @@ export default function App() {
           url.searchParams.delete("reupload");
           window.history.replaceState({}, document.title, url.pathname);
           setReuploadToken("");
+        }}
+      />
+    );
+  }
+
+  // ── Render the quotation re-upload page when the URL has ?q_reupload=TOKEN ──
+  if (qReuploadToken) {
+    return (
+      <QuotationReuploadPage
+        token={qReuploadToken}
+        onDone={() => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("q_reupload");
+          window.history.replaceState({}, document.title, url.pathname);
+          setQReuploadToken("");
         }}
       />
     );

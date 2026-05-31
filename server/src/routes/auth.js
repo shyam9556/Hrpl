@@ -19,7 +19,7 @@ import {
   resetPasswordSchema,
   adminResetPasswordSchema,
 } from "../validators/authSchema.js";
-import { sendPasswordResetEmail, sendDealerWelcomeEmail, sendReuploadConfirmationEmail } from "../services/emailService.js";
+import { sendPasswordResetEmail, sendDealerWelcomeEmail, sendReuploadConfirmationEmail, sendQuotationReuploadConfirmationEmail } from "../services/emailService.js";
 
 const router = Router();
 
@@ -109,14 +109,16 @@ router.post("/login", validate(loginSchema), async (req, res, next) => {
 });
 
 // Helper to save base64 verification documents
-const saveBase64File = async (fileObj, entityType, entityId, docType, dbClient = db) => {
+const saveBase64File = async (fileObj, entityType, entityId, docType, dbClient = db, latitude = null, longitude = null) => {
   if (!fileObj || !fileObj.data) return null;
 
   // Resolve upload directory from env config (honours UPLOAD_DIR in production)
   const uploadsBase = path.isAbsolute(env.upload.dir)
     ? env.upload.dir
     : path.resolve(__dirname, "../..", env.upload.dir);
-  const uploadsDir = path.join(uploadsBase, "dealer_registrations");
+  
+  const folderName = entityType === "quotation" ? "quotations" : "dealer_registrations";
+  const uploadsDir = path.join(uploadsBase, folderName);
   await fs.mkdir(uploadsDir, { recursive: true });
 
   // Extract content and extension
@@ -149,13 +151,13 @@ const saveBase64File = async (fileObj, entityType, entityId, docType, dbClient =
   await fs.writeFile(filePath, buffer);
 
   // Store relative path
-  const relativePath = `dealer_registrations/${filename}`;
+  const relativePath = `${folderName}/${filename}`;
 
   // Insert document record into database
   // MySQL does not support RETURNING — we insert then fetch by LAST_INSERT_ID()
   const insertResult = await dbClient.query(
-    `INSERT INTO documents (entity_type, entity_id, doc_type, file_path, original_name, mime_type, file_size_bytes, uploaded_by, public_token)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO documents (entity_type, entity_id, doc_type, file_path, original_name, mime_type, file_size_bytes, uploaded_by, public_token, latitude, longitude)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       entityType,
       entityId,
@@ -166,12 +168,14 @@ const saveBase64File = async (fileObj, entityType, entityId, docType, dbClient =
       fileObj.size,
       null, // uploaded_by is null since they are not logged in yet
       crypto.randomUUID(),
+      latitude ? parseFloat(latitude) : null,
+      longitude ? parseFloat(longitude) : null,
     ]
   );
 
   // Fetch the inserted document
   const docResult = await dbClient.query(
-    "SELECT id, entity_type, entity_id, doc_type, original_name, mime_type, file_size_bytes, uploaded_at, public_token FROM documents WHERE id = ?",
+    "SELECT id, entity_type, entity_id, doc_type, original_name, mime_type, file_size_bytes, uploaded_at, public_token, latitude, longitude FROM documents WHERE id = ?",
     [insertResult.insertId]
   );
 
@@ -804,6 +808,325 @@ router.post("/reupload/submit", async (req, res, next) => {
     res.json({
       success: true,
       message: "Documents re-uploaded successfully. Your registration is now back under review.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/auth/reupload-quotation/probe ────────────────────
+// Public — Lightweight check whether a raw quotation re-upload token is still valid.
+router.get("/reupload-quotation/probe", async (req, res, next) => {
+  try {
+    const rawToken = req.query.token;
+
+    if (!rawToken || typeof rawToken !== "string" || rawToken.length < 32) {
+      return res.status(400).json({ success: false, valid: false, error: "Invalid token format." });
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+    const result = await db.query(
+      `SELECT rt.id
+       FROM quotation_reupload_tokens rt
+       JOIN quotations q ON q.id = rt.quotation_id
+       WHERE rt.token = ?
+         AND rt.used = 0
+         AND rt.expires_at > NOW()
+         AND q.status = 'ReuploadRequested'`,
+      [tokenHash]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        error: "This re-upload link is no longer valid.",
+      });
+    }
+
+    return res.json({ success: true, valid: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/auth/reupload-quotation/verify ──────────────────
+// Public — Verify quotation re-upload token + dealer's password
+router.post("/reupload-quotation/verify", reuploadVerifyLimiter, async (req, res, next) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return res.status(400).json({ success: false, error: "Token and password are required." });
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    // Find valid token + quotation + dealer
+    const result = await db.query(
+      `SELECT rt.id AS token_id, rt.quotation_id, rt.reason, rt.required_docs,
+              q.quotation_number, q.status,
+              u.name AS dealer_name, u.email AS dealer_email, u.password_hash AS dealer_password_hash,
+              c.name AS customer_name
+       FROM quotation_reupload_tokens rt
+       JOIN quotations q ON q.id = rt.quotation_id
+       JOIN users u ON u.id = q.dealer_id
+       LEFT JOIN customers c ON c.id = q.customer_id
+       WHERE rt.token = ?
+         AND rt.used = 0
+         AND rt.expires_at > NOW()`,
+      [tokenHash]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "This re-upload link is invalid, has already been used, or has expired. Please contact admin for a new link.",
+      });
+    }
+
+    const record = result.rows[0];
+
+    // Verify the quotation is still in ReuploadRequested status
+    if (record.status !== "ReuploadRequested") {
+      return res.status(400).json({
+        success: false,
+        error: "This re-upload request is no longer valid. The quotation status may have changed.",
+      });
+    }
+
+    // Verify dealer password against users password_hash
+    const isPasswordValid = await bcrypt.compare(password, record.dealer_password_hash);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        error: "Incorrect password. Please enter your dealer account password.",
+      });
+    }
+
+    // Issue a short-lived re-upload JWT
+    const reuploadToken = jwt.sign(
+      { type: "reupload_quotation", quotationId: record.quotation_id, tokenId: record.token_id },
+      env.jwt.secret,
+      { expiresIn: "1h" }
+    );
+
+    const requiredDocs = record.required_docs
+      ? record.required_docs.split(",").filter(Boolean)
+      : [];
+
+    res.json({
+      success: true,
+      reuploadToken,
+      quotation: {
+        quotationNumber: record.quotation_number,
+        customerName: record.customer_name || "Valued Customer",
+        reason: record.reason,
+        requiredDocs,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/auth/reupload-quotation/info ─────────────────────
+// Protected — Get quotation re-upload session info
+router.get("/reupload-quotation/info", async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ success: false, error: "Re-upload token required." });
+    }
+    const reuploadToken = authHeader.split(" ")[1];
+
+    let decoded;
+    try {
+      decoded = jwt.verify(reuploadToken, env.jwt.secret);
+    } catch {
+      return res.status(401).json({ success: false, error: "Invalid or expired session. Please use the link from your email again." });
+    }
+
+    if (decoded.type !== "reupload_quotation") {
+      return res.status(401).json({ success: false, error: "Invalid token type." });
+    }
+
+    // Re-fetch token and details
+    const result = await db.query(
+      `SELECT rt.reason, rt.required_docs, q.quotation_number, c.name AS customer_name
+       FROM quotation_reupload_tokens rt
+       JOIN quotations q ON q.id = rt.quotation_id
+       LEFT JOIN customers c ON c.id = q.customer_id
+       WHERE rt.id = ? AND rt.used = 0 AND rt.expires_at > NOW()`,
+      [decoded.tokenId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ success: false, error: "This re-upload session is no longer valid." });
+    }
+
+    const record = result.rows[0];
+    const requiredDocs = record.required_docs ? record.required_docs.split(",").filter(Boolean) : [];
+
+    res.json({
+      success: true,
+      quotation: {
+        quotationNumber: record.quotation_number,
+        customerName: record.customer_name || "Valued Customer",
+        reason: record.reason,
+        requiredDocs,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/auth/reupload-quotation/submit ──────────────────
+// Protected — Submit new files for a quotation
+router.post("/reupload-quotation/submit", async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ success: false, error: "Re-upload token required." });
+    }
+    const reuploadToken = authHeader.split(" ")[1];
+
+    let decoded;
+    try {
+      decoded = jwt.verify(reuploadToken, env.jwt.secret);
+    } catch {
+      return res.status(401).json({ success: false, error: "Invalid or expired session. Please use the link from your email again." });
+    }
+
+    if (decoded.type !== "reupload_quotation") {
+      return res.status(401).json({ success: false, error: "Invalid token type." });
+    }
+
+    const { quotationId, tokenId } = decoded;
+    const filesPayload = req.body || {}; // e.g. { aadhaar, pan, geotag_1 }
+
+    // Re-validate the token is still valid (not used/expired)
+    const tokenResult = await db.query(
+      `SELECT rt.id, rt.required_docs, q.quotation_number, q.status, q.customer_id,
+              u.name AS dealer_name, u.email AS dealer_email,
+              c.name AS customer_name
+       FROM quotation_reupload_tokens rt
+       JOIN quotations q ON q.id = rt.quotation_id
+       JOIN users u ON u.id = q.dealer_id
+       LEFT JOIN customers c ON c.id = q.customer_id
+       WHERE rt.id = ? AND rt.used = 0 AND rt.expires_at > NOW() AND rt.quotation_id = ?`,
+      [tokenId, quotationId]
+    );
+
+    if (tokenResult.rows.length === 0) {
+      return res.status(400).json({ success: false, error: "This re-upload session is no longer valid." });
+    }
+
+    const tokenRecord = tokenResult.rows[0];
+    if (tokenRecord.status !== "ReuploadRequested") {
+      return res.status(400).json({ success: false, error: "Quotation status has changed. Please contact admin." });
+    }
+
+    const requiredDocs = tokenRecord.required_docs ? tokenRecord.required_docs.split(",").filter(Boolean) : [];
+
+    // Check all required documents are in req.body
+    const missingDocs = requiredDocs.filter(d => !filesPayload[d]);
+    if (missingDocs.length > 0) {
+      const docLabels = {
+        aadhaar: "Aadhaar Card",
+        pan: "PAN Card",
+        passbook: "Bank Passbook",
+        site_photo: "Latest Light Bill/Site Photo",
+        vera_bill: "Vera Bill",
+        house_photo_1: "House Photo 1",
+        house_photo_2: "House Photo 2",
+        house_photo_3: "House Photo 3",
+        geotag_1: "Site / Inverter Photo",
+        geotag_2: "Solar Panels Photo",
+        geotag_3: "ACDB / Net Meter Photo",
+      };
+      return res.status(400).json({
+        success: false,
+        error: `Missing required documents: ${missingDocs.map(d => docLabels[d] || d).join(", ")}`,
+      });
+    }
+
+    // Resolve uploads base path for cleaning up old files
+    const uploadsBase = path.isAbsolute(env.upload.dir)
+      ? env.upload.dir
+      : path.resolve(__dirname, "../..", env.upload.dir);
+
+    const client = await db.getClient();
+    try {
+      await client.query("BEGIN");
+
+      // Delete old document files and DB rows for this quotation
+      if (requiredDocs.length > 0) {
+        const placeholders = requiredDocs.map(() => "?").join(", ");
+        const oldDocsResult = await client.query(
+          `SELECT id, file_path FROM documents
+           WHERE entity_type = 'quotation' AND entity_id = ? AND doc_type IN (${placeholders})`,
+          [quotationId, ...requiredDocs]
+        );
+
+        for (const doc of oldDocsResult.rows) {
+          const oldAbsPath = path.normalize(path.join(uploadsBase, doc.file_path));
+          if (oldAbsPath.startsWith(uploadsBase + path.sep)) {
+            try {
+              await fs.unlink(oldAbsPath);
+            } catch (err) {
+              // Ignore if file doesn't exist on disk
+            }
+          }
+        }
+
+        await client.query(
+          `DELETE FROM documents
+           WHERE entity_type = 'quotation' AND entity_id = ? AND doc_type IN (${placeholders})`,
+          [quotationId, ...requiredDocs]
+        );
+      }
+
+      // Save new files from payload (each item can be: { data, name, type, size, latitude?, longitude? })
+      for (const docType of requiredDocs) {
+        const fileObj = filesPayload[docType];
+        const lat = fileObj.latitude !== undefined ? fileObj.latitude : null;
+        const lng = fileObj.longitude !== undefined ? fileObj.longitude : null;
+        await saveBase64File(fileObj, "quotation", quotationId, docType, client, lat, lng);
+      }
+
+      // Mark the re-upload token as used
+      await client.query("UPDATE quotation_reupload_tokens SET used = 1 WHERE id = ?", [tokenId]);
+
+      // Set quotation status back to Pending for review
+      await client.query(
+        "UPDATE quotations SET status = 'Pending' WHERE id = ?",
+        [quotationId]
+      );
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Send confirmation email (fire-and-forget)
+    sendQuotationReuploadConfirmationEmail(
+      tokenRecord.dealer_email,
+      tokenRecord.dealer_name,
+      tokenRecord.customer_name || "Valued Customer",
+      tokenRecord.quotation_number
+    ).catch(err => console.error(`[EMAIL] Failed to send quotation re-upload confirmation:`, err.message));
+
+    console.log(`[AUDIT] Re-upload submitted for quotation ID ${quotationId} (${tokenRecord.quotation_number}) at ${new Date().toISOString()}`);
+
+    res.json({
+      success: true,
+      message: "Documents and photos re-uploaded successfully. Your quotation is now back under review.",
     });
   } catch (err) {
     next(err);

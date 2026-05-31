@@ -1,10 +1,12 @@
 import { Router } from "express";
 import Joi from "joi";
+import crypto from "crypto";
 
 import db from "../config/database.js";
+import env from "../config/env.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
-import { sendQuotationStatusEmail, sendDeliveryMilestoneEmail } from "../services/emailService.js";
+import { sendQuotationStatusEmail, sendDeliveryMilestoneEmail, sendQuotationReuploadEmail } from "../services/emailService.js";
 
 const router = Router();
 
@@ -247,6 +249,26 @@ router.get("/", async (req, res, next) => {
     const countResult = await db.query(countQuery, params);
     const total = parseInt(countResult.rows[0].total, 10);
 
+    const reuploadJoin = `
+      LEFT JOIN quotation_reupload_tokens rt
+        ON rt.quotation_id = q.id
+        AND rt.id = (
+          SELECT id FROM quotation_reupload_tokens
+          WHERE quotation_id = q.id
+          ORDER BY created_at DESC LIMIT 1
+        )`;
+
+    const reuploadSelect = `,
+           rt.reason        AS reupload_reason,
+           rt.required_docs AS reupload_required_docs,
+           rt.created_at    AS reupload_requested_at,
+           rt.expires_at    AS reupload_expires_at,
+           rt.used          AS reupload_used`;
+
+    const reuploadCountSelect = `,
+           (SELECT COUNT(*) FROM quotation_reupload_tokens
+            WHERE quotation_id = q.id AND used = 1) AS reupload_count`;
+
     // Fetch paginated results with joined data
     const dataQuery = `
       SELECT q.*,
@@ -254,11 +276,13 @@ router.get("/", async (req, res, next) => {
              c.name as customer_name, c.phone as customer_phone, c.email as customer_email, c.city as customer_city, c.address as customer_address,
              p.brand as panel_brand, p.watt as panel_watt, p.type as panel_type,
              i.brand as inverter_brand, i.kw as inverter_kw, i.type as inverter_type
+             ${reuploadSelect}${reuploadCountSelect}
       FROM quotations q
       JOIN users u ON u.id = q.dealer_id
       LEFT JOIN customers c ON c.id = q.customer_id
       JOIN panels p ON p.id = q.panel_id
       JOIN inverters i ON i.id = q.inverter_id
+      ${reuploadJoin}
       WHERE 1=1 ${whereClause}
       ORDER BY q.created_at DESC
       LIMIT ? OFFSET ?
@@ -336,12 +360,25 @@ router.get("/:id", async (req, res, next) => {
               c.name as customer_name, c.phone as customer_phone, c.email as customer_email,
               c.city as customer_city, c.address as customer_address,
               p.brand as panel_brand, p.watt as panel_watt, p.type as panel_type,
-              i.brand as inverter_brand, i.kw as inverter_kw, i.type as inverter_type
+              i.brand as inverter_brand, i.kw as inverter_kw, i.type as inverter_type,
+              rt.reason        AS reupload_reason,
+              rt.required_docs AS reupload_required_docs,
+              rt.created_at    AS reupload_requested_at,
+              rt.expires_at    AS reupload_expires_at,
+              rt.used          AS reupload_used,
+              (SELECT COUNT(*) FROM quotation_reupload_tokens WHERE quotation_id = q.id AND used = 1) AS reupload_count
        FROM quotations q
        JOIN users u ON u.id = q.dealer_id
        LEFT JOIN customers c ON c.id = q.customer_id
        JOIN panels p ON p.id = q.panel_id
        JOIN inverters i ON i.id = q.inverter_id
+       LEFT JOIN quotation_reupload_tokens rt
+         ON rt.quotation_id = q.id
+         AND rt.id = (
+           SELECT id FROM quotation_reupload_tokens
+           WHERE quotation_id = q.id
+           ORDER BY created_at DESC LIMIT 1
+         )
        WHERE q.id = ?`,
       [quotationId]
     );
@@ -386,7 +423,7 @@ router.get("/:id", async (req, res, next) => {
 // ─── PATCH /api/quotations/:id/status ────────────────────
 // Update quotation status (admin only)
 const updateStatusSchema = Joi.object({
-  status: Joi.string().required().valid("Pending", "Approved", "Rejected"),
+  status: Joi.string().required().valid("Pending", "Approved", "Rejected", "ReuploadRequested"),
 });
 
 router.patch("/:id/status", authorize("admin"), validate(updateStatusSchema), async (req, res, next) => {
@@ -405,6 +442,14 @@ router.patch("/:id/status", authorize("admin"), validate(updateStatusSchema), as
 
     if (updateResult.rowCount === 0) {
       return res.status(404).json({ success: false, error: "Quotation not found." });
+    }
+
+    // If approving or rejecting, invalidate any active re-upload tokens
+    if (status === "Approved" || status === "Rejected") {
+      await db.query(
+        "UPDATE quotation_reupload_tokens SET used = 1 WHERE quotation_id = ? AND used = 0",
+        [quotationId]
+      );
     }
 
     // Fetch updated row with dealer info so we can send a notification email
@@ -550,6 +595,99 @@ router.delete("/:id", async (req, res, next) => {
     res.json({
       success: true,
       message: `Quotation ${quotation.quotation_number} deleted.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/quotations/:id/request-reupload ────────────────
+// Admin only — Request dealer to re-upload documents/geotags.
+const requestReuploadSchema = Joi.object({
+  reason: Joi.string().required(),
+  documents: Joi.array().items(
+    Joi.string().valid(
+      "aadhaar", "pan", "passbook", "site_photo", "vera_bill",
+      "house_photo_1", "house_photo_2", "house_photo_3",
+      "geotag_1", "geotag_2", "geotag_3"
+    )
+  ).min(1).required(),
+});
+
+router.post("/:id/request-reupload", authorize("admin"), validate(requestReuploadSchema), async (req, res, next) => {
+  try {
+    const quotationId = parseInt(req.params.id, 10);
+
+    if (isNaN(quotationId)) {
+      return res.status(400).json({ success: false, error: "Invalid quotation ID." });
+    }
+
+    const { reason, documents } = req.body;
+
+    // Fetch the quotation — must be Pending, Rejected, or ReuploadRequested
+    const qResult = await db.query(
+      `SELECT q.id, q.quotation_number, q.status, q.customer_id,
+              u.name AS dealer_name, u.email AS dealer_email,
+              c.name AS customer_name
+       FROM quotations q
+       JOIN users u ON u.id = q.dealer_id
+       LEFT JOIN customers c ON c.id = q.customer_id
+       WHERE q.id = ? AND q.status IN ('Pending', 'Rejected', 'ReuploadRequested')`,
+      [quotationId]
+    );
+
+    if (qResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Quotation not found or is not in a state that allows re-upload requests.",
+      });
+    }
+
+    const q = qResult.rows[0];
+
+    // Invalidate any existing unused re-upload tokens for this quotation
+    await db.query(
+      "UPDATE quotation_reupload_tokens SET used = 1 WHERE quotation_id = ? AND used = 0",
+      [quotationId]
+    );
+
+    // Generate a secure random token (raw token goes in email, hash goes in DB)
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+    const requiredDocsStr = documents.join(",");
+
+    // Store token in DB with 72-hour expiry (3 days)
+    await db.query(
+      `INSERT INTO quotation_reupload_tokens (quotation_id, token, reason, required_docs, expires_at)
+       VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 72 HOUR))`,
+      [quotationId, tokenHash, reason.trim(), requiredDocsStr]
+    );
+
+    // Update quotation status to ReuploadRequested and save rejection note
+    await db.query(
+      `UPDATE quotations 
+       SET status = 'ReuploadRequested', rejection_reason = ? 
+       WHERE id = ?`,
+      [reason.trim(), quotationId]
+    );
+
+    // Build re-upload URL and send email (fire-and-forget)
+    const reuploadUrl = `${env.clientUrl}?q_reupload=${rawToken}`;
+    sendQuotationReuploadEmail(
+      q.dealer_email,
+      q.dealer_name,
+      q.customer_name || "Valued Customer",
+      q.quotation_number,
+      reuploadUrl,
+      reason.trim(),
+      documents
+    ).catch(err => console.error(`[EMAIL] Failed to send quotation re-upload email to ${q.dealer_email}:`, err.message));
+
+    console.log(`[AUDIT] Quotation re-upload requested: admin ID ${req.user.id} requested re-upload for quotation ID ${quotationId} (${q.quotation_number})`);
+
+    res.json({
+      success: true,
+      message: `Re-upload request sent to dealer ${q.dealer_name} for quotation ${q.quotation_number}.`,
     });
   } catch (err) {
     next(err);
