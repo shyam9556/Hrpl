@@ -326,6 +326,26 @@ body {
 }
 .logout-btn:hover { color: #ff8080; background: rgba(255,0,0,0.08); }
 
+/* Change Password sidebar button — green hover to distinguish from destructive Logout */
+.change-pwd-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: rgba(255,255,255,0.5);
+  transition: all 0.15s;
+  background: none;
+  border: none;
+  width: 100%;
+  font-family: 'DM Sans', sans-serif;
+  margin-bottom: 2px;
+}
+.change-pwd-btn:hover { color: #72ECA5; background: rgba(46,125,82,0.15); }
+
+
 /* ── Main Content ── */
 .main {
   flex: 1;

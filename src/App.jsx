@@ -472,9 +472,8 @@ export default function App() {
             </div>
             {/* Change Password button */}
             <button
-              className="logout-btn"
+              className="change-pwd-btn"
               onClick={openChangePwd}
-              style={{ gap: 8, opacity: 0.85 }}
               title="Change password"
             >
               <KeyRound size={16} />
