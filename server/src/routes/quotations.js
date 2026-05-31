@@ -1,12 +1,19 @@
 import { Router } from "express";
 import Joi from "joi";
 import crypto from "crypto";
+import path from "path";
+import { promises as fs } from "fs";
+import { fileURLToPath } from "url";
 
 import db from "../config/database.js";
 import env from "../config/env.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
-import { sendQuotationStatusEmail, sendDeliveryMilestoneEmail, sendQuotationReuploadEmail } from "../services/emailService.js";
+import { sendQuotationStatusEmail, sendDeliveryMilestoneEmail, sendPortalReuploadNotificationEmail, sendGeotagReuploadEmail, sendQuotationReuploadConfirmationEmail } from "../services/emailService.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 
 const router = Router();
 
@@ -85,9 +92,20 @@ router.post("/", validate(createQuotationSchema), async (req, res, next) => {
 
     await client.query("BEGIN");
 
-    // MySQL advisory lock prevents concurrent quotation number generation
-    // GET_LOCK returns 1 on success, 0 on timeout, NULL on error
-    await client.query("SELECT GET_LOCK('quotation_number_lock', 10) as locked");
+    // MySQL advisory lock prevents concurrent quotation number generation.
+    // GET_LOCK returns 1 on success, 0 on timeout, NULL on error.
+    // We must check the return value — a silent 0 means we are NOT holding
+    // the lock and proceeding would risk a duplicate quotation number.
+    const lockResult = await client.query("SELECT GET_LOCK('quotation_number_lock', 10) as locked");
+    const lockAcquired = lockResult.rows?.[0]?.locked;
+    if (lockAcquired !== 1) {
+      await client.query("ROLLBACK");
+      console.error(`[LOCK] Failed to acquire quotation_number_lock — returned: ${lockAcquired}`);
+      return res.status(503).json({
+        success: false,
+        error: "Server is busy processing another quotation. Please try again in a moment.",
+      });
+    }
 
     // Generate sequential quotation number within the lock
     const quotationNumber = await generateQuotationNumber(client);
@@ -249,21 +267,15 @@ router.get("/", async (req, res, next) => {
     const countResult = await db.query(countQuery, params);
     const total = parseInt(countResult.rows[0].total, 10);
 
-    const reuploadJoin = `
-      LEFT JOIN quotation_reupload_tokens rt
-        ON rt.quotation_id = q.id
-        AND rt.id = (
-          SELECT id FROM quotation_reupload_tokens
-          WHERE quotation_id = q.id
-          ORDER BY created_at DESC LIMIT 1
-        )`;
+    const reuploadJoin = ``;
 
     const reuploadSelect = `,
-           rt.reason        AS reupload_reason,
-           rt.required_docs AS reupload_required_docs,
-           rt.created_at    AS reupload_requested_at,
-           rt.expires_at    AS reupload_expires_at,
-           rt.used          AS reupload_used`;
+           q.rejection_reason          AS reupload_reason,
+           q.reupload_required_docs    AS reupload_required_docs,
+           q.geotag_reupload_requested AS geotag_reupload_requested,
+           q.geotag_reupload_reason    AS geotag_reupload_reason,
+           q.geotag_uploaded           AS geotag_uploaded,
+           q.geotag_reupload_slots     AS geotag_reupload_slots`;
 
     const reuploadCountSelect = `,
            (SELECT COUNT(*) FROM quotation_reupload_tokens
@@ -602,14 +614,15 @@ router.delete("/:id", async (req, res, next) => {
 });
 
 // ─── POST /api/quotations/:id/request-reupload ────────────────
-// Admin only — Request dealer to re-upload documents/geotags.
+// Admin only — Request dealer to re-upload specific quotation documents via the portal.
+// Documents are flagged on the quotation directly (no external token link generated).
 const requestReuploadSchema = Joi.object({
   reason: Joi.string().required(),
   documents: Joi.array().items(
     Joi.string().valid(
       "aadhaar", "pan", "passbook", "site_photo", "vera_bill",
-      "house_photo_1", "house_photo_2", "house_photo_3",
-      "geotag_1", "geotag_2", "geotag_3"
+      "house_photo_1", "house_photo_2", "house_photo_3"
+      // Note: geotag_1/2/3 are handled by /request-geotag-reupload below
     )
   ).min(1).required(),
 });
@@ -617,7 +630,6 @@ const requestReuploadSchema = Joi.object({
 router.post("/:id/request-reupload", authorize("admin"), validate(requestReuploadSchema), async (req, res, next) => {
   try {
     const quotationId = parseInt(req.params.id, 10);
-
     if (isNaN(quotationId)) {
       return res.status(400).json({ success: false, error: "Invalid quotation ID." });
     }
@@ -644,46 +656,27 @@ router.post("/:id/request-reupload", authorize("admin"), validate(requestReuploa
     }
 
     const q = qResult.rows[0];
-
-    // Invalidate any existing unused re-upload tokens for this quotation
-    await db.query(
-      "UPDATE quotation_reupload_tokens SET used = 1 WHERE quotation_id = ? AND used = 0",
-      [quotationId]
-    );
-
-    // Generate a secure random token (raw token goes in email, hash goes in DB)
-    const rawToken = crypto.randomBytes(32).toString("hex");
-    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
     const requiredDocsStr = documents.join(",");
 
-    // Store token in DB with 72-hour expiry (3 days)
+    // Store required docs and reason directly on the quotation (portal-based flow)
     await db.query(
-      `INSERT INTO quotation_reupload_tokens (quotation_id, token, reason, required_docs, expires_at)
-       VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 72 HOUR))`,
-      [quotationId, tokenHash, reason.trim(), requiredDocsStr]
-    );
-
-    // Update quotation status to ReuploadRequested and save rejection note
-    await db.query(
-      `UPDATE quotations 
-       SET status = 'ReuploadRequested', rejection_reason = ? 
+      `UPDATE quotations
+       SET status = 'ReuploadRequested', rejection_reason = ?, reupload_required_docs = ?
        WHERE id = ?`,
-      [reason.trim(), quotationId]
+      [reason.trim(), requiredDocsStr, quotationId]
     );
 
-    // Build re-upload URL and send email (fire-and-forget)
-    const reuploadUrl = `${env.clientUrl}?q_reupload=${rawToken}`;
-    sendQuotationReuploadEmail(
+    // Send portal notification email — no token link, dealer logs in directly
+    sendPortalReuploadNotificationEmail(
       q.dealer_email,
       q.dealer_name,
       q.customer_name || "Valued Customer",
       q.quotation_number,
-      reuploadUrl,
       reason.trim(),
       documents
-    ).catch(err => console.error(`[EMAIL] Failed to send quotation re-upload email to ${q.dealer_email}:`, err.message));
+    ).catch(err => console.error(`[EMAIL] Failed to send portal re-upload notification to ${q.dealer_email}:`, err.message));
 
-    console.log(`[AUDIT] Quotation re-upload requested: admin ID ${req.user.id} requested re-upload for quotation ID ${quotationId} (${q.quotation_number})`);
+    console.log(`[AUDIT] Portal document re-upload requested: admin ${req.user.id} → quotation ${quotationId} (${q.quotation_number})`);
 
     res.json({
       success: true,
@@ -693,5 +686,313 @@ router.post("/:id/request-reupload", authorize("admin"), validate(requestReuploa
     next(err);
   }
 });
+
+// ─── POST /api/quotations/:id/submit-portal-reupload ──────────
+// Dealer only — Submit replacement documents via the portal.
+// Uses the dealer's main auth JWT (no reupload token needed).
+router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res, next) => {
+  try {
+    const quotationId = parseInt(req.params.id, 10);
+    if (isNaN(quotationId)) {
+      return res.status(400).json({ success: false, error: "Invalid quotation ID." });
+    }
+
+    // Verify the quotation belongs to this dealer and is in ReuploadRequested status
+    const qResult = await db.query(
+      `SELECT q.id, q.quotation_number, q.status, q.reupload_required_docs, q.customer_id,
+              u.name AS dealer_name, u.email AS dealer_email,
+              c.name AS customer_name
+       FROM quotations q
+       JOIN users u ON u.id = q.dealer_id
+       LEFT JOIN customers c ON c.id = q.customer_id
+       WHERE q.id = ? AND q.dealer_id = ? AND q.status = 'ReuploadRequested'`,
+      [quotationId, req.user.id]
+    );
+
+    if (qResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Quotation not found, does not belong to you, or is not in re-upload requested state.",
+      });
+    }
+
+    const q = qResult.rows[0];
+
+    // Admin MUST have specified which docs to reupload — no fallback
+    if (!q.reupload_required_docs) {
+      return res.status(400).json({
+        success: false,
+        error: "No specific documents have been flagged for re-upload. Please contact admin.",
+      });
+    }
+
+    const docsToProcess = q.reupload_required_docs.split(",").filter(Boolean);
+    const filesPayload = req.body || {};
+
+    // Validate all admin-required docs are present in payload
+    if (docsToProcess.length > 0) {
+      const missingDocs = docsToProcess.filter(d => !filesPayload[d]);
+      if (missingDocs.length > 0) {
+        const docLabels = {
+          aadhaar: "Aadhaar Card", pan: "PAN Card", passbook: "Bank Passbook",
+          site_photo: "Latest Light Bill/Site Photo", vera_bill: "Vera Bill",
+          house_photo_1: "House Photo 1", house_photo_2: "House Photo 2", house_photo_3: "House Photo 3",
+        };
+        return res.status(400).json({
+          success: false,
+          error: `Missing required documents: ${missingDocs.map(d => docLabels[d] || d).join(", ")}`,
+        });
+      }
+    }
+
+    // Resolve uploads directory
+    const uploadsBase = path.isAbsolute(env.upload.dir)
+      ? env.upload.dir
+      : path.resolve(__dirname, "../..", env.upload.dir);
+
+    const ALLOWED_MIME = {
+      aadhaar: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+      pan: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+      passbook: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+      site_photo: ["image/jpeg", "image/png", "image/webp"],
+      vera_bill: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+      house_photo_1: ["image/jpeg", "image/png", "image/webp"],
+      house_photo_2: ["image/jpeg", "image/png", "image/webp"],
+      house_photo_3: ["image/jpeg", "image/png", "image/webp"],
+    };
+
+    const client = await db.getClient();
+    try {
+      await client.query("BEGIN");
+
+      // Delete old documents for the doc types being re-uploaded
+      const placeholders = docsToProcess.map(() => "?").join(", ");
+      const oldDocsResult = await client.query(
+        `SELECT id, file_path FROM documents
+         WHERE entity_type = 'quotation' AND entity_id = ? AND doc_type IN (${placeholders})`,
+        [quotationId, ...docsToProcess]
+      );
+
+      for (const doc of oldDocsResult.rows) {
+        const oldAbsPath = path.normalize(path.join(uploadsBase, doc.file_path));
+        if (oldAbsPath.startsWith(uploadsBase + path.sep)) {
+          try { await fs.unlink(oldAbsPath); } catch { /* file missing, ignore */ }
+        }
+      }
+
+      await client.query(
+        `DELETE FROM documents WHERE entity_type = 'quotation' AND entity_id = ? AND doc_type IN (${placeholders})`,
+        [quotationId, ...docsToProcess]
+      );
+
+      // Save new files (base64 payload: { data, name, type, size })
+      for (const docType of docsToProcess) {
+        const fileObj = filesPayload[docType];
+        if (!fileObj?.data || !fileObj?.name || !fileObj?.type) {
+          throw new Error(`Invalid file payload for ${docType}`);
+        }
+
+        // Validate MIME type
+        const allowed = ALLOWED_MIME[docType] || ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+        if (!allowed.includes(fileObj.type)) {
+          throw new Error(`Invalid file type for ${docType}: ${fileObj.type}`);
+        }
+
+        // Decode base64 and save file
+        // Cross-validate: MIME in data URI must match declared type
+        const dataUriMatch = fileObj.data.match(/^data:([^;]+);base64,/);
+        const dataUriMime = dataUriMatch ? dataUriMatch[1] : null;
+        if (!dataUriMime || dataUriMime !== fileObj.type) {
+          throw new Error(`MIME type mismatch for ${docType}: declared '${fileObj.type}' but data URI contains '${dataUriMime}'.`);
+        }
+
+        const base64Data = fileObj.data.replace(/^data:[^;]+;base64,/, "");
+        const buffer = Buffer.from(base64Data, "base64");
+
+        // Magic-byte verification — mirrors the check in uploads.js.
+        // Validates the actual decoded bytes match the MIME's known signature,
+        // preventing disguised uploads (e.g. an EXE with a crafted JPEG data URI).
+        const MAGIC_SIGNATURES = new Map([
+          ["image/jpeg",      [[0xFF, 0xD8, 0xFF]]],
+          ["image/png",       [[0x89, 0x50, 0x4E, 0x47]]],
+          ["image/webp",      [[0x52, 0x49, 0x46, 0x46]]],
+          ["application/pdf", [[0x25, 0x50, 0x44, 0x46]]],
+        ]);
+        const magicSigs = MAGIC_SIGNATURES.get(fileObj.type);
+        if (!magicSigs) {
+          throw new Error(`Unsupported file type for ${docType}: '${fileObj.type}'.`);
+        }
+        const isValidMagic = magicSigs.some(sig =>
+          sig.every((byte, i) => buffer[i] === byte)
+        );
+        if (!isValidMagic) {
+          throw new Error(
+            `File content for ${docType} does not match its declared type ('${fileObj.type}'). ` +
+            `The file may be corrupted or disguised.`
+          );
+        }
+
+        const ext = fileObj.name.split(".").pop().toLowerCase() || "bin";
+        const safeExt = ext.replace(/[^a-z0-9]/g, "").slice(0, 10);
+        const fileName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${safeExt}`;
+        const relPath = path.join("quotation", String(quotationId), fileName);
+        const absPath = path.join(uploadsBase, relPath);
+
+        await fs.mkdir(path.dirname(absPath), { recursive: true });
+        await fs.writeFile(absPath, buffer);
+
+        await client.query(
+          `INSERT INTO documents (entity_type, entity_id, doc_type, original_name, file_path, mime_type, file_size_bytes, public_token, uploaded_by)
+           VALUES ('quotation', ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [quotationId, docType, fileObj.name, relPath.replace(/\\/g, "/"), fileObj.type, buffer.length, crypto.randomUUID(), req.user.id]
+        );
+      }
+
+      // Clear reupload flag and set status back to Pending
+      await client.query(
+        `UPDATE quotations SET status = 'Pending', reupload_required_docs = NULL WHERE id = ?`,
+        [quotationId]
+      );
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Send confirmation email (fire-and-forget)
+    sendQuotationReuploadConfirmationEmail(
+      q.dealer_email,
+      q.dealer_name,
+      q.customer_name || "Valued Customer",
+      q.quotation_number
+    ).catch(err => console.error(`[EMAIL] Failed to send re-upload confirmation:`, err.message));
+
+    console.log(`[AUDIT] Portal doc re-upload submitted: dealer ${req.user.id} → quotation ${quotationId} (${q.quotation_number})`);
+
+    res.json({
+      success: true,
+      message: "Documents re-uploaded successfully. Your quotation is now back under review.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/quotations/:id/request-geotag-reupload ─────────
+// Admin only — Flag that specific geo-tag photo slots need re-upload.
+// Body: { reason: string, slots: ["geotag_1","geotag_2","geotag_3"] }
+router.post("/:id/request-geotag-reupload", authorize("admin"), async (req, res, next) => {
+  try {
+    const quotationId = parseInt(req.params.id, 10);
+    if (isNaN(quotationId)) {
+      return res.status(400).json({ success: false, error: "Invalid quotation ID." });
+    }
+
+    const { reason, slots } = req.body;
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ success: false, error: "Please provide a reason for requesting geo-tag re-upload." });
+    }
+
+    // Validate slots
+    const VALID_SLOTS = ["geotag_1", "geotag_2", "geotag_3"];
+    const requestedSlots = Array.isArray(slots) && slots.length > 0
+      ? slots.filter(s => VALID_SLOTS.includes(s))
+      : VALID_SLOTS; // default: all 3
+    if (requestedSlots.length === 0) {
+      return res.status(400).json({ success: false, error: "Please select at least one geo-tag photo slot." });
+    }
+
+    // Only allowed on Approved quotations WHERE geo-tags have been uploaded at least once
+    const qResult = await db.query(
+      `SELECT q.id, q.quotation_number, q.status, q.geotag_uploaded,
+              u.name AS dealer_name, u.email AS dealer_email
+       FROM quotations q
+       JOIN users u ON u.id = q.dealer_id
+       WHERE q.id = ? AND q.status = 'Approved'`,
+      [quotationId]
+    );
+
+    if (qResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Quotation not found or is not in Approved status.",
+      });
+    }
+
+    const q = qResult.rows[0];
+
+    // Guard: dealer must have uploaded geo-tags at least once
+    if (!q.geotag_uploaded) {
+      return res.status(400).json({
+        success: false,
+        error: "Dealer has not uploaded any geo-tag photos yet. Re-upload can only be requested after the initial upload.",
+      });
+    }
+
+    // Set the flag and store which specific slots need re-upload
+    const slotsStr = requestedSlots.join(",");
+    await db.query(
+      `UPDATE quotations
+       SET geotag_reupload_requested = 1,
+           geotag_reupload_reason    = ?,
+           geotag_reupload_slots     = ?
+       WHERE id = ?`,
+      [reason.trim(), slotsStr, quotationId]
+    );
+
+    // Send notification email (fire-and-forget)
+    sendGeotagReuploadEmail(
+      q.dealer_email,
+      q.dealer_name,
+      q.quotation_number,
+      reason.trim()
+    ).catch(err => console.error(`[EMAIL] Geotag re-upload email failed:`, err.message));
+
+    console.log(`[AUDIT] Geo-tag re-upload requested: admin ${req.user.id} → quotation ${quotationId} (${q.quotation_number}) slots: ${slotsStr}`);
+
+    res.json({
+      success: true,
+      message: `Geo-tag re-upload request sent to dealer ${q.dealer_name}.`,
+      slots: requestedSlots,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PATCH /api/quotations/:id/clear-geotag-reupload ──────────
+// Called after dealer uploads all requested geo-tag slots, or by admin to manually clear.
+router.patch("/:id/clear-geotag-reupload", authenticate, async (req, res, next) => {
+  try {
+    const quotationId = parseInt(req.params.id, 10);
+    if (isNaN(quotationId)) {
+      return res.status(400).json({ success: false, error: "Invalid quotation ID." });
+    }
+
+    let whereExtra = "";
+    const params = [quotationId];
+    if (req.user.role === "dealer") {
+      whereExtra = " AND dealer_id = ?";
+      params.push(req.user.id);
+    }
+
+    await db.query(
+      `UPDATE quotations
+       SET geotag_reupload_requested = 0,
+           geotag_reupload_reason    = NULL,
+           geotag_reupload_slots     = NULL
+       WHERE id = ?${whereExtra}`,
+      params
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 
 export default router;

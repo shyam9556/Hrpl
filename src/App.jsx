@@ -174,7 +174,12 @@ export default function App() {
   // bus decoupled from component hierarchy.
   useEffect(() => {
     const handleNavigate = (e) => {
-      if (e.detail) setPage(e.detail);
+      if (e.detail) {
+        // "new-quotation" is an alias for the dealer quotation form page
+        const target = e.detail === "new-quotation" ? "quote" : e.detail;
+        setPage(target);
+        pageRef.current = target;
+      }
       setSidebarOpen(false);
     };
     window.addEventListener("hp:navigate", handleNavigate);

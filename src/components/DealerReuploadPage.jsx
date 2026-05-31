@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { reupload as reuploadApi } from "../utils/api";
 import {
   Lock, Eye, EyeOff, Upload, CheckCircle2, AlertTriangle,
@@ -25,6 +25,21 @@ function DocumentZone({ docType, file, onChange }) {
 
   const label = DOC_LABELS[docType] || docType;
   const isImage = file && file.type && file.type.startsWith("image/");
+
+  // Create a stable blob URL for image preview — recreated only when `file` changes,
+  // and revoked on unmount/change to prevent memory leaks.
+  const previewUrl = useMemo(() => {
+    if (!file || !isImage) return null;
+    const url = URL.createObjectURL(file);
+    return url;
+  }, [file]);
+
+  useEffect(() => {
+    // Revoke the blob URL when file changes or component unmounts
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   const processFile = (f) => {
     if (!f) return;
@@ -77,14 +92,18 @@ function DocumentZone({ docType, file, onChange }) {
           type="file"
           accept={DOC_ACCEPT}
           style={{ display: "none" }}
-          onChange={(e) => processFile(e.target.files?.[0])}
+          onChange={(e) => {
+            processFile(e.target.files?.[0]);
+            // Reset so the same file can be re-selected after Remove (BUG 2)
+            e.target.value = "";
+          }}
         />
 
         {file ? (
           <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 12 }}>
             {isImage ? (
               <img
-                src={URL.createObjectURL(file)}
+                src={previewUrl}
                 alt={label}
                 style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, flexShrink: 0, border: "1px solid rgba(0,0,0,0.08)" }}
               />
@@ -313,11 +332,25 @@ export default function DealerReuploadPage({ token, onDone }) {
     setConverting(true);
     setSubmitError("");
     try {
-      // Convert files to base64
+      // Map frontend doc-type keys to the backend's expected payload keys.
+      // The backend /reupload/submit route destructures aadhaarPhoto, panPhoto,
+      // passportPhoto from req.body and validates against requiredDocs.
+      // Using a lookup table keeps this robust and consistent across changes.
+      const DOC_TYPE_TO_PAYLOAD_KEY = {
+        aadhaar:        "aadhaarPhoto",
+        pan:            "panPhoto",
+        passport_photo: "passportPhoto",
+      };
+
       const payload = {};
-      if (files.aadhaar) payload.aadhaarPhoto = await fileToBase64(files.aadhaar);
-      if (files.pan) payload.panPhoto = await fileToBase64(files.pan);
-      if (files.passport_photo) payload.passportPhoto = await fileToBase64(files.passport_photo);
+      for (const docType of sessionInfo.requiredDocs) {
+        const payloadKey = DOC_TYPE_TO_PAYLOAD_KEY[docType];
+        if (!payloadKey) {
+          // Should never happen if server and client are in sync, but guard defensively.
+          throw new Error(`Unknown document type: ${docType}. Please contact support.`);
+        }
+        payload[payloadKey] = await fileToBase64(files[docType]);
+      }
 
       setConverting(false);
       await reuploadApi.submit(reuploadJwt, payload);

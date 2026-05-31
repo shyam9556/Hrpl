@@ -241,7 +241,51 @@ router.post("/single", uploadSingle("file"), handleUploadError, async (req, res,
       [insertResult.insertId]
     );
 
+    // ── Geotag post-upload tracking ───────────────────────────────────────
+    // After any geotag upload on a quotation:
+    // 1. Mark geotag_uploaded = 1 (first-upload tracking)
+    // 2. If a reupload was requested, check if all requested slots are now done
+    //    and clear the flag only when ALL requested slots have been uploaded.
+    if (GEOTAG_TYPES.includes(docType) && entityType === "quotation") {
+      const qid = parseInt(entityId, 10);
+
+      // Step 1: mark uploaded
+      await db.query(
+        "UPDATE quotations SET geotag_uploaded = 1 WHERE id = ?",
+        [qid]
+      );
+
+      // Step 2: smart-clear reupload flag
+      const flagResult = await db.query(
+        "SELECT geotag_reupload_requested, geotag_reupload_slots FROM quotations WHERE id = ?",
+        [qid]
+      );
+      if (flagResult.rows.length > 0 && flagResult.rows[0].geotag_reupload_requested) {
+        const slotsStr = flagResult.rows[0].geotag_reupload_slots;
+        const requestedSlots = slotsStr
+          ? slotsStr.split(",").filter(Boolean)
+          : GEOTAG_TYPES; // legacy: all 3
+
+        // Check which requested slots still have no uploaded doc
+        const uploadedResult = await db.query(
+          `SELECT doc_type FROM documents
+           WHERE entity_type = 'quotation' AND entity_id = ? AND doc_type IN (${requestedSlots.map(() => "?").join(",")})`,
+          [qid, ...requestedSlots]
+        );
+        const uploadedSlots = new Set(uploadedResult.rows.map(r => r.doc_type));
+        const allDone = requestedSlots.every(s => uploadedSlots.has(s));
+
+        if (allDone) {
+          await db.query(
+            "UPDATE quotations SET geotag_reupload_requested = 0, geotag_reupload_reason = NULL, geotag_reupload_slots = NULL WHERE id = ?",
+            [qid]
+          );
+        }
+      }
+    }
+
     res.status(201).json({ success: true, message: "File uploaded successfully.", document: result.rows[0] });
+
   } catch (err) {
     safeUnlink(req.file?.path);
     next(err);

@@ -1027,6 +1027,230 @@ export async function sendQuotationReuploadConfirmationEmail(toEmail, dealerName
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// PORTAL DOCUMENT RE-UPLOAD NOTIFICATION EMAIL
+
+/**
+ * Notify a dealer to log into the portal and re-upload specific quotation documents.
+ * No secure link — dealer is already registered and can log in directly.
+ *
+ * @param {string} toEmail        - Dealer's email address
+ * @param {string} dealerName     - Dealer's display name
+ * @param {string} customerName   - Customer's name
+ * @param {string} quotationNo    - Quotation number
+ * @param {string} reason         - Admin's reason for requesting re-upload
+ * @param {string[]} docTypes     - Array of doc type keys that need re-uploading
+ * @returns {boolean} true if sent (or dev mode), false on failure
+ */
+export async function sendPortalReuploadNotificationEmail(toEmail, dealerName, customerName, quotationNo, reason, docTypes = []) {
+  const docLabels = {
+    aadhaar: "Aadhaar Card",
+    pan: "PAN Card",
+    passbook: "Bank Passbook",
+    site_photo: "Latest Light Bill / Site Photo",
+    vera_bill: "Vera Bill",
+    house_photo_1: "House Photo 1",
+    house_photo_2: "House Photo 2",
+    house_photo_3: "House Photo 3",
+  };
+
+  const docListHtml = docTypes.length > 0
+    ? docTypes.map(d => `&#10007;&nbsp; <strong>${docLabels[d] || d}</strong>`).join("<br>")
+    : "All customer documents";
+
+  const bodyHtml = `
+    <span style="display:inline-block;background-color:#fff3cd;color:#856404;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:16px;">Action Required</span>
+
+    <h2 style="color:#111827;margin:0 0 20px 0;font-size:22px;font-weight:700;line-height:1.3;">
+      Document Re-upload Required
+    </h2>
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">
+      Dear <strong>${escapeHtml(dealerName)}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px 0;">
+      Our admin team has reviewed the documents for customer <strong>${escapeHtml(customerName)}</strong>
+      (Quotation: <strong>${escapeHtml(quotationNo)}</strong>) and found that some documents need to be
+      re-uploaded. Please log in to your dealer portal and use the <strong>"Re-upload Documents"</strong>
+      button on the relevant quotation row.
+    </p>
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:6px;color:#1f2937;">Admin's Note:</strong>
+        <span style="color:#374151;font-size:14px;line-height:1.6;">${escapeHtml(reason)}</span>
+      `,
+      bgColor: "#fff8e6",
+      borderColor: "#f59e0b",
+    })}
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:8px;color:#1f2937;">Documents to Re-upload:</strong>
+        <span style="font-size:14px;line-height:1.8;color:#374151;">${docListHtml}</span>
+      `,
+      bgColor: "#fef2f2",
+      borderColor: "#dc2626",
+    })}
+
+    ${ctaButton({ href: env.clientUrl, label: "Log In to Your Portal", color: "#2E7D52" })}
+
+    ${infoBox({
+      content: [
+        '<strong style="display:block;margin-bottom:4px;color:#1f2937;">How to re-upload:</strong>',
+        '1.&nbsp; Log in to your dealer portal.<br>',
+        '2.&nbsp; Go to <strong>My Requests</strong>.<br>',
+        '3.&nbsp; Find this quotation and click <strong>"Re-upload Documents"</strong>.<br>',
+        '4.&nbsp; Upload the required files and submit.'
+      ].join(''),
+      bgColor: "#f0f7f4",
+      borderColor: "#2E7D52",
+    })}
+
+    <p style="color:#9ca3af;font-size:13px;line-height:1.6;margin:24px 0 0 0;">
+      If you have any questions, please contact your Highlight Pro account manager.
+    </p>
+  `;
+
+  const htmlContent = buildEmailHtml({ subtitle: "Document Re-upload Request", bodyHtml });
+
+  if (!transporter) {
+    console.log("");
+    console.log("╔══════════════════════════════════════════════════════╗");
+    console.log("║  📧 PORTAL REUPLOAD NOTIFICATION (Dev Mode — Not Sent) ║");
+    console.log("╠══════════════════════════════════════════════════════╣");
+    console.log(`║  To:       ${toEmail}`);
+    console.log(`║  Name:     ${dealerName}`);
+    console.log(`║  Customer: ${customerName}`);
+    console.log(`║  Quote:    ${quotationNo}`);
+    console.log(`║  Reason:   ${reason}`);
+    console.log(`║  Docs:     ${docTypes.join(", ")}`);
+    console.log("╚══════════════════════════════════════════════════════╝");
+    console.log("");
+    return true;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: `Action Required: Re-upload Documents for ${customerName} — Highlight Pro`,
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`📧 Portal re-upload notification sent to: ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to send portal re-upload notification to ${toEmail}:`, err.message);
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// GEO-TAG RE-UPLOAD NOTIFICATION EMAIL
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Notify a dealer to log into the portal and re-upload geo-tag photos.
+ * Only sent after a quotation is Approved. Dealer re-uploads via portal geo-tag modal.
+ *
+ * @param {string} toEmail      - Dealer's email address
+ * @param {string} dealerName   - Dealer's display name
+ * @param {string} quotationNo  - Quotation number
+ * @param {string} reason       - Admin's reason for requesting geo-tag re-upload
+ * @returns {boolean} true if sent (or dev mode), false on failure
+ */
+export async function sendGeotagReuploadEmail(toEmail, dealerName, quotationNo, reason) {
+  const bodyHtml = `
+    <span style="display:inline-block;background-color:#fff3cd;color:#856404;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:16px;">Action Required</span>
+
+    <h2 style="color:#111827;margin:0 0 20px 0;font-size:22px;font-weight:700;line-height:1.3;">
+      Geo-Tag Photos Re-upload Required
+    </h2>
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">
+      Dear <strong>${escapeHtml(dealerName)}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px 0;">
+      Our admin team has reviewed the geo-tagged installation photos for quotation
+      <strong>${escapeHtml(quotationNo)}</strong> and found that one or more photos need to be
+      re-uploaded. Please log in to your dealer portal, find this quotation in
+      <strong>My Requests</strong>, and click the <strong>Geo-Tags</strong> button to upload new photos.
+    </p>
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:6px;color:#1f2937;">Admin's Note:</strong>
+        <span style="color:#374151;font-size:14px;line-height:1.6;">${escapeHtml(reason)}</span>
+      `,
+      bgColor: "#fff8e6",
+      borderColor: "#f59e0b",
+    })}
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:8px;color:#1f2937;">Required Photos:</strong>
+        <span style="font-size:14px;line-height:1.8;color:#374151;">
+          &#10007;&nbsp; <strong>Site / Inverter Photo</strong> (Geotagged)<br>
+          &#10007;&nbsp; <strong>Solar Panels Photo</strong> (Geotagged)<br>
+          &#10007;&nbsp; <strong>ACDB / Net Meter Photo</strong> (Geotagged)
+        </span>
+      `,
+      bgColor: "#fef2f2",
+      borderColor: "#dc2626",
+    })}
+
+    ${ctaButton({ href: env.clientUrl, label: "Log In to Upload Photos", color: "#2E7D52" })}
+
+    ${infoBox({
+      content: [
+        '<strong style="display:block;margin-bottom:4px;color:#1f2937;">&#128247; How to re-upload geo-tags:</strong>',
+        '1.&nbsp; Log in to your dealer portal.<br>',
+        '2.&nbsp; Go to <strong>My Requests</strong>.<br>',
+        '3.&nbsp; Find quotation <strong>', escapeHtml(quotationNo), '</strong>.<br>',
+        '4.&nbsp; Click the <strong>Geo-Tags</strong> button and upload new photos with GPS enabled.'
+      ].join(''),
+      bgColor: "#f0f7f4",
+      borderColor: "#2E7D52",
+    })}
+
+    <p style="color:#9ca3af;font-size:13px;line-height:1.6;margin:24px 0 0 0;">
+      Please ensure your phone's location/GPS is enabled when taking these photos so that coordinates
+      are embedded in the image. If you have any questions, contact your Highlight Pro account manager.
+    </p>
+  `;
+
+  const htmlContent = buildEmailHtml({ subtitle: "Geo-Tag Re-upload Request", bodyHtml });
+
+  if (!transporter) {
+    console.log("");
+    console.log("╔══════════════════════════════════════════════════════╗");
+    console.log("║  📧 GEOTAG REUPLOAD EMAIL (Dev Mode — Not Sent)      ║");
+    console.log("╠══════════════════════════════════════════════════════╣");
+    console.log(`║  To:     ${toEmail}`);
+    console.log(`║  Name:   ${dealerName}`);
+    console.log(`║  Quote:  ${quotationNo}`);
+    console.log(`║  Reason: ${reason}`);
+    console.log("╚══════════════════════════════════════════════════════╝");
+    console.log("");
+    return true;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: `Action Required: Re-upload Geo-Tag Photos for ${quotationNo} — Highlight Pro`,
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`📧 Geo-tag re-upload email sent to: ${toEmail} for ${quotationNo}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to send geo-tag re-upload email to ${toEmail}:`, err.message);
+    return false;
+  }
+}
 
 // Startup warning if SMTP is not configured
 if (!env.smtp.isConfigured) {

@@ -126,7 +126,7 @@ export default function UploadZone({ label, icon, file, onChange }) {
         <input
           ref={ref}
           type="file"
-          accept="image/*,.pdf"
+          accept="image/jpeg,image/png,image/webp,.pdf"
           style={{ display: "none" }}
           onChange={handleFileChange}
           disabled={loading}

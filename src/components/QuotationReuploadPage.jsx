@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { reuploadQuotation as reuploadApi } from "../utils/api";
 import {
   Lock, Eye, EyeOff, Upload, CheckCircle2, AlertTriangle,
@@ -26,7 +26,7 @@ const ALLOWED_MIMES = ["image/jpeg", "image/png", "image/webp", "application/pdf
 const MAX_SIZE_MB = 10;
 
 // ─── File dropzone for a single document ────────────────────
-function DocumentZone({ docType, file, onChange }) {
+function DocumentZone({ docType, file, onChange, onCoords }) {
   const inputRef = useRef(null);
   const [drag, setDrag] = useState(false);
   const [typeError, setTypeError] = useState("");
@@ -36,6 +36,17 @@ function DocumentZone({ docType, file, onChange }) {
   const label = DOC_LABELS[docType] || docType;
   const isImage = file && file.type && file.type.startsWith("image/");
   const isGeotag = docType.startsWith("geotag_");
+
+  // Create a stable blob URL for image preview — only recreated when `file`
+  // changes, and revoked on unmount/change to prevent per-render memory leaks.
+  const previewUrl = useMemo(() => {
+    if (!file || !isImage) return null;
+    return URL.createObjectURL(file);
+  }, [file]);
+
+  useEffect(() => {
+    return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
+  }, [previewUrl]);
 
   const processFile = async (f) => {
     if (!f) return;
@@ -55,7 +66,9 @@ function DocumentZone({ docType, file, onChange }) {
       return;
     }
 
-    // If geotag is required, prompt and capture geolocation coordinates
+    // If geotag is required, prompt and capture geolocation coordinates.
+    // Coordinates are passed via onCoords callback — NOT mutated onto the File
+    // object, since native File objects should be treated as read-only.
     if (isGeotag) {
       setGpsLoading(true);
       if (navigator.geolocation) {
@@ -64,22 +77,35 @@ function DocumentZone({ docType, file, onChange }) {
             const lat = position.coords.latitude;
             const lng = position.coords.longitude;
             setCoords({ latitude: lat, longitude: lng });
-            // Attach coordinates to the file object
-            f.latitude = lat;
-            f.longitude = lng;
             setGpsLoading(false);
+            // Report both the file and its coordinates to the parent.
+            // onCoords is called before onChange so parent state is consistent.
+            onCoords(docType, lat, lng);
             onChange(f);
           },
           (error) => {
             console.error("GPS Capture failed:", error);
-            setTypeError("GPS Location access is required for geotagged installation photos. Please permit location access in your browser settings and try again.");
+            setTypeError(
+              "GPS Location access is required for geotagged installation photos. " +
+              "Please permit location access in your browser settings and try again."
+            );
             setGpsLoading(false);
+            // Explicitly reset to null so the parent knows this file was rejected.
+            onChange(null);
           },
-          { enableHighAccuracy: true, timeout: 8000 }
+          {
+            enableHighAccuracy: true,
+            // 5 s timeout — fast enough to avoid long freezes on GPS-less devices
+            // while still giving real GPS a fair chance. maximumAge allows a
+            // recently cached position to be used immediately (30 s window).
+            timeout: 5000,
+            maximumAge: 30000,
+          }
         );
       } else {
         setTypeError("Geolocation is not supported by your browser. Please use a modern smartphone or browser.");
         setGpsLoading(false);
+        onChange(null);
       }
     } else {
       onChange(f);
@@ -118,7 +144,11 @@ function DocumentZone({ docType, file, onChange }) {
           type="file"
           accept={DOC_ACCEPT}
           style={{ display: "none" }}
-          onChange={(e) => processFile(e.target.files?.[0])}
+          onChange={(e) => {
+            processFile(e.target.files?.[0]);
+            // Reset so the same file can be re-selected after Remove (BUG 2)
+            e.target.value = "";
+          }}
         />
 
         {gpsLoading ? (
@@ -130,7 +160,7 @@ function DocumentZone({ docType, file, onChange }) {
           <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 12 }}>
             {isImage ? (
               <img
-                src={URL.createObjectURL(file)}
+                src={previewUrl}
                 alt={label}
                 style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, flexShrink: 0, border: "1px solid rgba(0,0,0,0.08)" }}
               />
@@ -149,9 +179,9 @@ function DocumentZone({ docType, file, onChange }) {
               <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
               <div style={{ fontSize: 11, color: "#6b7280" }}>
                 {(file.size / 1024).toFixed(0)} KB
-                {isGeotag && file.latitude && (
+                {isGeotag && coords && (
                   <span style={{ color: "#2E7D52", fontWeight: 700, marginLeft: 8 }}>
-                    📍 Geotagged ({file.latitude.toFixed(4)}, {file.longitude.toFixed(4)})
+                    📍 Geotagged ({coords.latitude.toFixed(4)}, {coords.longitude.toFixed(4)})
                   </span>
                 )}
               </div>
@@ -200,7 +230,10 @@ function DocumentZone({ docType, file, onChange }) {
 }
 
 // ─── File → base64 package ──────────────────────────────────
-function fileToBase64(file) {
+// Accepts optional explicit latitude/longitude rather than reading
+// them from the File object (File objects are native browser objects
+// and should not be mutated — see BUG 3 fix).
+function fileToBase64(file, latitude, longitude) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -210,9 +243,9 @@ function fileToBase64(file) {
         type: file.type,
         size: file.size,
       };
-      if (file.latitude !== undefined) {
-        payload.latitude = file.latitude;
-        payload.longitude = file.longitude;
+      if (latitude !== undefined && latitude !== null) {
+        payload.latitude = latitude;
+        payload.longitude = longitude;
       }
       resolve(payload);
     };
@@ -294,6 +327,10 @@ export default function QuotationReuploadPage({ token, onDone }) {
 
   // Step 2 state
   const [files, setFiles] = useState({}); // { aadhaar: File, geotag_1: File, ... }
+  // geoCoords stores GPS coordinates captured by DocumentZone for each geotag
+  // slot. Keyed by docType (e.g. "geotag_1"). Coordinates are stored here
+  // rather than mutated onto File objects (native objects should be read-only).
+  const [geoCoords, setGeoCoords] = useState({}); // { geotag_1: {lat, lng}, ... }
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [converting, setConverting] = useState(false);
@@ -330,10 +367,11 @@ export default function QuotationReuploadPage({ token, onDone }) {
       const res = await reuploadApi.verify(token, password);
       setReuploadJwt(res.reuploadToken);
       setSessionInfo(res.quotation);
-      // Pre-initialize files state
+      // Pre-initialize files and geoCoords state
       const initial = {};
       (res.quotation.requiredDocs || []).forEach(d => { initial[d] = null; });
       setFiles(initial);
+      setGeoCoords({});
       setStep("upload");
     } catch (err) {
       const msg = err.message || "Verification failed. Please try again.";
@@ -366,10 +404,16 @@ export default function QuotationReuploadPage({ token, onDone }) {
     setConverting(true);
     setSubmitError("");
     try {
-      // Package files into base64 payload with coordinates
+      // Package files into base64 payload, injecting GPS coords from geoCoords
+      // state (not from File object properties — see BUG 3 fix).
       const payload = {};
       for (const docType of sessionInfo.requiredDocs) {
-        payload[docType] = await fileToBase64(files[docType]);
+        const coords = geoCoords[docType];
+        payload[docType] = await fileToBase64(
+          files[docType],
+          coords?.lat ?? null,
+          coords?.lng ?? null
+        );
       }
 
       setConverting(false);
@@ -388,7 +432,7 @@ export default function QuotationReuploadPage({ token, onDone }) {
       setSubmitting(false);
       setConverting(false);
     }
-  }, [reuploadJwt, sessionInfo, files]);
+  }, [reuploadJwt, sessionInfo, files, geoCoords]);
 
   const allDocsProvided = sessionInfo?.requiredDocs?.every(d => files[d]) ?? false;
 
@@ -591,6 +635,9 @@ export default function QuotationReuploadPage({ token, onDone }) {
                       docType={docType}
                       file={files[docType]}
                       onChange={(f) => setFiles(prev => ({ ...prev, [docType]: f }))}
+                      onCoords={(dt, lat, lng) =>
+                        setGeoCoords(prev => ({ ...prev, [dt]: { lat, lng } }))
+                      }
                     />
                   ))}
                 </div>

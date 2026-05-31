@@ -232,6 +232,15 @@ export const quotations = {
 
   requestReupload: (id, reason, documents) =>
     request(`/quotations/${id}/request-reupload`, { method: "POST", body: { reason, documents } }),
+
+  submitPortalReupload: (id, filesPayload) =>
+    request(`/quotations/${id}/submit-portal-reupload`, { method: "POST", body: filesPayload }),
+
+  requestGeotagReupload: (id, reason, slots) =>
+    request(`/quotations/${id}/request-geotag-reupload`, { method: "POST", body: { reason, slots } }),
+
+  clearGeotagReupload: (id) =>
+    request(`/quotations/${id}/clear-geotag-reupload`, { method: "PATCH" }),
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -369,14 +378,6 @@ export const uploads = {
     }
   },
 
-  // ⚠️ DEPRECATED: Token is exposed in the URL (appears in server logs, Referer headers,
-  // browser history). Use getSecureBlobUrl() for images and downloadSecure() for downloads.
-  // Only use this for <a href> direct download links when fetch with Authorization header
-  // is not possible (e.g., in server-side email attachments).
-  getUrl: (id) => {
-    const token = getToken();
-    return `${API_BASE}/uploads/${id}${token ? `?token=${token}` : ""}`;
-  },
 
   listForEntity: (entityType, entityId) =>
     request(`/uploads/entity/${entityType}/${entityId}`),

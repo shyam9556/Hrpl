@@ -45,12 +45,16 @@ export default function DealerRequestsAdmin() {
     house_photo_1: false,
     house_photo_2: false,
     house_photo_3: false,
-    geotag_1: false,
-    geotag_2: false,
-    geotag_3: false,
   });
   const [reuploadLoading, setReuploadLoading] = useState(false);
   const [reuploadSuccess, setReuploadSuccess] = useState(false);
+
+  // Geo-tag re-upload request modal state
+  const [geotagReuploadModal, setGeotagReuploadModal] = useState(null); // { id, number }
+  const [geotagReuploadReason, setGeotagReuploadReason] = useState("");
+  const [geotagReuploadSlots, setGeotagReuploadSlots] = useState({ geotag_1: true, geotag_2: true, geotag_3: true });
+  const [geotagReuploadLoading, setGeotagReuploadLoading] = useState(false);
+  const [geotagReuploadSuccess, setGeotagReuploadSuccess] = useState(false);
 
   const openReuploadModal = (q) => {
     setReuploadModal({ id: q.id, number: q.quotation_number, customerName: q.customer_name || "Valued Customer" });
@@ -66,9 +70,6 @@ export default function DealerRequestsAdmin() {
         house_photo_1: prevDocs.includes("house_photo_1"),
         house_photo_2: prevDocs.includes("house_photo_2"),
         house_photo_3: prevDocs.includes("house_photo_3"),
-        geotag_1: prevDocs.includes("geotag_1"),
-        geotag_2: prevDocs.includes("geotag_2"),
-        geotag_3: prevDocs.includes("geotag_3"),
       });
     } else {
       setReuploadDocs({
@@ -80,12 +81,41 @@ export default function DealerRequestsAdmin() {
         house_photo_1: false,
         house_photo_2: false,
         house_photo_3: false,
-        geotag_1: false,
-        geotag_2: false,
-        geotag_3: false,
       });
     }
     setReuploadSuccess(false);
+  };
+
+  const handleRequestGeotagReupload = async () => {
+    const selectedSlots = Object.entries(geotagReuploadSlots).filter(([, v]) => v).map(([k]) => k);
+    if (!geotagReuploadReason.trim()) {
+      setErrorDialog({ open: true, message: "Please provide a reason for requesting geo-tag re-upload." });
+      return;
+    }
+    if (selectedSlots.length === 0) {
+      setErrorDialog({ open: true, message: "Please select at least one geo-tag photo to request re-upload for." });
+      return;
+    }
+    setGeotagReuploadLoading(true);
+    try {
+      await quotationsApi.requestGeotagReupload(geotagReuploadModal.id, geotagReuploadReason.trim(), selectedSlots);
+      setGeotagReuploadSuccess(true);
+      // Update local state
+      setList(prev => prev.map(q =>
+        q.id === geotagReuploadModal.id
+          ? { ...q, geotag_reupload_requested: 1, geotag_reupload_reason: geotagReuploadReason.trim(), geotag_reupload_slots: selectedSlots.join(",") }
+          : q
+      ));
+      setSelectedQuotation(prev =>
+        prev && prev.id === geotagReuploadModal.id
+          ? { ...prev, geotag_reupload_requested: 1, geotag_reupload_reason: geotagReuploadReason.trim(), geotag_reupload_slots: selectedSlots.join(",") }
+          : prev
+      );
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to send geo-tag re-upload request." });
+    } finally {
+      setGeotagReuploadLoading(false);
+    }
   };
 
   const handleRequestReupload = async () => {
@@ -1843,18 +1873,22 @@ export default function DealerRequestsAdmin() {
                   >
                     <XCircle size={14} /> Reject Request
                   </button>
-                  <button
-                    className="btn-sm"
-                    style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600 }}
-                    disabled={actionLoading === selectedQuotation.id}
-                    onClick={() => openReuploadModal(selectedQuotation)}
-                  >
-                    <RefreshCw size={14} /> Request Re-upload
-                  </button>
+                  {/* Only show reupload request if dealer has already submitted documents */}
+                  {selectedQuotation.documents && selectedQuotation.documents.length > 0 && (
+                    <button
+                      className="btn-sm"
+                      style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600 }}
+                      disabled={actionLoading === selectedQuotation.id}
+                      onClick={() => openReuploadModal(selectedQuotation)}
+                    >
+                      <RefreshCw size={14} /> Request Re-upload
+                    </button>
+                  )}
                 </div>
               )}
 
-              {selectedQuotation.status === "Rejected" && (
+              {selectedQuotation.status === "Rejected" &&
+                selectedQuotation.documents && selectedQuotation.documents.length > 0 && (
                 <button
                   className="btn-sm"
                   style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600 }}
@@ -1871,7 +1905,7 @@ export default function DealerRequestsAdmin() {
                     style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600 }}
                     onClick={() => openReuploadModal(selectedQuotation)}
                   >
-                    <RefreshCw size={14} /> Send Link Again
+                    <RefreshCw size={14} /> Change Reupload Docs
                   </button>
                   <button
                     className="btn-sm danger"
@@ -1888,13 +1922,49 @@ export default function DealerRequestsAdmin() {
               )}
 
               {selectedQuotation.status === "Approved" && (
-                <button
-                  className="btn-sm"
-                  style={{ background: "var(--green)", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
-                  onClick={() => handleDownloadBOM(selectedQuotation)}
-                >
-                  <Download size={14} /> Download Excel BOM
-                </button>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    className="btn-sm"
+                    style={{ background: "var(--green)", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    onClick={() => handleDownloadBOM(selectedQuotation)}
+                  >
+                    <Download size={14} /> Download Excel BOM
+                  </button>
+                  {/* Request Geo-Tag Reupload button — only after dealer has uploaded at least once */}
+                  {selectedQuotation.geotag_uploaded ? (
+                    <button
+                      className="btn-sm"
+                      style={{
+                        background: selectedQuotation.geotag_reupload_requested ? "rgba(249,115,22,0.1)" : "rgba(107,114,128,0.06)",
+                        color: selectedQuotation.geotag_reupload_requested ? "#ea580c" : "var(--muted)",
+                        border: selectedQuotation.geotag_reupload_requested ? "1px solid rgba(249,115,22,0.3)" : "1px solid rgba(0,0,0,0.1)",
+                        borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600
+                      }}
+                      onClick={() => {
+                        setGeotagReuploadModal({ id: selectedQuotation.id, number: selectedQuotation.quotation_number });
+                        setGeotagReuploadReason(selectedQuotation.geotag_reupload_reason || "");
+                        // Pre-fill slots from existing request, or default all 3
+                        const existingSlots = selectedQuotation.geotag_reupload_slots
+                          ? selectedQuotation.geotag_reupload_slots.split(",")
+                          : ["geotag_1", "geotag_2", "geotag_3"];
+                        setGeotagReuploadSlots({
+                          geotag_1: existingSlots.includes("geotag_1"),
+                          geotag_2: existingSlots.includes("geotag_2"),
+                          geotag_3: existingSlots.includes("geotag_3"),
+                        });
+                        setGeotagReuploadSuccess(false);
+                      }}
+                    >
+                      <Camera size={14} />
+                      {selectedQuotation.geotag_reupload_requested ? "Re-send Geo-Tag Request" : "Request Geo-Tag Reupload"}
+                    </button>
+                  ) : (
+                    <div style={{ fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 5, padding: "8px 12px", background: "rgba(0,0,0,0.03)", borderRadius: 8, border: "1px solid rgba(0,0,0,0.06)" }}>
+                      <Camera size={13} />
+                      Geo-tag re-upload available after dealer uploads photos
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -1977,7 +2047,7 @@ export default function DealerRequestsAdmin() {
                   </div>
                   <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 6 }}>Re-upload Request Sent Successfully!</div>
                   <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.6, margin: "0 0 20px 0" }}>
-                    An email with a secure re-upload link has been sent to the dealer.
+                    The dealer has been notified by email to log into the portal and re-upload the flagged documents.
                     The quotation is now marked as <strong>Re-upload Requested</strong>.
                   </p>
                   <button
@@ -1990,9 +2060,9 @@ export default function DealerRequestsAdmin() {
                 </div>
               ) : (
                 <div>
-                  {/* Category 1: Customer Documents */}
+                  {/* Customer Documents */}
                   <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>Customer Documents</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 20 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 24 }}>
                     {[
                       { key: "aadhaar", label: "Aadhaar Card" },
                       { key: "pan", label: "PAN Card" },
@@ -2030,48 +2100,13 @@ export default function DealerRequestsAdmin() {
                     ))}
                   </div>
 
-                  {/* Category 2: Installation Geotags */}
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>Installation Geotags</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 24 }}>
-                    {[
-                      { key: "geotag_1", label: "Site / Inverter Photo" },
-                      { key: "geotag_2", label: "Solar Panels Photo" },
-                      { key: "geotag_3", label: "ACDB / Net Meter Photo" }
-                    ].map(({ key, label }) => (
-                      <label
-                        key={key}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          padding: "10px 12px",
-                          borderRadius: 10,
-                          border: `1.5px solid ${reuploadDocs[key] ? "#2E7D52" : "rgba(0,0,0,0.08)"}`,
-                          background: reuploadDocs[key] ? "rgba(46,125,82,0.04)" : "#fafafa",
-                          cursor: "pointer",
-                          userSelect: "none",
-                          transition: "all 0.2s"
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={reuploadDocs[key]}
-                          onChange={(e) => setReuploadDocs(p => ({ ...p, [key]: e.target.checked }))}
-                          style={{ cursor: "pointer", accentColor: "#2E7D52" }}
-                        />
-                        <Camera size={14} color={reuploadDocs[key] ? "#2E7D52" : "#6b7280"} />
-                        <span style={{ fontSize: 13, fontWeight: 500, color: reuploadDocs[key] ? "#1C3A2A" : "#374151" }}>{label}</span>
-                      </label>
-                    ))}
-                  </div>
-
                   {/* Reason text area */}
                   <div style={{ marginBottom: 8 }}>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>Reason for Re-upload Request</label>
                     <textarea
                       value={reuploadReason}
                       onChange={(e) => setReuploadReason(e.target.value)}
-                      placeholder="e.g. The Site Photo is blurry and unreadable. The Solar Panels Photo is missing appropriate geotag coordinates. Please re-upload clear photos."
+                      placeholder="e.g. The Aadhaar card image is blurry and unreadable. The PAN card photo is partially cut off."
                       rows={3}
                       style={{
                         width: "100%", padding: 12, border: "1.5px solid rgba(0,0,0,0.08)", borderRadius: 10,
@@ -2084,7 +2119,7 @@ export default function DealerRequestsAdmin() {
                   </div>
                   <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5, display: "flex", gap: 6, alignItems: "flex-start", background: "#f8fafc", padding: 10, borderRadius: 8 }}>
                     <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1, color: "#d97706" }} />
-                    <span>The quotation status will change to <strong>Re-upload Requested</strong>. An email with a secure link (expires in 72 hours) will be automatically dispatched to the dealer.</span>
+                    <span>The quotation status will change to <strong>Re-upload Requested</strong>. The dealer will be notified by email to log into the portal and re-upload the selected documents.</span>
                   </div>
                 </div>
               )}
@@ -2116,6 +2151,160 @@ export default function DealerRequestsAdmin() {
                     <><Loader2 size={14} className="animate-spin" /> Sending...</>
                   ) : (
                     <><RefreshCw size={14} /> Send Re-upload Request</>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Geo-Tag Re-upload Request Modal */}
+      {geotagReuploadModal && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(15,23,42,0.4)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 9999, padding: 16
+        }}>
+          <div style={{
+            background: "white", borderRadius: 20, width: "100%", maxWidth: 500,
+            boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", overflow: "hidden"
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: "20px 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
+              borderBottom: "1px solid rgba(0,0,0,0.06)",
+              background: geotagReuploadSuccess ? "#f0fdf4" : "#fff7ed",
+            }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: geotagReuploadSuccess ? "#15803d" : "#c2410c", display: "flex", alignItems: "center", gap: 8 }}>
+                  <Camera size={16} />
+                  {geotagReuploadSuccess ? "Request Sent" : "Request Geo-Tag Re-upload"}
+                </div>
+                {!geotagReuploadSuccess && (
+                  <div style={{ fontSize: 12, color: "#9a3412", marginTop: 2, fontWeight: 600 }}>
+                    Quotation: {geotagReuploadModal.number}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => { if (!geotagReuploadLoading) setGeotagReuploadModal(null); }}
+                style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", display: "flex", padding: 4 }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: 24 }}>
+              {geotagReuploadSuccess ? (
+                <div style={{ textAlign: "center", padding: "8px 0" }}>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: "50%", background: "#dcfce7",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#15803d", margin: "0 auto 16px",
+                  }}>
+                    <Check size={28} strokeWidth={3} />
+                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: "#111827", marginBottom: 6 }}>Geo-Tag Re-upload Request Sent!</div>
+                  <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.6, margin: "0 0 20px 0" }}>
+                    The dealer has been notified by email to log into the portal and re-upload the geo-tag photos for quotation <strong>{geotagReuploadModal.number}</strong>.
+                  </p>
+                  <button
+                    onClick={() => setGeotagReuploadModal(null)}
+                    className="btn-sm primary"
+                    style={{ padding: "8px 24px", borderRadius: 8, margin: "0 auto" }}
+                  >
+                    Done
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.6, margin: "0 0 16px 0" }}>
+                    The dealer will be notified by email and will see a banner in their portal. Only the selected photo slots will be unlocked for re-upload.
+                  </p>
+
+                  {/* Slot checkboxes */}
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>Select Photos to Re-upload</div>
+                    {[
+                      { key: "geotag_1", label: "Site / Inverter Photo", desc: "Photo of the solar inverter at the site" },
+                      { key: "geotag_2", label: "Solar Panels Photo", desc: "Overview photo of installed solar panels" },
+                      { key: "geotag_3", label: "ACDB / Net Meter Photo", desc: "Photo of the net meter or ACDB unit" },
+                    ].map(slot => (
+                      <label key={slot.key} style={{
+                        display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 10, marginBottom: 6, cursor: "pointer",
+                        background: geotagReuploadSlots[slot.key] ? "rgba(234,88,12,0.05)" : "rgba(0,0,0,0.02)",
+                        border: `1.5px solid ${geotagReuploadSlots[slot.key] ? "rgba(234,88,12,0.25)" : "rgba(0,0,0,0.08)"}`,
+                        transition: "all 0.15s"
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={!!geotagReuploadSlots[slot.key]}
+                          onChange={e => setGeotagReuploadSlots(prev => ({ ...prev, [slot.key]: e.target.checked }))}
+                          style={{ marginTop: 2, accentColor: "#ea580c", width: 15, height: 15, flexShrink: 0 }}
+                        />
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: geotagReuploadSlots[slot.key] ? "#c2410c" : "#374151" }}>{slot.label}</div>
+                          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>{slot.desc}</div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>Reason for Re-upload</label>
+                    <textarea
+                      value={geotagReuploadReason}
+                      onChange={(e) => setGeotagReuploadReason(e.target.value)}
+                      placeholder="e.g. The inverter photo is too dark. Please re-upload a clear, geotagged photo."
+                      rows={3}
+                      style={{
+                        width: "100%", padding: 12, border: "1.5px solid rgba(0,0,0,0.08)", borderRadius: 10,
+                        fontSize: 13, color: "#111827", background: "#fafafa", resize: "none", outline: "none",
+                        boxSizing: "border-box", transition: "border-color 0.2s"
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = "#ea580c"}
+                      onBlur={(e) => e.target.style.borderColor = "rgba(0,0,0,0.08)"}
+                      autoFocus
+                    />
+                  </div>
+
+                  <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5, display: "flex", gap: 6, alignItems: "flex-start", background: "#fff7ed", padding: 10, borderRadius: 8, border: "1px solid rgba(234,88,12,0.15)" }}>
+                    <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1, color: "#ea580c" }} />
+                    <span>Only the selected slots will be unlocked. Quotation status remains <strong>Approved</strong>. Other geo-tag slots stay locked.</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            {!geotagReuploadSuccess && (
+              <div style={{ padding: "16px 24px", display: "flex", justifyContent: "flex-end", gap: 8, borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+                <button
+                  onClick={() => setGeotagReuploadModal(null)}
+                  className="btn-sm"
+                  style={{ background: "white", color: "var(--text)", border: "1px solid rgba(0,0,0,0.1)", borderRadius: 8, padding: "8px 16px", cursor: geotagReuploadLoading ? "not-allowed" : "pointer" }}
+                  disabled={geotagReuploadLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRequestGeotagReupload}
+                  disabled={geotagReuploadLoading || !geotagReuploadReason.trim() || !Object.values(geotagReuploadSlots).some(Boolean)}
+                  className="btn-sm"
+                  style={{
+                    borderRadius: 8, padding: "8px 20px",
+                    cursor: (geotagReuploadLoading || !geotagReuploadReason.trim() || !Object.values(geotagReuploadSlots).some(Boolean)) ? "not-allowed" : "pointer",
+                    background: (geotagReuploadLoading || !geotagReuploadReason.trim() || !Object.values(geotagReuploadSlots).some(Boolean)) ? "#9ca3af" : "linear-gradient(135deg, #9a3412 0%, #ea580c 100%)",
+                    color: "white", border: "none", fontWeight: 600, display: "flex", alignItems: "center", gap: 6,
+                  }}
+                >
+                  {geotagReuploadLoading ? (
+                    <><Loader2 size={14} className="animate-spin" /> Sending...</>
+                  ) : (
+                    <><Camera size={14} /> Send Request</>
                   )}
                 </button>
               </div>

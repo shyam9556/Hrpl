@@ -136,6 +136,30 @@ const saveBase64File = async (fileObj, entityType, entityId, docType, dbClient =
   const base64Data = matches[2];
   const buffer = Buffer.from(base64Data, "base64");
 
+  // ── Magic-byte verification ──────────────────────────────────────────────
+  // Verify the decoded buffer actually starts with the expected magic signature
+  // for the declared MIME type. This guards against disguised uploads where a
+  // malicious file is wrapped in a valid-looking base64 data URI with a correct
+  // MIME prefix but crafted binary content. Mirrors the check in uploads.js.
+  const MAGIC_SIGNATURES = new Map([
+    ["image/jpeg",      [[0xFF, 0xD8, 0xFF]]],
+    ["image/png",       [[0x89, 0x50, 0x4E, 0x47]]],
+    ["image/webp",      [[0x52, 0x49, 0x46, 0x46]]], // "RIFF"
+    ["application/pdf", [[0x25, 0x50, 0x44, 0x46]]], // "%PDF"
+  ]);
+  const signatures = MAGIC_SIGNATURES.get(dataUriMime);
+  if (!signatures) {
+    throw new Error(`Unsupported file type: '${dataUriMime}'.`);
+  }
+  const isValidMagic = signatures.some(sig =>
+    sig.every((byte, i) => buffer[i] === byte)
+  );
+  if (!isValidMagic) {
+    throw new Error(
+      `File content does not match its declared type ('${dataUriMime}'). The file may be corrupted or disguised.`
+    );
+  }
+
   // Derive extension from the actual MIME in the data URI
   const mimeToExt = {
     "image/jpeg": ".jpg",
