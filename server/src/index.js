@@ -325,3 +325,4 @@ process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT",  () => gracefulShutdown("SIGINT"));
 
 export default app;
+// Force watch restart to pick up SMTP .env changes
