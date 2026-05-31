@@ -102,7 +102,9 @@ export default function App() {
   const [cpShowConfirm, setCpShowConfirm] = useState(false);
   const [cpLoading, setCpLoading]         = useState(false);
   const [cpError, setCpError]             = useState("");
-  const [cpSuccess, setCpSuccess]         = useState(false);
+  // pwdChanged: true after a successful change — renders fullscreen success
+  // screen instead of a modal layered over the app.
+  const [pwdChanged, setPwdChanged]       = useState(false);
 
 
   // Ref to hold the polling interval so we can clear it immediately on logout
@@ -294,7 +296,7 @@ export default function App() {
   const openChangePwd = useCallback(() => {
     setCpCurrent(""); setCpNew(""); setCpConfirm("");
     setCpShowCurrent(false); setCpShowNew(false); setCpShowConfirm(false);
-    setCpLoading(false); setCpError(""); setCpSuccess(false);
+    setCpLoading(false); setCpError("");
     setShowChangePwd(true);
     setSidebarOpen(false);
   }, []);
@@ -314,10 +316,12 @@ export default function App() {
     setCpLoading(true);
     try {
       await authApi.changePassword(cpCurrent, cpNew);
-      setCpSuccess(true);
       // JWT is now invalidated server-side (password_changed_at bumped).
-      // Log out after a short delay so user reads the success message.
-      setTimeout(() => logout(), 2000);
+      // Logout immediately — pwdChanged=true triggers a clean fullscreen
+      // success screen instead of a modal layered over the authenticated app.
+      setShowChangePwd(false);
+      setPwdChanged(true);
+      logout();
     } catch (err) {
       setCpError(err.message || "Failed to change password. Please try again.");
     } finally {
@@ -371,6 +375,50 @@ export default function App() {
           setQReuploadToken("");
         }}
       />
+    );
+  }
+
+  // ── Fullscreen password-changed success screen ────────────────────────────
+  // Shown after successful change: user is already logged out (user=null)
+  // but we show this clean screen for 2.5s before transitioning to login.
+  if (pwdChanged && !user) {
+    return (
+      <div style={{
+        minHeight: "100vh", display: "flex", alignItems: "center",
+        justifyContent: "center",
+        background: "linear-gradient(135deg, #102A1C 0%, #1C3A2A 40%, #2E7D52 80%, #E29613 100%)",
+        padding: "1.5rem",
+      }}>
+        <div style={{
+          background: "rgba(255,255,255,0.97)", borderRadius: 24, padding: "3rem 2.5rem",
+          maxWidth: 420, width: "100%", textAlign: "center",
+          boxShadow: "0 24px 70px rgba(0,0,0,0.25)",
+          animation: "fadeInUp 0.4s ease",
+        }}>
+          <div style={{
+            width: 80, height: 80, borderRadius: "50%",
+            background: "linear-gradient(135deg, #dcfce7, #bbf7d0)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            margin: "0 auto 20px",
+            boxShadow: "0 8px 24px rgba(46,125,82,0.25)",
+          }}>
+            <CheckCircle size={40} color="#2E7D52" />
+          </div>
+          <h2 style={{ fontSize: 24, fontWeight: 800, color: "var(--green)", marginBottom: 10 }}>
+            Password Changed!
+          </h2>
+          <p style={{ fontSize: 14, color: "var(--muted)", lineHeight: 1.7, marginBottom: 28 }}>
+            Your password has been updated successfully.<br />
+            Please sign in with your new password.
+          </p>
+          <button
+            className="btn-primary"
+            onClick={() => setPwdChanged(false)}
+          >
+            Go to Sign In
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -556,159 +604,142 @@ export default function App() {
               </button>
             </div>
 
-            {/* Body */}
+            {/* Body — only the form, success is handled by fullscreen screen */}
             <div style={{ padding: "24px 24px 28px" }}>
-              {cpSuccess ? (
-                <div style={{ textAlign: "center", padding: "8px 0" }}>
-                  <div style={{
-                    width: 64, height: 64, borderRadius: "50%",
-                    background: "linear-gradient(135deg, #dcfce7, #bbf7d0)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    margin: "0 auto 16px",
-                    boxShadow: "0 8px 20px rgba(46,125,82,0.2)",
-                  }}>
-                    <CheckCircle size={32} color="#2E7D52" />
-                  </div>
-                  <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text, #111)", marginBottom: 8 }}>
-                    Password Changed!
-                  </div>
-                  <div style={{ fontSize: 13, color: "var(--muted, #6b7280)" }}>
-                    You will be logged out in a moment. Please log in with your new password.
+              <form onSubmit={handleChangePwd}>
+                {/* Current password */}
+                <div className="field" style={{ marginBottom: 14 }}>
+                  <label>Current Password</label>
+                  <div className="field-pwd-wrapper">
+                    <input
+                      type={cpShowCurrent ? "text" : "password"}
+                      value={cpCurrent}
+                      onChange={(e) => { setCpCurrent(e.target.value); setCpError(""); }}
+                      placeholder="Enter current password"
+                      autoComplete="current-password"
+                      disabled={cpLoading}
+                    />
+                    <button type="button" className="pwd-toggle-btn"
+                      onClick={() => setCpShowCurrent(v => !v)}>
+                      {cpShowCurrent ? <EyeOff size={16}/> : <Eye size={16}/>}
+                    </button>
                   </div>
                 </div>
-              ) : (
-                <form onSubmit={handleChangePwd}>
-                  {/* Current password */}
-                  <div className="field" style={{ marginBottom: 14 }}>
-                    <label>Current Password</label>
-                    <div className="field-pwd-wrapper">
-                      <input
-                        type={cpShowCurrent ? "text" : "password"}
-                        value={cpCurrent}
-                        onChange={(e) => { setCpCurrent(e.target.value); setCpError(""); }}
-                        placeholder="Enter current password"
-                        autoComplete="current-password"
-                        disabled={cpLoading}
-                      />
-                      <button type="button" className="pwd-toggle-btn"
-                        onClick={() => setCpShowCurrent(v => !v)}>
-                        {cpShowCurrent ? <EyeOff size={16}/> : <Eye size={16}/>}
-                      </button>
-                    </div>
-                  </div>
 
-                  {/* New password + strength */}
-                  <div className="field" style={{ marginBottom: 14 }}>
-                    <label>New Password</label>
-                    <div className="field-pwd-wrapper">
-                      <input
-                        type={cpShowNew ? "text" : "password"}
-                        value={cpNew}
-                        onChange={(e) => { setCpNew(e.target.value); setCpError(""); }}
-                        placeholder="Min. 8 characters"
-                        autoComplete="new-password"
-                        disabled={cpLoading}
-                      />
-                      <button type="button" className="pwd-toggle-btn"
-                        onClick={() => setCpShowNew(v => !v)}>
-                        {cpShowNew ? <EyeOff size={16}/> : <Eye size={16}/>}
-                      </button>
-                    </div>
-                    {/* Strength indicator */}
-                    {cpNew.length > 0 && (() => {
-                      const hasLen   = cpNew.length >= 8;
-                      const hasUpper = /[A-Z]/.test(cpNew);
-                      const hasNum   = /\d/.test(cpNew);
-                      const score    = [hasLen, hasUpper, hasNum].filter(Boolean).length;
-                      const label    = score === 0 ? "" : score === 1 ? "Weak" : score === 2 ? "Fair" : "Strong";
-                      const color    = score === 0 ? "var(--muted, #9ca3af)" : score === 1 ? "#ef4444" : score === 2 ? "#f59e0b" : "#22c55e";
-                      return (
+                {/* New password + strength */}
+                {(() => {
+                  const cpHasLen   = cpNew.length >= 8;
+                  const cpHasUpper = /[A-Z]/.test(cpNew);
+                  const cpHasNum   = /\d/.test(cpNew);
+                  const cpScore    = [cpHasLen, cpHasUpper, cpHasNum].filter(Boolean).length;
+                  const cpLabel    = cpScore === 0 ? "" : cpScore === 1 ? "Weak" : cpScore === 2 ? "Fair" : "Strong";
+                  const cpColor    = cpScore === 0 ? "var(--muted)" : cpScore === 1 ? "#ef4444" : cpScore === 2 ? "#f59e0b" : "#22c55e";
+                  return (
+                    <div className="field" style={{ marginBottom: 14 }}>
+                      <label>New Password</label>
+                      <div className="field-pwd-wrapper">
+                        <input
+                          type={cpShowNew ? "text" : "password"}
+                          value={cpNew}
+                          onChange={(e) => { setCpNew(e.target.value); setCpError(""); }}
+                          placeholder="Min. 8 characters"
+                          autoComplete="new-password"
+                          disabled={cpLoading}
+                        />
+                        <button type="button" className="pwd-toggle-btn"
+                          onClick={() => setCpShowNew(v => !v)}>
+                          {cpShowNew ? <EyeOff size={16}/> : <Eye size={16}/>}
+                        </button>
+                      </div>
+                      {cpNew.length > 0 && (
                         <div style={{ marginTop: 6 }}>
                           <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
-                            {[1,2,3].map(i => (
-                              <div key={i} style={{ flex: 1, height: 3, borderRadius: 2,
-                                background: i <= score ? color : "var(--border, #e5e7eb)",
-                                transition: "background 0.2s" }} />
+                            {[1, 2, 3].map(i => (
+                              <div key={i} style={{
+                                flex: 1, height: 3, borderRadius: 2,
+                                background: i <= cpScore ? cpColor : "var(--border, #e5e7eb)",
+                                transition: "background 0.2s",
+                              }} />
                             ))}
                           </div>
-                          <div style={{ fontSize: 11, color, fontWeight: 600 }}>
-                            {label}
-                            {!hasLen && <span style={{ color: "var(--muted, #9ca3af)", fontWeight: 400 }}> — min. 8 characters</span>}
+                          <div style={{ fontSize: 11, color: cpColor, fontWeight: 600 }}>
+                            {cpLabel}
+                            {!cpHasLen && <span style={{ color: "var(--muted)", fontWeight: 400 }}> — min. 8 characters</span>}
                           </div>
                         </div>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Confirm new password */}
-                  <div className="field" style={{ marginBottom: 18 }}>
-                    <label>Confirm New Password</label>
-                    <div className="field-pwd-wrapper">
-                      <input
-                        type={cpShowConfirm ? "text" : "password"}
-                        value={cpConfirm}
-                        onChange={(e) => { setCpConfirm(e.target.value); setCpError(""); }}
-                        placeholder="Re-enter new password"
-                        autoComplete="new-password"
-                        disabled={cpLoading}
-                      />
-                      <button type="button" className="pwd-toggle-btn"
-                        onClick={() => setCpShowConfirm(v => !v)}>
-                        {cpShowConfirm ? <EyeOff size={16}/> : <Eye size={16}/>}
-                      </button>
+                      )}
                     </div>
-                    {cpConfirm.length > 0 && cpNew !== cpConfirm && (
-                      <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4, fontWeight: 500 }}>
-                        Passwords do not match
-                      </div>
-                    )}
-                    {cpConfirm.length > 0 && cpNew === cpConfirm && cpNew.length >= 8 && (
-                      <div style={{ fontSize: 11, color: "#22c55e", marginTop: 4, fontWeight: 500 }}>
-                        Passwords match ✓
-                      </div>
-                    )}
-                  </div>
+                  );
+                })()}
 
-                  {/* Error */}
-                  {cpError && (
-                    <div style={{
-                      background: "#fef2f2", border: "1px solid #fca5a5",
-                      borderRadius: 8, padding: "10px 12px", marginBottom: 14,
-                      fontSize: 13, color: "#dc2626"
-                    }}>
-                      {cpError}
+                {/* Confirm new password */}
+                <div className="field" style={{ marginBottom: 18 }}>
+                  <label>Confirm New Password</label>
+                  <div className="field-pwd-wrapper">
+                    <input
+                      type={cpShowConfirm ? "text" : "password"}
+                      value={cpConfirm}
+                      onChange={(e) => { setCpConfirm(e.target.value); setCpError(""); }}
+                      placeholder="Re-enter new password"
+                      autoComplete="new-password"
+                      disabled={cpLoading}
+                    />
+                    <button type="button" className="pwd-toggle-btn"
+                      onClick={() => setCpShowConfirm(v => !v)}>
+                      {cpShowConfirm ? <EyeOff size={16}/> : <Eye size={16}/>}
+                    </button>
+                  </div>
+                  {cpConfirm.length > 0 && (
+                    <div style={{ fontSize: 11, marginTop: 4, fontWeight: 500,
+                      display: "flex", alignItems: "center", gap: 4,
+                      color: cpNew === cpConfirm && cpNew.length >= 8 ? "#22c55e" : "#ef4444" }}>
+                      {cpNew === cpConfirm && cpNew.length >= 8
+                        ? <><CheckCircle size={12} /> Passwords match</>
+                        : <>{cpNew !== cpConfirm ? "Passwords do not match" : "Password too short"}</>
+                      }
                     </div>
                   )}
+                </div>
 
-                  {/* Actions */}
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <button
-                      type="button"
-                      onClick={closeChangePwd}
-                      disabled={cpLoading}
-                      style={{
-                        flex: 1, padding: "11px", border: "1.5px solid var(--border, #e5e7eb)",
-                        background: "transparent", borderRadius: 8,
-                        fontWeight: 600, fontSize: 14, cursor: cpLoading ? "not-allowed" : "pointer",
-                        color: "var(--text, #111)",
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={cpLoading}
-                      className="btn-primary"
-                      style={{ flex: 2, padding: "11px" }}
-                    >
-                      {cpLoading
-                        ? <><Loader2 size={15} className="animate-spin" /> Changing...</>
-                        : <><KeyRound size={15} /> Change Password</>
-                      }
-                    </button>
+                {/* Error */}
+                {cpError && (
+                  <div style={{
+                    background: "#fef2f2", border: "1px solid #fca5a5",
+                    borderRadius: 8, padding: "10px 12px", marginBottom: 14,
+                    fontSize: 13, color: "#dc2626",
+                  }}>
+                    {cpError}
                   </div>
-                </form>
-              )}
+                )}
+
+                {/* Actions */}
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={closeChangePwd}
+                    disabled={cpLoading}
+                    style={{
+                      flex: 1, padding: "11px", border: "1.5px solid var(--border, #e5e7eb)",
+                      background: "transparent", borderRadius: 8,
+                      fontWeight: 600, fontSize: 14, cursor: cpLoading ? "not-allowed" : "pointer",
+                      color: "var(--text, #111)",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={cpLoading || cpNew.length < 8 || cpNew !== cpConfirm}
+                    className="btn-primary"
+                    style={{ flex: 2, padding: "11px" }}
+                  >
+                    {cpLoading
+                      ? <><Loader2 size={15} className="animate-spin" /> Changing...</>
+                      : <><KeyRound size={15} /> Change Password</>
+                    }
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>

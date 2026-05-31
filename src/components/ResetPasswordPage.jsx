@@ -33,7 +33,7 @@ export default function ResetPasswordPage({ token, onDone }) {
 
   const strengthScore = [hasMinLength, hasUpperCase, hasNumber].filter(Boolean).length;
   const strengthLabel = strengthScore === 0 ? "" : strengthScore === 1 ? "Weak" : strengthScore === 2 ? "Fair" : "Strong";
-  const strengthColor = strengthScore === 1 ? "#ef4444" : strengthScore === 2 ? "#f59e0b" : "#22c55e";
+  const strengthColor = strengthScore === 0 ? "var(--muted, #9ca3af)" : strengthScore === 1 ? "#ef4444" : strengthScore === 2 ? "#f59e0b" : "#22c55e";
 
   const handleSubmit = async (e) => {
     e.preventDefault();
