@@ -1260,6 +1260,122 @@ export async function sendGeotagReuploadEmail(toEmail, dealerName, quotationNo, 
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// ADMIN PASSWORD RESET NOTIFICATION EMAIL
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Send a password-changed notification email to a dealer when an admin
+ * has force-reset their account password.
+ *
+ * The email:
+ *  - Clearly identifies itself as coming from Highlight Pro (with logo)
+ *  - States plainly what happened and when
+ *  - Shows the new temporary password (admin-set) so the dealer can log in
+ *  - Urges the dealer to change the password immediately after logging in
+ *  - Provides a direct login CTA button
+ *  - Includes a "not you?" escalation note with support email
+ *
+ * @param {string} toEmail       - Dealer's email address
+ * @param {string} dealerName    - Dealer's full name
+ * @param {string} newPassword   - The new plain-text password set by admin (shown once)
+ * @returns {boolean} true if sent (or dev mode), false on failure
+ */
+export async function sendAdminPasswordResetEmail(toEmail, dealerName, newPassword) {
+  const changedAt = new Date().toLocaleString("en-IN", {
+    dateStyle: "long",
+    timeStyle: "short",
+    timeZone: "Asia/Kolkata",
+  });
+
+  const bodyHtml = `
+    <span style="display:inline-block;background-color:#fff3cd;color:#856404;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:16px;">Security Notice</span>
+
+    <h2 style="color:#111827;margin:0 0 20px 0;font-size:22px;font-weight:700;line-height:1.3;">
+      Your Account Password Has Been Reset
+    </h2>
+
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 12px 0;">
+      Dear <strong>${escapeHtml(dealerName)}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px 0;">
+      This is to inform you that an administrator at <strong>Highlight Pro</strong> has
+      reset the password for your dealer account on <strong>${escapeHtml(changedAt)} (IST)</strong>.
+      This is a routine action that may occur if you requested support or as part of
+      account maintenance.
+    </p>
+
+    ${infoBox({
+      content: `
+        <strong style="display:block;margin-bottom:10px;color:#1f2937;">Your New Temporary Password</strong>
+        <span style="font-family:monospace;font-size:20px;font-weight:700;color:#1C3A2A;letter-spacing:2px;background:#e8f5e9;padding:6px 14px;border-radius:6px;display:inline-block;">${escapeHtml(newPassword)}</span>
+        <br><br>
+        <span style="font-size:13px;color:#6b7280;line-height:1.6;">
+          Please use this password to log in and then <strong style="color:#1f2937;">change it immediately</strong>
+          from your account settings for your own security.
+        </span>
+      `,
+      bgColor: "#f0f7f4",
+      borderColor: "#2E7D52",
+    })}
+
+    ${ctaButton({ href: env.clientUrl, label: "Log In to Your Account", color: "#2E7D52" })}
+
+    ${infoBox({
+      content: [
+        '<strong style="display:block;margin-bottom:4px;color:#1f2937;">&#9888;&#65039; Important Security Steps</strong>',
+        '1.&nbsp; Log in using the temporary password above.<br>',
+        '2.&nbsp; Go to <strong>Account Settings → Change Password</strong>.<br>',
+        '3.&nbsp; Set a new strong password that only you know.<br>',
+        '4.&nbsp; Never share your password with anyone.'
+      ].join(''),
+      bgColor: "#fffbeb",
+      borderColor: "#f59e0b",
+    })}
+
+    <p style="color:#9ca3af;font-size:13px;line-height:1.6;margin:24px 0 0 0;">
+      If you did <strong style="color:#374151;">not</strong> request a password reset and believe
+      this was done in error, please contact us immediately at
+      <a href="mailto:${escapeHtml(env.smtp.fromEmail)}" style="color:#2E7D52;">${escapeHtml(env.smtp.fromEmail)}</a>
+      so we can secure your account.
+    </p>
+  `;
+
+  const htmlContent = buildEmailHtml({
+    subtitle: "Account Security",
+    bodyHtml,
+  });
+
+  if (!transporter) {
+    console.log("");
+    console.log("╔══════════════════════════════════════════════════════╗");
+    console.log("║  📧 ADMIN PASSWORD RESET EMAIL (Dev Mode — Not Sent) ║");
+    console.log("╠══════════════════════════════════════════════════════╣");
+    console.log(`║  To:       ${toEmail}`);
+    console.log(`║  Name:     ${dealerName}`);
+    console.log(`║  New Pass: ${newPassword}`);
+    console.log("╚══════════════════════════════════════════════════════╝");
+    console.log("");
+    return true;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: "Your Highlight Pro Password Has Been Reset",
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`📧 Admin password reset notification sent to: ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to send admin password reset email to ${toEmail}:`, err.message);
+    // Don't throw — email failure should not block the password reset action
+    return false;
+  }
+}
+
 // Startup warning if SMTP is not configured
 if (!env.smtp.isConfigured) {
   console.warn("");

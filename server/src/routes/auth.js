@@ -19,7 +19,7 @@ import {
   resetPasswordSchema,
   adminResetPasswordSchema,
 } from "../validators/authSchema.js";
-import { sendPasswordResetEmail, sendDealerWelcomeEmail, sendReuploadConfirmationEmail, sendQuotationReuploadConfirmationEmail } from "../services/emailService.js";
+import { sendPasswordResetEmail, sendDealerWelcomeEmail, sendReuploadConfirmationEmail, sendQuotationReuploadConfirmationEmail, sendAdminPasswordResetEmail } from "../services/emailService.js";
 
 const router = Router();
 
@@ -563,6 +563,12 @@ router.post(
         success: true,
         message: `Password reset for ${targetUser.name} (${targetUser.email}).`,
       });
+
+      // Fire-and-forget — notify the dealer their password was changed by admin.
+      // Includes the new plain-text password so they can log in immediately.
+      // Email failure must never block the reset response.
+      sendAdminPasswordResetEmail(targetUser.email, targetUser.name, newPassword)
+        .catch(err => console.error(`[EMAIL] Failed to send admin password reset email to ${targetUser.email}:`, err.message));
     } catch (err) {
       next(err);
     }
