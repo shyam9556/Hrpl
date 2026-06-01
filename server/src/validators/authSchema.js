@@ -43,6 +43,12 @@ export const registerSchema = Joi.object({
     size: Joi.number().required().max(10 * 1024 * 1024),
     data: Joi.string().required().max(14 * 1024 * 1024),
   }).allow(null),
+  agreementPhoto: Joi.object({
+    name: Joi.string().required().max(255),
+    type: Joi.string().required().valid("image/jpeg", "image/png", "image/webp", "application/pdf"),
+    size: Joi.number().required().max(10 * 1024 * 1024),
+    data: Joi.string().required().max(14 * 1024 * 1024),
+  }).allow(null),
 });
 
 export const changePasswordSchema = Joi.object({

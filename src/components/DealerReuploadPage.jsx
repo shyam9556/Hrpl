@@ -11,6 +11,7 @@ const DOC_LABELS = {
   aadhaar: "Aadhaar Card",
   pan: "PAN Card",
   passport_photo: "Passport Photo",
+  other: "Dealership Agreement",
 };
 
 const DOC_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
@@ -340,6 +341,7 @@ export default function DealerReuploadPage({ token, onDone }) {
         aadhaar:        "aadhaarPhoto",
         pan:            "panPhoto",
         passport_photo: "passportPhoto",
+        other:          "agreementPhoto",
       };
 
       const payload = {};

@@ -103,7 +103,7 @@ export default function UploadZone({ label, icon, file, onChange }) {
 
   return (
     <div>
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: "flex", alignItems: "center", gap: 6, minHeight: 38 }}>
         {icon} {label}
       </div>
       <div

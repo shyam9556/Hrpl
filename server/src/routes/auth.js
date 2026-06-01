@@ -210,7 +210,7 @@ const saveBase64File = async (fileObj, entityType, entityId, docType, dbClient =
 // Public — Submit dealer registration application
 router.post("/register", validate(registerSchema), async (req, res, next) => {
   try {
-    const { name, email, password, mobile, location, companyName, aadhaarPhoto, panPhoto, passportPhoto } = req.body;
+    const { name, email, password, mobile, location, companyName, aadhaarPhoto, panPhoto, passportPhoto, agreementPhoto } = req.body;
 
     // Check if email already exists in users table
     const existingUser = await db.query(
@@ -278,6 +278,9 @@ router.post("/register", validate(registerSchema), async (req, res, next) => {
       }
       if (passportPhoto) {
         await saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo");
+      }
+      if (agreementPhoto) {
+        await saveBase64File(agreementPhoto, "dealer_registration", regId, "other");
       }
     } catch (docErr) {
       // Compensating delete: remove the registration row so the dealer can retry cleanly
@@ -761,7 +764,7 @@ router.post("/reupload/submit", async (req, res, next) => {
     }
 
     const { regId, tokenId } = decoded;
-    const { aadhaarPhoto, panPhoto, passportPhoto } = req.body;
+    const { aadhaarPhoto, panPhoto, passportPhoto, agreementPhoto } = req.body;
 
     // Re-validate the token is still valid (not used/expired)
     const tokenResult = await db.query(
@@ -788,10 +791,11 @@ router.post("/reupload/submit", async (req, res, next) => {
     if (requiredDocs.includes("aadhaar") && aadhaarPhoto) providedDocs.push("aadhaar");
     if (requiredDocs.includes("pan") && panPhoto) providedDocs.push("pan");
     if (requiredDocs.includes("passport_photo") && passportPhoto) providedDocs.push("passport_photo");
+    if (requiredDocs.includes("other") && agreementPhoto) providedDocs.push("other");
 
     const missingDocs = requiredDocs.filter(d => !providedDocs.includes(d));
     if (missingDocs.length > 0) {
-      const docLabels = { aadhaar: "Aadhaar Card", pan: "PAN Card", passport_photo: "Passport Photo" };
+      const docLabels = { aadhaar: "Aadhaar Card", pan: "PAN Card", passport_photo: "Passport Photo", other: "Dealership Agreement" };
       return res.status(400).json({
         success: false,
         error: `Missing required documents: ${missingDocs.map(d => docLabels[d] || d).join(", ")}`,
@@ -826,6 +830,9 @@ router.post("/reupload/submit", async (req, res, next) => {
       }
       if (passportPhoto && requiredDocs.includes("passport_photo")) {
         await saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo", client);
+      }
+      if (agreementPhoto && requiredDocs.includes("other")) {
+        await saveBase64File(agreementPhoto, "dealer_registration", regId, "other", client);
       }
 
       // Mark the re-upload token as used

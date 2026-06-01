@@ -366,7 +366,7 @@ router.post("/registrations/:id/request-reupload", async (req, res, next) => {
       return res.status(400).json({ success: false, error: "At least one document type must be selected." });
     }
 
-    const allowedDocTypes = ["aadhaar", "pan", "passport_photo"];
+    const allowedDocTypes = ["aadhaar", "pan", "passport_photo", "other"];
     const invalidDocs = documents.filter(d => !allowedDocTypes.includes(d));
     if (invalidDocs.length > 0) {
       return res.status(400).json({ success: false, error: `Invalid document types: ${invalidDocs.join(", ")}` });

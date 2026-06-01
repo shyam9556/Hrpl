@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { auth as authApi } from "../utils/api";
-import { Store, Shield, Eye, EyeOff, Loader2, CheckCircle, IdCard, CreditCard, User, XCircle } from "lucide-react";
+import { Store, Shield, Eye, EyeOff, Loader2, CheckCircle, IdCard, CreditCard, User, XCircle, Download, FileText } from "lucide-react";
 import UploadZone from "./UploadZone";
 
 export default function LoginPage({ onLogin }) {
@@ -15,6 +15,7 @@ export default function LoginPage({ onLogin }) {
   const [aadhaarPhoto, setAadhaarPhoto] = useState(null);
   const [panPhoto, setPanPhoto] = useState(null);
   const [passportPhoto, setPassportPhoto] = useState(null);
+  const [agreementPhoto, setAgreementPhoto] = useState(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [confirmPass, setConfirmPass]   = useState("");
@@ -71,6 +72,10 @@ export default function LoginPage({ onLogin }) {
         setErr("Please upload your Passport Photo");
         return;
       }
+      if (!agreementPhoto) {
+        setErr("Please upload your signed Dealership Agreement PDF/Photo");
+        return;
+      }
 
       setIsLoading(true);
       try {
@@ -84,6 +89,7 @@ export default function LoginPage({ onLogin }) {
           aadhaarPhoto,
           panPhoto,
           passportPhoto,
+          agreementPhoto,
         });
 
         // Stop loading immediately — then transition to success screen after
@@ -174,6 +180,7 @@ export default function LoginPage({ onLogin }) {
               setAadhaarPhoto(null);
               setPanPhoto(null);
               setPassportPhoto(null);
+              setAgreementPhoto(null);
               setErr("");
               setSuccess("");
             }}
@@ -379,11 +386,52 @@ export default function LoginPage({ onLogin }) {
               )}
             </div>
 
+            <div style={{
+              background: "var(--light, #f8fafc)",
+              border: "1px solid var(--border, #e2e8f0)",
+              borderRadius: 12,
+              padding: "12px 16px",
+              marginBottom: "1.5rem",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+            }}>
+              <div style={{ textAlign: "left" }}>
+                <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: "var(--text)" }}>Dealership Agreement Form</h4>
+                <p style={{ fontSize: 11, color: "var(--muted)", margin: "4px 0 0 0" }}>
+                  Download, print, fill and sign this document, then upload it below.
+                </p>
+              </div>
+              <a
+                href="/Highlight_Renewable_DEALERSHIP_AGREEMENT.pdf"
+                download="Highlight_Renewable_DEALERSHIP_AGREEMENT.pdf"
+                className="btn-sm primary"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  textDecoration: "none",
+                  background: "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
+                  color: "white",
+                  boxShadow: "0 2px 8px rgba(46,125,82,0.2)",
+                  whiteSpace: "nowrap",
+                  cursor: "pointer"
+                }}
+              >
+                <Download size={14} /> Download PDF
+              </a>
+            </div>
+
             <div style={{ marginBottom: "1.5rem" }}>
               <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--muted)", marginBottom: 8, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                Required Verification Documents (Photos)
+                Required Verification Documents (Photos/PDFs)
               </label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12 }}>
                 <UploadZone
                   label="Aadhaar Card"
                   icon={<IdCard size={22} />}
@@ -401,6 +449,12 @@ export default function LoginPage({ onLogin }) {
                   icon={<User size={22} />}
                   file={passportPhoto}
                   onChange={setPassportPhoto}
+                />
+                <UploadZone
+                  label="Dealership Agreement"
+                  icon={<FileText size={22} />}
+                  file={agreementPhoto}
+                  onChange={setAgreementPhoto}
                 />
               </div>
             </div>
