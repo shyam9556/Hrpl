@@ -23,10 +23,10 @@ const STATUS_BADGE_CONFIG = {
 
 // Human-readable document type labels
 const DOC_TYPE_LABELS = {
-  aadhaar: "Aadhaar Card",
-  pan: "PAN Card",
+  aadhaar:        "Aadhaar Card",
+  pan:            "PAN Card",
   passport_photo: "Passport Photo",
-  other: "Dealership Agreement",
+  other:          "Dealership Agreement",
 };
 
 // Secure image component — fetches with Authorization header to avoid JWT in src URL
@@ -72,7 +72,9 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
   // Re-upload request modal state
   const [reuploadModal, setReuploadModal] = useState(null); // { id, name, email }
   const [reuploadReason, setReuploadReason] = useState("");
-  const [reuploadDocs, setReuploadDocs] = useState({ aadhaar: false, pan: false, passport_photo: false, other: false });
+  const [reuploadDocs, setReuploadDocs] = useState({
+    aadhaar: false, pan: false, passport_photo: false, other: false,
+  });
   const [reuploadLoading, setReuploadLoading] = useState(false);
   const [reuploadSuccess, setReuploadSuccess] = useState(false);
 
@@ -1284,14 +1286,16 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                 </div>
               ) : (
                 <>
-                  {/* Documents to re-upload */}
+                  {/* Documents to re-upload — Aadhaar grouped, others below */}
                   <div style={{ marginBottom: 20 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>Select Documents to Re-upload</div>
+
+                      {/* ── Aadhaar Card ── single option, dealer decides format */}
                     {[
                       { key: "aadhaar", label: "Aadhaar Card" },
-                      { key: "pan", label: "PAN Card" },
+                      { key: "pan",            label: "PAN Card" },
                       { key: "passport_photo", label: "Passport Photo" },
-                      { key: "other", label: "Dealership Agreement" },
+                      { key: "other",          label: "Dealership Agreement" },
                     ].map(({ key, label }) => (
                       <label
                         key={key}

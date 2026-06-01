@@ -171,7 +171,8 @@ router.post("/single", uploadSingle("file"), handleUploadError, async (req, res,
     // Closed allowlists — only these string literals are ever accepted
     const VALID_ENTITY_TYPES = ["quotation", "dealer_registration", "customer"];
     const VALID_DOC_TYPES    = [
-      "aadhaar", "pan", "passbook", "site_photo", "passport_photo",
+      "aadhaar", "aadhaar_front", "aadhaar_back",
+      "pan", "passbook", "site_photo", "passport_photo",
       "other", "geotag_1", "geotag_2", "geotag_3",
       "vera_bill", "house_photo_1", "house_photo_2", "house_photo_3",
     ];
@@ -309,7 +310,8 @@ router.post("/multiple", uploadMultiple("files", 5), handleUploadError, async (r
 
     const VALID_ENTITY_TYPES = ["quotation", "dealer_registration", "customer"];
     const VALID_DOC_TYPES    = [
-      "aadhaar", "pan", "passbook", "site_photo", "passport_photo",
+      "aadhaar", "aadhaar_front", "aadhaar_back",
+      "pan", "passbook", "site_photo", "passport_photo",
       "other", "geotag_1", "geotag_2", "geotag_3",
       "vera_bill", "house_photo_1", "house_photo_2", "house_photo_3",
     ];

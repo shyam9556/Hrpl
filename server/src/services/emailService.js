@@ -49,12 +49,14 @@ if (env.smtp.isConfigured) {
   transporter = nodemailer.createTransport({
     host: env.smtp.host,
     port: env.smtp.port,
-    secure: env.smtp.port === 465, // true for 465, false for 587
-    // In production, require TLS so credentials are never sent over plaintext
-    requireTLS: env.isProd && env.smtp.port !== 465,
+    secure: env.smtp.port === 465, // true for SSL on 465, false for STARTTLS on 587
     auth: {
       user: env.smtp.user,
       pass: env.smtp.password,
+    },
+    tls: {
+      // Allow self-signed certs in dev; enforce valid certs in prod
+      rejectUnauthorized: env.isProd,
     },
     // Prevent SMTP hangs from blocking the whole request
     connectionTimeout: 10_000,
@@ -691,10 +693,12 @@ export async function sendDeliveryMilestoneEmail(toEmail, dealerName, quotationN
 export async function sendDocumentReuploadEmail(toEmail, dealerName, reuploadUrl, reason, docTypes = []) {
   // Human-readable document names
   const docLabels = {
-    aadhaar: "Aadhaar Card",
-    pan: "PAN Card",
+    aadhaar:       "Aadhaar Card",
+    aadhaar_front: "Aadhaar Card (Front Side)",
+    aadhaar_back:  "Aadhaar Card (Back Side)",
+    pan:           "PAN Card",
     passport_photo: "Passport Photo",
-    other: "Dealership Agreement",
+    other:         "Dealership Agreement",
   };
 
   const docListHtml = docTypes.length > 0

@@ -210,7 +210,21 @@ const saveBase64File = async (fileObj, entityType, entityId, docType, dbClient =
 // Public — Submit dealer registration application
 router.post("/register", validate(registerSchema), async (req, res, next) => {
   try {
-    const { name, email, password, mobile, location, companyName, aadhaarPhoto, panPhoto, passportPhoto, agreementPhoto } = req.body;
+    const { name, email, password, mobile, location, companyName, aadhaarPhoto, aadhaarFront, aadhaarBack, panPhoto, passportPhoto, agreementPhoto } = req.body;
+
+    // ── Aadhaar completeness check ──────────────────────────────────────────
+    // Require EITHER a single PDF/scan (aadhaarPhoto) OR both front+back photos.
+    // Partial two-photo uploads (only front or only back) are rejected here.
+    const hasAadhaarPdf = !!aadhaarPhoto;
+    const hasAadhaarPhotos = !!aadhaarFront && !!aadhaarBack;
+    if (!hasAadhaarPdf && !hasAadhaarPhotos) {
+      return res.status(400).json({
+        success: false,
+        error: aadhaarFront || aadhaarBack
+          ? "Please upload both the front and back sides of your Aadhaar card."
+          : "Aadhaar card is required. Please upload a PDF scan or both sides as photos.",
+      });
+    }
 
     // Check if email already exists in users table
     const existingUser = await db.query(
@@ -270,8 +284,13 @@ router.post("/register", validate(registerSchema), async (req, res, next) => {
     // Note: Any disk files written before the failure remain (filesystem is not transactional),
     // but they are non-functional without a DB record pointing to them.
     try {
+      // Aadhaar: save as single PDF/scan OR as front + back photos (mutually exclusive)
       if (aadhaarPhoto) {
         await saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar");
+      } else {
+        // Two-photo mode: both front and back are guaranteed present (validated above)
+        await saveBase64File(aadhaarFront, "dealer_registration", regId, "aadhaar_front");
+        await saveBase64File(aadhaarBack, "dealer_registration", regId, "aadhaar_back");
       }
       if (panPhoto) {
         await saveBase64File(panPhoto, "dealer_registration", regId, "pan");
@@ -770,7 +789,7 @@ router.post("/reupload/submit", async (req, res, next) => {
     }
 
     const { regId, tokenId } = decoded;
-    const { aadhaarPhoto, panPhoto, passportPhoto, agreementPhoto } = req.body;
+    const { aadhaarPhoto, aadhaarFront, aadhaarBack, panPhoto, passportPhoto, agreementPhoto } = req.body;
 
     // Re-validate the token is still valid (not used/expired)
     const tokenResult = await db.query(
@@ -792,16 +811,32 @@ router.post("/reupload/submit", async (req, res, next) => {
 
     const requiredDocs = tokenRecord.required_docs ? tokenRecord.required_docs.split(",").filter(Boolean) : [];
 
+    // Determine what Aadhaar the dealer actually provided.
+    // Admin always requests "aadhaar"; dealer chooses format:
+    //   - photos mode → aadhaarFront + aadhaarBack (saved as aadhaar_front / aadhaar_back)
+    //   - PDF mode    → aadhaarPhoto               (saved as aadhaar)
+    const aadhaarNeeded = requiredDocs.includes("aadhaar");
+    const hasAadhaarPdf    = aadhaarNeeded && !!aadhaarPhoto;
+    const hasAadhaarPhotos = aadhaarNeeded && !!aadhaarFront && !!aadhaarBack;
+    const aadhaarSatisfied = hasAadhaarPdf || hasAadhaarPhotos;
+
     // Validate that all required documents are provided
     const providedDocs = [];
-    if (requiredDocs.includes("aadhaar") && aadhaarPhoto) providedDocs.push("aadhaar");
-    if (requiredDocs.includes("pan") && panPhoto) providedDocs.push("pan");
+    if (aadhaarNeeded && aadhaarSatisfied) providedDocs.push("aadhaar");
+    if (requiredDocs.includes("pan")            && panPhoto)     providedDocs.push("pan");
     if (requiredDocs.includes("passport_photo") && passportPhoto) providedDocs.push("passport_photo");
-    if (requiredDocs.includes("other") && agreementPhoto) providedDocs.push("other");
+    if (requiredDocs.includes("other")          && agreementPhoto) providedDocs.push("other");
 
     const missingDocs = requiredDocs.filter(d => !providedDocs.includes(d));
     if (missingDocs.length > 0) {
-      const docLabels = { aadhaar: "Aadhaar Card", pan: "PAN Card", passport_photo: "Passport Photo", other: "Dealership Agreement" };
+      const docLabels = {
+        aadhaar:        hasAadhaarPdf === false && hasAadhaarPhotos === false
+          ? (aadhaarFront || aadhaarBack ? "Aadhaar Card (Back Side missing)" : "Aadhaar Card (upload PDF or both front + back photos)")
+          : "Aadhaar Card",
+        pan:            "PAN Card",
+        passport_photo: "Passport Photo",
+        other:          "Dealership Agreement",
+      };
       return res.status(400).json({
         success: false,
         error: `Missing required documents: ${missingDocs.map(d => docLabels[d] || d).join(", ")}`,
@@ -817,19 +852,29 @@ router.post("/reupload/submit", async (req, res, next) => {
     try {
       await client.query("BEGIN");
 
-      // Delete old documents of the required types from the DB
+      // Delete old documents. When aadhaar is in requiredDocs, also delete
+      // aadhaar_front and aadhaar_back to clean up regardless of the original
+      // upload mode (in case dealer switches between PDF and two-photo modes).
       if (requiredDocs.length > 0) {
-        const placeholders = requiredDocs.map(() => "?").join(", ");
+        const deleteTypes = aadhaarNeeded
+          ? [...requiredDocs.filter(d => d !== "aadhaar"), "aadhaar", "aadhaar_front", "aadhaar_back"]
+          : requiredDocs;
+        const placeholders = deleteTypes.map(() => "?").join(", ");
         await client.query(
           `DELETE FROM documents
            WHERE entity_type = 'dealer_registration' AND entity_id = ? AND doc_type IN (${placeholders})`,
-          [regId, ...requiredDocs]
+          [regId, ...deleteTypes]
         );
       }
 
-      // Save new documents (these write files to disk — outside transaction scope)
-      if (aadhaarPhoto && requiredDocs.includes("aadhaar")) {
-        await saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar", client);
+      // Save new Aadhaar documents — format chosen by dealer (all stale variants deleted above)
+      if (aadhaarNeeded) {
+        if (hasAadhaarPdf) {
+          await saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar", client);
+        } else if (hasAadhaarPhotos) {
+          await saveBase64File(aadhaarFront, "dealer_registration", regId, "aadhaar_front", client);
+          await saveBase64File(aadhaarBack,  "dealer_registration", regId, "aadhaar_back",  client);
+        }
       }
       if (panPhoto && requiredDocs.includes("pan")) {
         await saveBase64File(panPhoto, "dealer_registration", regId, "pan", client);
@@ -1103,17 +1148,17 @@ router.post("/reupload-quotation/submit", async (req, res, next) => {
     const missingDocs = requiredDocs.filter(d => !filesPayload[d]);
     if (missingDocs.length > 0) {
       const docLabels = {
-        aadhaar: "Aadhaar Card",
-        pan: "PAN Card",
-        passbook: "Bank Passbook",
-        site_photo: "Latest Light Bill/Site Photo",
-        vera_bill: "Vera Bill",
+        aadhaar:       "Aadhaar Card",
+        pan:           "PAN Card",
+        passbook:      "Bank Passbook",
+        site_photo:    "Latest Light Bill/Site Photo",
+        vera_bill:     "Vera Bill",
         house_photo_1: "House Photo 1",
         house_photo_2: "House Photo 2",
         house_photo_3: "House Photo 3",
-        geotag_1: "Site / Inverter Photo",
-        geotag_2: "Solar Panels Photo",
-        geotag_3: "ACDB / Net Meter Photo",
+        geotag_1:      "Site / Inverter Photo",
+        geotag_2:      "Solar Panels Photo",
+        geotag_3:      "ACDB / Net Meter Photo",
       };
       return res.status(400).json({
         success: false,

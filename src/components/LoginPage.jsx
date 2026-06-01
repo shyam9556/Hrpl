@@ -12,7 +12,10 @@ export default function LoginPage({ onLogin }) {
   const [mobile, setMobile] = useState("");
   const [location, setLocation] = useState("");
   const [companyName, setCompanyName] = useState("");
-  const [aadhaarPhoto, setAadhaarPhoto] = useState(null);
+  const [aadhaarPhoto, setAadhaarPhoto] = useState(null);       // PDF/scan mode
+  const [aadhaarFront, setAadhaarFront] = useState(null);       // Two-photo mode — front
+  const [aadhaarBack, setAadhaarBack] = useState(null);         // Two-photo mode — back
+  const [aadhaarMode, setAadhaarMode] = useState("photos");    // "pdf" | "photos" (default: photos)
   const [panPhoto, setPanPhoto] = useState(null);
   const [passportPhoto, setPassportPhoto] = useState(null);
   const [agreementPhoto, setAgreementPhoto] = useState(null);
@@ -60,9 +63,25 @@ export default function LoginPage({ onLogin }) {
         return;
       }
 
-      if (!aadhaarPhoto) {
-        setErr("Please upload your Aadhaar Card photo/PDF");
-        return;
+      // Aadhaar validation — depends on selected mode
+      if (aadhaarMode === "pdf") {
+        if (!aadhaarPhoto) {
+          setErr("Please upload your Aadhaar Card photo or PDF");
+          return;
+        }
+      } else {
+        if (!aadhaarFront && !aadhaarBack) {
+          setErr("Please upload both sides of your Aadhaar Card");
+          return;
+        }
+        if (!aadhaarFront) {
+          setErr("Please upload the front side of your Aadhaar Card");
+          return;
+        }
+        if (!aadhaarBack) {
+          setErr("Please upload the back side of your Aadhaar Card (QR code side)");
+          return;
+        }
       }
       if (!panPhoto) {
         setErr("Please upload your PAN Card photo/PDF");
@@ -86,7 +105,11 @@ export default function LoginPage({ onLogin }) {
           mobile: mobile.trim(),
           location: location.trim(),
           companyName: companyName.trim() || undefined,
-          aadhaarPhoto,
+          // Aadhaar: send either the single PDF/scan or the two photos depending on mode
+          ...(aadhaarMode === "pdf"
+            ? { aadhaarPhoto }
+            : { aadhaarFront, aadhaarBack }
+          ),
           panPhoto,
           passportPhoto,
           agreementPhoto,
@@ -178,6 +201,9 @@ export default function LoginPage({ onLogin }) {
               setLocation("");
               setCompanyName("");
               setAadhaarPhoto(null);
+              setAadhaarFront(null);
+              setAadhaarBack(null);
+              setAadhaarMode("photos");
               setPanPhoto(null);
               setPassportPhoto(null);
               setAgreementPhoto(null);
@@ -431,13 +457,98 @@ export default function LoginPage({ onLogin }) {
               <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--muted)", marginBottom: 8, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                 Required Verification Documents (Photos/PDFs)
               </label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12 }}>
-                <UploadZone
-                  label="Aadhaar Card"
-                  icon={<IdCard size={22} />}
-                  file={aadhaarPhoto}
-                  onChange={setAadhaarPhoto}
-                />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <div style={{
+                    background: "var(--light, #f8fafc)",
+                    border: "1.5px solid var(--border, #e2e8f0)",
+                    borderRadius: 12,
+                    padding: "14px 16px",
+                    marginBottom: 0,
+                  }}>
+                    {/* Header row with label + toggle */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                        <IdCard size={16} style={{ color: "var(--green)" }} />
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Aadhaar Card</span>
+                      </div>
+                      {/* Mode toggle pill */}
+                      <div style={{
+                        display: "inline-flex",
+                        background: "var(--border, #e2e8f0)",
+                        borderRadius: 999,
+                        padding: 3,
+                        gap: 2,
+                      }}>
+                        <button
+                          type="button"
+                          onClick={() => { setAadhaarMode("photos"); setAadhaarPhoto(null); }}
+                          style={{
+                            padding: "5px 13px",
+                            borderRadius: 999,
+                            border: "none",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            transition: "all 0.18s",
+                            background: aadhaarMode === "photos" ? "var(--green, #2E7D52)" : "transparent",
+                            color: aadhaarMode === "photos" ? "white" : "var(--muted)",
+                            boxShadow: aadhaarMode === "photos" ? "0 2px 6px rgba(46,125,82,0.25)" : "none",
+                          }}
+                        >
+                          Two Photos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setAadhaarMode("pdf"); setAadhaarFront(null); setAadhaarBack(null); }}
+                          style={{
+                            padding: "5px 13px",
+                            borderRadius: 999,
+                            border: "none",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            transition: "all 0.18s",
+                            background: aadhaarMode === "pdf" ? "var(--green, #2E7D52)" : "transparent",
+                            color: aadhaarMode === "pdf" ? "white" : "var(--muted)",
+                            boxShadow: aadhaarMode === "pdf" ? "0 2px 6px rgba(46,125,82,0.25)" : "none",
+                          }}
+                        >
+                          PDF / Scan
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Upload zones */}
+                    {aadhaarMode === "photos" ? (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        <UploadZone
+                          label="Front Side"
+                          icon={<IdCard size={22} />}
+                          file={aadhaarFront}
+                          onChange={setAadhaarFront}
+                        />
+                        <UploadZone
+                          label="Back Side"
+                          icon={<IdCard size={22} />}
+                          file={aadhaarBack}
+                          onChange={setAadhaarBack}
+                        />
+                      </div>
+                    ) : (
+                      <UploadZone
+                        label="Aadhaar Card"
+                        icon={<IdCard size={22} />}
+                        file={aadhaarPhoto}
+                        onChange={setAadhaarPhoto}
+                      />
+                    )}
+                  </div>
+                </div>
+
+
+                {/* Other documents */}
                 <UploadZone
                   label="PAN Card"
                   icon={<CreditCard size={22} />}

@@ -8,10 +8,10 @@ import {
 
 // ─── Document labels ────────────────────────────────────────
 const DOC_LABELS = {
-  aadhaar: "Aadhaar Card",
-  pan: "PAN Card",
+  aadhaar:        "Aadhaar Card",
+  pan:            "PAN Card",
   passport_photo: "Passport Photo",
-  other: "Dealership Agreement",
+  other:          "Dealership Agreement",
 };
 
 const DOC_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
@@ -250,7 +250,8 @@ export default function DealerReuploadPage({ token, onDone }) {
   const [sessionInfo, setSessionInfo] = useState(null); // { name, email, reason, requiredDocs }
 
   // Step 2 state
-  const [files, setFiles] = useState({}); // { aadhaar: File, pan: File, ... }
+  const [files, setFiles] = useState({}); // { docType: File }
+  const [aadhaarMode, setAadhaarMode] = useState("photos"); // "photos" | "pdf"
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [converting, setConverting] = useState(false);
@@ -296,10 +297,13 @@ export default function DealerReuploadPage({ token, onDone }) {
       const res = await reuploadApi.verify(token, password);
       setReuploadJwt(res.reuploadToken);
       setSessionInfo(res.registration);
-      // Pre-initialise files state
+      // Pre-initialise files state for non-aadhaar docs
       const initial = {};
-      (res.registration.requiredDocs || []).forEach(d => { initial[d] = null; });
+      (res.registration.requiredDocs || []).forEach(d => {
+        if (d !== "aadhaar") initial[d] = null;
+      });
       setFiles(initial);
+      setAadhaarMode("photos"); // default to two-photo mode
       setStep("upload");
     } catch (err) {
       const msg = err.message || "Verification failed. Please try again.";
@@ -322,8 +326,26 @@ export default function DealerReuploadPage({ token, onDone }) {
     e.preventDefault();
     if (!sessionInfo?.requiredDocs) return;
 
-    // Check all required docs are provided
-    const missing = sessionInfo.requiredDocs.filter(d => !files[d]);
+    const aadhaarNeeded = sessionInfo.requiredDocs.includes("aadhaar");
+    const aadhaarPdfOk    = aadhaarNeeded && aadhaarMode === "pdf"    && !!files.aadhaar;
+    const aadhaarPhotosOk = aadhaarNeeded && aadhaarMode === "photos" && !!files.aadhaar_front && !!files.aadhaar_back;
+    const aadhaarOk = !aadhaarNeeded || aadhaarPdfOk || aadhaarPhotosOk;
+
+    if (!aadhaarOk) {
+      if (aadhaarMode === "photos") {
+        const fm = !files.aadhaar_front, bm = !files.aadhaar_back;
+        setSubmitError(fm && bm ? "Please upload both Aadhaar Front and Back photos."
+          : fm ? "Please upload the Aadhaar Front photo."
+          : "Please upload the Aadhaar Back photo.");
+      } else {
+        setSubmitError("Please upload the Aadhaar Card PDF or scan.");
+      }
+      return;
+    }
+
+    // Validate other required docs
+    const otherDocs = sessionInfo.requiredDocs.filter(d => d !== "aadhaar");
+    const missing = otherDocs.filter(d => !files[d]);
     if (missing.length > 0) {
       setSubmitError(`Please upload all required documents: ${missing.map(d => DOC_LABELS[d] || d).join(", ")}`);
       return;
@@ -333,25 +355,29 @@ export default function DealerReuploadPage({ token, onDone }) {
     setConverting(true);
     setSubmitError("");
     try {
-      // Map frontend doc-type keys to the backend's expected payload keys.
-      // The backend /reupload/submit route destructures aadhaarPhoto, panPhoto,
-      // passportPhoto from req.body and validates against requiredDocs.
-      // Using a lookup table keeps this robust and consistent across changes.
+      // Build payload — Aadhaar key depends on dealer's chosen mode
+      const payload = {};
+
+      // Other docs use backend payload keys
       const DOC_TYPE_TO_PAYLOAD_KEY = {
-        aadhaar:        "aadhaarPhoto",
         pan:            "panPhoto",
         passport_photo: "passportPhoto",
         other:          "agreementPhoto",
       };
-
-      const payload = {};
-      for (const docType of sessionInfo.requiredDocs) {
+      for (const docType of otherDocs) {
         const payloadKey = DOC_TYPE_TO_PAYLOAD_KEY[docType];
-        if (!payloadKey) {
-          // Should never happen if server and client are in sync, but guard defensively.
-          throw new Error(`Unknown document type: ${docType}. Please contact support.`);
-        }
+        if (!payloadKey) throw new Error(`Unknown document type: ${docType}. Please contact support.`);
         payload[payloadKey] = await fileToBase64(files[docType]);
+      }
+
+      // Aadhaar — expand to correct keys
+      if (aadhaarNeeded) {
+        if (aadhaarMode === "photos") {
+          payload.aadhaarFront = await fileToBase64(files.aadhaar_front);
+          payload.aadhaarBack  = await fileToBase64(files.aadhaar_back);
+        } else {
+          payload.aadhaarPhoto = await fileToBase64(files.aadhaar);
+        }
       }
 
       setConverting(false);
@@ -359,11 +385,8 @@ export default function DealerReuploadPage({ token, onDone }) {
       setStep("success");
     } catch (err) {
       const msg = err.message || "Failed to submit documents. Please try again.";
-      // If the 1h reupload session JWT expired during the upload, guide user
       if (err.status === 401) {
-        setSubmitError(
-          "Your re-upload session has expired (sessions last 1 hour). Please use the link from your email again to start a new session."
-        );
+        setSubmitError("Your re-upload session has expired (sessions last 1 hour). Please use the link from your email again to start a new session.");
       } else {
         setSubmitError(msg);
       }
@@ -371,9 +394,22 @@ export default function DealerReuploadPage({ token, onDone }) {
       setSubmitting(false);
       setConverting(false);
     }
-  }, [reuploadJwt, sessionInfo, files]);
+  }, [reuploadJwt, sessionInfo, files, aadhaarMode]);
 
-  const allDocsProvided = sessionInfo?.requiredDocs?.every(d => files[d]) ?? false;
+  // allDocsProvided: true only when every required doc is actually uploaded
+  const allDocsProvided = (() => {
+    if (!sessionInfo?.requiredDocs) return false;
+    const aadhaarNeeded = sessionInfo.requiredDocs.includes("aadhaar");
+    const aadhaarOk = !aadhaarNeeded || (
+      aadhaarMode === "photos"
+        ? (!!files.aadhaar_front && !!files.aadhaar_back)
+        : !!files.aadhaar
+    );
+    const otherOk = sessionInfo.requiredDocs
+      .filter(d => d !== "aadhaar")
+      .every(d => !!files[d]);
+    return aadhaarOk && otherOk;
+  })();
 
   // ── Render ───────────────────────────────────────────────────
   return (
@@ -586,7 +622,53 @@ export default function DealerReuploadPage({ token, onDone }) {
                   Documents to Re-upload ({sessionInfo.requiredDocs?.length || 0})
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {sessionInfo.requiredDocs?.map(docType => (
+
+                  {/* ── Aadhaar Card — Two Photos / PDF toggle ── */}
+                  {sessionInfo.requiredDocs?.includes("aadhaar") && (
+                    <div style={{
+                      border: `2px dashed ${
+                        (aadhaarMode === "photos" ? (files.aadhaar_front && files.aadhaar_back) : files.aadhaar)
+                          ? "#2E7D52" : "rgba(0,0,0,0.15)"
+                      }`,
+                      borderRadius: 16,
+                      background: (aadhaarMode === "photos" ? (files.aadhaar_front && files.aadhaar_back) : files.aadhaar)
+                        ? "rgba(46,125,82,0.04)" : "#fafafa",
+                      padding: "16px",
+                      transition: "all 0.2s",
+                    }}>
+                      {/* Header + toggle */}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#1a5c38" }}>Aadhaar Card</div>
+                        <div style={{ display: "inline-flex", background: "rgba(0,0,0,0.06)", borderRadius: 999, padding: 3, gap: 2 }}>
+                          {[{ val: "photos", label: "Two Photos" }, { val: "pdf", label: "PDF / Scan" }].map(({ val, label }) => (
+                            <button key={val} type="button"
+                              onClick={() => { setAadhaarMode(val); setSubmitError(""); }}
+                              style={{
+                                padding: "4px 12px", borderRadius: 999, border: "none",
+                                fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.18s",
+                                background: aadhaarMode === val ? "#2E7D52" : "transparent",
+                                color: aadhaarMode === val ? "white" : "#6b7280",
+                              }}>{label}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {aadhaarMode === "photos" ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          <DocumentZone docType="aadhaar_front" file={files.aadhaar_front || null}
+                            onChange={(f) => setFiles(prev => ({ ...prev, aadhaar_front: f }))} />
+                          <DocumentZone docType="aadhaar_back" file={files.aadhaar_back || null}
+                            onChange={(f) => setFiles(prev => ({ ...prev, aadhaar_back: f }))} />
+                        </div>
+                      ) : (
+                        <DocumentZone docType="aadhaar" file={files.aadhaar || null}
+                          onChange={(f) => setFiles(prev => ({ ...prev, aadhaar: f }))} />
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Other documents ── */}
+                  {sessionInfo.requiredDocs?.filter(d => d !== "aadhaar").map(docType => (
                     <DocumentZone
                       key={docType}
                       docType={docType}

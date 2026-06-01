@@ -8,17 +8,19 @@ import {
 
 // ─── Document labels ────────────────────────────────────────
 const DOC_LABELS = {
-  aadhaar: "Aadhaar Card",
-  pan: "PAN Card",
-  passbook: "Bank Passbook",
-  site_photo: "Latest Light Bill/Site Photo",
-  vera_bill: "Vera Bill",
+  aadhaar:       "Aadhaar Card",
+  aadhaar_front: "Aadhaar Card — Front Side",
+  aadhaar_back:  "Aadhaar Card — Back Side (QR Code)",
+  pan:           "PAN Card",
+  passbook:      "Bank Passbook",
+  site_photo:    "Latest Light Bill/Site Photo",
+  vera_bill:     "Vera Bill",
   house_photo_1: "House Photo 1",
   house_photo_2: "House Photo 2",
   house_photo_3: "House Photo 3",
-  geotag_1: "Site / Inverter Photo (Geotagged)",
-  geotag_2: "Solar Panels Photo (Geotagged)",
-  geotag_3: "ACDB / Net Meter Photo (Geotagged)",
+  geotag_1:      "Site / Inverter Photo (Geotagged)",
+  geotag_2:      "Solar Panels Photo (Geotagged)",
+  geotag_3:      "ACDB / Net Meter Photo (Geotagged)",
 };
 
 const DOC_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";

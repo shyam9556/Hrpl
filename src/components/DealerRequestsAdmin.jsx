@@ -57,16 +57,16 @@ export default function DealerRequestsAdmin() {
   const [geotagReuploadSuccess, setGeotagReuploadSuccess] = useState(false);
 
   const openReuploadModal = (q) => {
-    setReuploadModal({ id: q.id, number: q.quotation_number, customerName: q.customer_name || "Valued Customer" });
+    setReuploadModal({ id: q.id, number: q.quotation_number, customerName: q.customer_name || "Valued Customer", paymentMode: q.payment_mode || "" });
     setReuploadReason(q.reupload_reason || "");
     if (q.reupload_required_docs) {
       const prevDocs = q.reupload_required_docs.split(",").map(d => d.trim());
       setReuploadDocs({
-        aadhaar: prevDocs.includes("aadhaar"),
-        pan: prevDocs.includes("pan"),
-        passbook: prevDocs.includes("passbook"),
-        site_photo: prevDocs.includes("site_photo"),
-        vera_bill: prevDocs.includes("vera_bill"),
+        aadhaar:       prevDocs.includes("aadhaar"),
+        pan:           prevDocs.includes("pan"),
+        passbook:      prevDocs.includes("passbook"),
+        site_photo:    prevDocs.includes("site_photo"),
+        vera_bill:     prevDocs.includes("vera_bill"),
         house_photo_1: prevDocs.includes("house_photo_1"),
         house_photo_2: prevDocs.includes("house_photo_2"),
         house_photo_3: prevDocs.includes("house_photo_3"),
@@ -74,13 +74,8 @@ export default function DealerRequestsAdmin() {
     } else {
       setReuploadDocs({
         aadhaar: false,
-        pan: false,
-        passbook: false,
-        site_photo: false,
-        vera_bill: false,
-        house_photo_1: false,
-        house_photo_2: false,
-        house_photo_3: false,
+        pan: false, passbook: false, site_photo: false,
+        vera_bill: false, house_photo_1: false, house_photo_2: false, house_photo_3: false,
       });
     }
     setReuploadSuccess(false);
@@ -1356,17 +1351,17 @@ export default function DealerRequestsAdmin() {
                         <span style={{ display: "inline-block", background: "#fef3c7", padding: "2px 8px", borderRadius: 6, fontWeight: 600 }}>
                           {selectedQuotation.reupload_required_docs.split(",").map(d => {
                             const labels = {
-                              aadhaar: "Aadhaar Card",
-                              pan: "PAN Card",
-                              passbook: "Bank Passbook",
-                              site_photo: "Latest Light Bill/Site Photo",
-                              vera_bill: "Vera Bill",
+                              aadhaar:       "Aadhaar Card",
+                              pan:           "PAN Card",
+                              passbook:      "Bank Passbook",
+                              site_photo:    "Latest Light Bill/Site Photo",
+                              vera_bill:     "Vera Bill",
                               house_photo_1: "House Photo 1",
                               house_photo_2: "House Photo 2",
                               house_photo_3: "House Photo 3",
-                              geotag_1: "Site / Inverter Photo",
-                              geotag_2: "Solar Panels Photo",
-                              geotag_3: "ACDB / Net Meter Photo",
+                              geotag_1:      "Site / Inverter Photo",
+                              geotag_2:      "Solar Panels Photo",
+                              geotag_3:      "ACDB / Net Meter Photo",
                             };
                             return labels[d] || d;
                           }).join(", ")}
@@ -1514,6 +1509,10 @@ export default function DealerRequestsAdmin() {
                                 <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                   {doc.doc_type === "aadhaar"
                                     ? "Aadhaar Card"
+                                    : doc.doc_type === "aadhaar_front"
+                                    ? "Aadhaar Card (Front)"
+                                    : doc.doc_type === "aadhaar_back"
+                                    ? "Aadhaar Card (Back)"
                                     : doc.doc_type === "pan"
                                     ? "PAN Card"
                                     : doc.doc_type === "passbook"
@@ -2268,7 +2267,7 @@ export default function DealerRequestsAdmin() {
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: reuploadSuccess ? "#15803d" : "#92400e", display: "flex", alignItems: "center", gap: 8 }}>
                   <RefreshCw size={16} />
-                  {reuploadSuccess ? "Request Sent" : "Request Document / Geotag Re-upload"}
+                  {reuploadSuccess ? "Request Sent" : "Request Document Re-upload"}
                 </div>
                 {!reuploadSuccess && (
                   <div style={{ fontSize: 12, color: "#b45309", marginTop: 2, fontWeight: 600 }}>
@@ -2311,17 +2310,23 @@ export default function DealerRequestsAdmin() {
               ) : (
                 <div>
                   {/* Customer Documents */}
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>Customer Documents</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>
+                    {reuploadModal?.paymentMode === "Kit Purchase" ? "Kit Documents" : "Customer Documents"}
+                  </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 24 }}>
                     {[
-                      { key: "aadhaar", label: "Aadhaar Card" },
-                      { key: "pan", label: "PAN Card" },
-                      { key: "passbook", label: "Bank Passbook" },
-                      { key: "site_photo", label: "Latest Light Bill/Site Photo" },
-                      { key: "vera_bill", label: "Vera Bill" },
-                      { key: "house_photo_1", label: "House Photo 1" },
-                      { key: "house_photo_2", label: "House Photo 2" },
-                      { key: "house_photo_3", label: "House Photo 3" }
+                      ...(reuploadModal?.paymentMode !== "Kit Purchase" ? [
+                        { key: "aadhaar",       label: "Aadhaar Card" },
+                        { key: "pan",           label: "PAN Card" },
+                        { key: "passbook",      label: "Bank Passbook" },
+                      ] : []),
+                      { key: "site_photo", label: reuploadModal?.paymentMode === "Kit Purchase" ? "Site / Roof Photo" : "Latest Light Bill / Site Photo" },
+                      ...(reuploadModal?.paymentMode !== "Kit Purchase" ? [
+                        { key: "vera_bill",     label: "Vera Bill" },
+                        { key: "house_photo_1", label: "House Photo 1" },
+                        { key: "house_photo_2", label: "House Photo 2" },
+                        { key: "house_photo_3", label: "House Photo 3" },
+                      ] : []),
                     ].map(({ key, label }) => (
                       <label
                         key={key}
@@ -2335,7 +2340,7 @@ export default function DealerRequestsAdmin() {
                           background: reuploadDocs[key] ? "rgba(46,125,82,0.04)" : "#fafafa",
                           cursor: "pointer",
                           userSelect: "none",
-                          transition: "all 0.2s"
+                          transition: "all 0.2s",
                         }}
                       >
                         <input

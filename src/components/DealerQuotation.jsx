@@ -66,6 +66,9 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
     structureHeight: "Ground Level (Flat)",
     paymentMode: "Cash",
     subsidy: "yes",
+    aadhaarMode: "photos",
+    aadhaarFront: null,
+    aadhaarBack: null,
     aadhaar: null,
     pan: null,
     passbook: null,
@@ -476,8 +479,11 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
   // ISSUE-15 fix: Kit mode canSubmit also requires quote to exist (not null).
   // Without this, submitting with no quote crashes ensureQuotationCreated()
   // because it tries to read quote.systemKw, quote.panelCost, etc.
+  const aadhaarReady = form.aadhaarMode === "photos"
+    ? (form.aadhaarFront && form.aadhaarBack)
+    : !!form.aadhaar;
   const canSubmit = (mode === "kit" ? (quote !== null) : (
-    form.aadhaar && form.pan && form.passbook && form.sitePhoto &&
+    aadhaarReady && form.pan && form.passbook && form.sitePhoto &&
     (form.paymentMode !== "Bank Loan" || (form.veraBill && form.housePhoto1 && form.housePhoto2 && form.housePhoto3))
   ));
 
@@ -675,7 +681,14 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
 
       // Explicit per-field list — no dynamic form[key] bracket access.
       const filesToUpload = [
-        { file: form.aadhaar,     type: "aadhaar" },
+        // Aadhaar: two-photo mode sends front + back; PDF mode sends single file
+        ...(form.aadhaarMode === "photos"
+          ? [
+              { file: form.aadhaarFront, type: "aadhaar_front" },
+              { file: form.aadhaarBack,  type: "aadhaar_back" },
+            ]
+          : [{ file: form.aadhaar, type: "aadhaar" }]
+        ),
         { file: form.pan,         type: "pan" },
         { file: form.passbook,    type: "passbook" },
         { file: form.sitePhoto,   type: "site_photo" },
@@ -1116,6 +1129,9 @@ ${pdfLine}`;
                 structureHeight: "Ground Level (Flat)",
                 paymentMode: "Cash",
                 subsidy: "yes",
+                aadhaarMode: "photos",
+                aadhaarFront: null,
+                aadhaarBack: null,
                 aadhaar: null,
                 pan: null,
                 passbook: null,
@@ -1685,14 +1701,59 @@ ${pdfLine}`;
           <div className="card">
             <div className="card-title">{mode === "kit" ? "Upload Site Photo (Optional)" : "Upload Customer Documents"}</div>
             <div className="upload-grid">
+              {/* ── Aadhaar Card (commission mode only) — Two Photos / PDF toggle ── */}
+              {mode === "commission" && (
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <div style={{
+                    background: "var(--light, #f8fafc)",
+                    border: "1.5px solid var(--border, #e2e8f0)",
+                    borderRadius: 12,
+                    padding: "14px 16px",
+                  }}>
+                    {/* Header + toggle */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                        <IdCard size={16} style={{ color: "var(--green)" }} />
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Aadhaar Card</span>
+                      </div>
+                      <div style={{ display: "inline-flex", background: "var(--border, #e2e8f0)", borderRadius: 999, padding: 3, gap: 2 }}>
+                        <button type="button"
+                          onClick={() => set("aadhaarMode", "photos")}
+                          style={{ padding: "5px 13px", borderRadius: 999, border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.18s",
+                            background: form.aadhaarMode === "photos" ? "var(--green, #2E7D52)" : "transparent",
+                            color: form.aadhaarMode === "photos" ? "white" : "var(--muted)",
+                            boxShadow: form.aadhaarMode === "photos" ? "0 2px 6px rgba(46,125,82,0.25)" : "none",
+                          }}>Two Photos</button>
+                        <button type="button"
+                          onClick={() => set("aadhaarMode", "pdf")}
+                          style={{ padding: "5px 13px", borderRadius: 999, border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.18s",
+                            background: form.aadhaarMode === "pdf" ? "var(--green, #2E7D52)" : "transparent",
+                            color: form.aadhaarMode === "pdf" ? "white" : "var(--muted)",
+                            boxShadow: form.aadhaarMode === "pdf" ? "0 2px 6px rgba(46,125,82,0.25)" : "none",
+                          }}>PDF / Scan</button>
+                      </div>
+                    </div>
+                    {/* Upload zones */}
+                    {form.aadhaarMode === "photos" ? (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        <UploadZone label="Front Side" icon={<IdCard size={22} />} file={form.aadhaarFront} onChange={f => set("aadhaarFront", f)} />
+                        <UploadZone label="Back Side"  icon={<IdCard size={22} />} file={form.aadhaarBack}  onChange={f => set("aadhaarBack",  f)} />
+                      </div>
+                    ) : (
+                      <UploadZone label="Aadhaar Card" icon={<IdCard size={22} />} file={form.aadhaar} onChange={f => set("aadhaar", f)} />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Other documents ── */}
               {[
                 ...(mode === "commission" ? [
-                  { key: "aadhaar",   label: "Aadhaar Card",                  icon: <IdCard size={20} />,   value: form.aadhaar },
                   { key: "pan",       label: "PAN Card",                       icon: <CreditCard size={20} />, value: form.pan },
                   { key: "passbook",  label: "Bank Passbook",                  icon: <Landmark size={20} />,   value: form.passbook },
-                  { key: "sitePhoto", label: "Site Photo / Latest Light Bill", icon: <FileText size={20} />,  value: form.sitePhoto },
+                  { key: "sitePhoto", label: "Site Photo / Latest Light Bill", icon: <FileText size={20} />,   value: form.sitePhoto },
                   ...(form.paymentMode === "Bank Loan" ? [
-                    { key: "veraBill",   label: "Vera Bill",     icon: <FileText size={20} />, value: form.veraBill },
+                    { key: "veraBill",    label: "Vera Bill",     icon: <FileText size={20} />, value: form.veraBill },
                     { key: "housePhoto1", label: "House Photo 1", icon: <Home size={20} />,     value: form.housePhoto1 },
                     { key: "housePhoto2", label: "House Photo 2", icon: <Home size={20} />,     value: form.housePhoto2 },
                     { key: "housePhoto3", label: "House Photo 3", icon: <Home size={20} />,     value: form.housePhoto3 },
@@ -1701,13 +1762,7 @@ ${pdfLine}`;
                   { key: "sitePhoto", label: "Site / Roof Photo", icon: <Home size={20} />, value: form.sitePhoto },
                 ]),
               ].map(({ key, label, icon, value }) => (
-                <UploadZone
-                  key={key}
-                  label={label}
-                  icon={icon}
-                  file={value}
-                  onChange={f => set(key, f)}
-                />
+                <UploadZone key={key} label={label} icon={icon} file={value} onChange={f => set(key, f)} />
               ))}
 
             </div>
@@ -1875,6 +1930,9 @@ ${pdfLine}`;
             structureHeight: "Ground Level (Flat)",
             paymentMode: "Cash",
             subsidy: "yes",
+            aadhaarMode: "photos",
+            aadhaarFront: null,
+            aadhaarBack: null,
             aadhaar: null,
             pan: null,
             passbook: null,

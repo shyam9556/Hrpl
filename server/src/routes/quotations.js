@@ -766,20 +766,48 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
     const docsToProcess = q.reupload_required_docs.split(",").filter(Boolean);
     const filesPayload = req.body || {};
 
-    // Validate all admin-required docs are present in payload
-    if (docsToProcess.length > 0) {
-      const missingDocs = docsToProcess.filter(d => !filesPayload[d]);
-      if (missingDocs.length > 0) {
-        const docLabels = {
-          aadhaar: "Aadhaar Card", pan: "PAN Card", passbook: "Bank Passbook",
-          site_photo: "Latest Light Bill/Site Photo", vera_bill: "Vera Bill",
-          house_photo_1: "House Photo 1", house_photo_2: "House Photo 2", house_photo_3: "House Photo 3",
-        };
-        return res.status(400).json({
-          success: false,
-          error: `Missing required documents: ${missingDocs.map(d => docLabels[d] || d).join(", ")}`,
-        });
-      }
+    // ── Aadhaar expansion ───────────────────────────────────────────────────
+    // Admin always requests "aadhaar". Dealer chooses format at upload time:
+    //   photos mode → sends payload.aadhaar_front + payload.aadhaar_back
+    //   PDF mode    → sends payload.aadhaar
+    // Build the actual list of doc types we will write, resolving the choice.
+    const aadhaarNeeded = docsToProcess.includes("aadhaar");
+    const hasAadhaarPdf    = aadhaarNeeded && !!filesPayload.aadhaar;
+    const hasAadhaarPhotos = aadhaarNeeded && !!filesPayload.aadhaar_front && !!filesPayload.aadhaar_back;
+    const aadhaarSatisfied = hasAadhaarPdf || hasAadhaarPhotos;
+
+    // Expand docsToProcess: replace "aadhaar" with the actual sub-types the dealer sent
+    const effectiveDocs = docsToProcess.flatMap(d => {
+      if (d !== "aadhaar") return [d];
+      if (hasAadhaarPhotos) return ["aadhaar_front", "aadhaar_back"];
+      if (hasAadhaarPdf)    return ["aadhaar"];
+      return ["aadhaar"]; // will fail validation below
+    });
+
+    // Validate: all admin-required docs must be satisfied
+    const missingDocs = docsToProcess.filter(d => {
+      if (d === "aadhaar") return !aadhaarSatisfied;
+      return !filesPayload[d];
+    });
+    if (missingDocs.length > 0) {
+      const docLabels = {
+        aadhaar:       aadhaarNeeded && !aadhaarSatisfied
+          ? (filesPayload.aadhaar_front && !filesPayload.aadhaar_back
+              ? "Aadhaar Card — Back Side (missing)"
+              : "Aadhaar Card (upload PDF or both Front + Back photos)")
+          : "Aadhaar Card",
+        pan:           "PAN Card",
+        passbook:      "Bank Passbook",
+        site_photo:    "Latest Light Bill / Site Photo",
+        vera_bill:     "Vera Bill",
+        house_photo_1: "House Photo 1",
+        house_photo_2: "House Photo 2",
+        house_photo_3: "House Photo 3",
+      };
+      return res.status(400).json({
+        success: false,
+        error: `Missing required documents: ${missingDocs.map(d => docLabels[d] || d).join(", ")}`,
+      });
     }
 
     // Resolve uploads directory
@@ -788,11 +816,13 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
       : path.resolve(__dirname, "../..", env.upload.dir);
 
     const ALLOWED_MIME = {
-      aadhaar: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
-      pan: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
-      passbook: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
-      site_photo: ["image/jpeg", "image/png", "image/webp"],
-      vera_bill: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+      aadhaar:       ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+      aadhaar_front: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+      aadhaar_back:  ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+      pan:           ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+      passbook:      ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+      site_photo:    ["image/jpeg", "image/png", "image/webp"],
+      vera_bill:     ["image/jpeg", "image/png", "image/webp", "application/pdf"],
       house_photo_1: ["image/jpeg", "image/png", "image/webp"],
       house_photo_2: ["image/jpeg", "image/png", "image/webp"],
       house_photo_3: ["image/jpeg", "image/png", "image/webp"],
@@ -802,12 +832,17 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
     try {
       await client.query("BEGIN");
 
-      // Delete old documents for the doc types being re-uploaded
-      const placeholders = docsToProcess.map(() => "?").join(", ");
+      // Delete old documents for the types being re-uploaded.
+      // For Aadhaar, always delete ALL three variants so no stale docs remain
+      // when dealer switches between PDF and two-photo modes.
+      const deleteTypes = aadhaarNeeded
+        ? [...docsToProcess.filter(d => d !== "aadhaar"), "aadhaar", "aadhaar_front", "aadhaar_back"]
+        : docsToProcess;
+      const placeholders = deleteTypes.map(() => "?").join(", ");
       const oldDocsResult = await client.query(
         `SELECT id, file_path FROM documents
          WHERE entity_type = 'quotation' AND entity_id = ? AND doc_type IN (${placeholders})`,
-        [quotationId, ...docsToProcess]
+        [quotationId, ...deleteTypes]
       );
 
       for (const doc of oldDocsResult.rows) {
@@ -819,11 +854,11 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
 
       await client.query(
         `DELETE FROM documents WHERE entity_type = 'quotation' AND entity_id = ? AND doc_type IN (${placeholders})`,
-        [quotationId, ...docsToProcess]
+        [quotationId, ...deleteTypes]
       );
 
       // Save new files (base64 payload: { data, name, type, size })
-      for (const docType of docsToProcess) {
+      for (const docType of effectiveDocs) {
         const fileObj = filesPayload[docType];
         if (!fileObj?.data || !fileObj?.name || !fileObj?.type) {
           throw new Error(`Invalid file payload for ${docType}`);

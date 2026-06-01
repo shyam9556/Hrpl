@@ -41,6 +41,7 @@ export default function DealerRequests() {
   // Portal document re-upload state
   const [portalReuploadModal, setPortalReuploadModal] = useState(null); // quotation object
   const [portalReuploadFiles, setPortalReuploadFiles] = useState({}); // { docType: File }
+  const [portalAadhaarMode, setPortalAadhaarMode] = useState("photos"); // "photos" | "pdf"
   const [portalReuploadLoading, setPortalReuploadLoading] = useState(false);
   const [portalReuploadSuccess, setPortalReuploadSuccess] = useState(false);
   const [portalReuploadError, setPortalReuploadError] = useState("");
@@ -74,26 +75,30 @@ export default function DealerRequests() {
   const GEOTAG_MAX_SIZE_MB = 10;
 
   const DOC_LABELS = {
-    aadhaar: "Aadhaar Card",
-    pan: "PAN Card",
+    aadhaar:       "Aadhaar Card",
+    aadhaar_front: "Aadhaar Card — Front Side",
+    aadhaar_back:  "Aadhaar Card — Back Side (QR Code)",
+    pan:           "PAN Card",
     passport_photo: "Passport Photo",
-    other: "Dealership Agreement",
-    passbook: "Bank Passbook",
-    site_photo: "Latest Light Bill / Site Photo",
-    vera_bill: "Vera Bill",
+    other:         "Dealership Agreement",
+    passbook:      "Bank Passbook",
+    site_photo:    "Latest Light Bill / Site Photo",
+    vera_bill:     "Vera Bill",
     house_photo_1: "House Photo 1",
     house_photo_2: "House Photo 2",
     house_photo_3: "House Photo 3",
   };
 
   const DOC_ACCEPT = {
-    aadhaar: "image/jpeg,image/png,image/webp,application/pdf",
-    pan: "image/jpeg,image/png,image/webp,application/pdf",
+    aadhaar:       "image/jpeg,image/png,image/webp,application/pdf",
+    aadhaar_front: "image/jpeg,image/png,image/webp,application/pdf",
+    aadhaar_back:  "image/jpeg,image/png,image/webp,application/pdf",
+    pan:           "image/jpeg,image/png,image/webp,application/pdf",
     passport_photo: "image/jpeg,image/png,image/webp,application/pdf",
-    other: "image/jpeg,image/png,image/webp,application/pdf",
-    passbook: "image/jpeg,image/png,image/webp,application/pdf",
-    site_photo: "image/jpeg,image/png,image/webp",
-    vera_bill: "image/jpeg,image/png,image/webp,application/pdf",
+    other:         "image/jpeg,image/png,image/webp,application/pdf",
+    passbook:      "image/jpeg,image/png,image/webp,application/pdf",
+    site_photo:    "image/jpeg,image/png,image/webp",
+    vera_bill:     "image/jpeg,image/png,image/webp,application/pdf",
     house_photo_1: "image/jpeg,image/png,image/webp",
     house_photo_2: "image/jpeg,image/png,image/webp",
     house_photo_3: "image/jpeg,image/png,image/webp",
@@ -116,6 +121,7 @@ export default function DealerRequests() {
   const openPortalReuploadModal = (q) => {
     setPortalReuploadModal(q);
     setPortalReuploadFiles({});
+    setPortalAadhaarMode("photos");
     setPortalReuploadSuccess(false);
     setPortalReuploadError("");
   };
@@ -132,8 +138,31 @@ export default function DealerRequests() {
       return;
     }
 
-    // Validate all admin-required docs are selected
-    const missing = requiredDocs.filter(d => !portalReuploadFiles[d]);
+    // Validate — Aadhaar is special: PDF mode or two-photo mode
+    const aadhaarNeeded = requiredDocs.includes("aadhaar");
+    const aadhaarPdfOk    = aadhaarNeeded && portalAadhaarMode === "pdf"    && !!portalReuploadFiles.aadhaar;
+    const aadhaarPhotosOk = aadhaarNeeded && portalAadhaarMode === "photos" && !!portalReuploadFiles.aadhaar_front && !!portalReuploadFiles.aadhaar_back;
+    const aadhaarOk = !aadhaarNeeded || aadhaarPdfOk || aadhaarPhotosOk;
+
+    if (!aadhaarOk) {
+      if (portalAadhaarMode === "photos") {
+        const frontMissing = !portalReuploadFiles.aadhaar_front;
+        const backMissing  = !portalReuploadFiles.aadhaar_back;
+        setPortalReuploadError(
+          frontMissing && backMissing
+            ? "Please upload both Aadhaar Front and Back photos."
+            : frontMissing ? "Please upload the Aadhaar Front photo."
+            : "Please upload the Aadhaar Back photo."
+        );
+      } else {
+        setPortalReuploadError("Please upload the Aadhaar Card PDF or scan.");
+      }
+      return;
+    }
+
+    // Validate other required docs
+    const otherDocs = requiredDocs.filter(d => d !== "aadhaar");
+    const missing = otherDocs.filter(d => !portalReuploadFiles[d]);
     if (missing.length > 0) {
       setPortalReuploadError(`Please upload all required documents: ${missing.map(d => DOC_LABELS[d] || d).join(", ")}`);
       return;
@@ -142,10 +171,18 @@ export default function DealerRequests() {
     setPortalReuploadLoading(true);
     setPortalReuploadError("");
     try {
-      // Only send exactly what admin requested
+      // Build payload — Aadhaar expands based on mode chosen by dealer
       const payload = {};
-      for (const docType of requiredDocs) {
+      for (const docType of otherDocs) {
         payload[docType] = await fileToBase64(portalReuploadFiles[docType]);
+      }
+      if (aadhaarNeeded) {
+        if (portalAadhaarMode === "photos") {
+          payload.aadhaar_front = await fileToBase64(portalReuploadFiles.aadhaar_front);
+          payload.aadhaar_back  = await fileToBase64(portalReuploadFiles.aadhaar_back);
+        } else {
+          payload.aadhaar = await fileToBase64(portalReuploadFiles.aadhaar);
+        }
       }
       await quotationsApi.submitPortalReupload(portalReuploadModal.id, payload);
       setPortalReuploadSuccess(true);
@@ -1467,13 +1504,14 @@ ${pdfLine}`;
                     </div>
                   )}
 
-                  {/* Upload zones  -  only the docs admin specified */}
+                    {/* Upload zones  -  only the docs admin specified */}
                   {(() => {
                     const docList = portalReuploadModal.reupload_required_docs
                       ? portalReuploadModal.reupload_required_docs.split(",").filter(Boolean)
                       : [];
-                    const count = docList.length;
-                    const cols = count === 1 ? "1fr" : count === 2 ? "1fr 1fr" : "repeat(auto-fill, minmax(160px, 1fr))";
+                    const aadhaarNeeded = docList.includes("aadhaar");
+                    const otherDocs = docList.filter(d => d !== "aadhaar");
+                    const count = (aadhaarNeeded ? 1 : 0) + otherDocs.length;
 
                     if (count === 0) return (
                       /* No specific docs flagged */
@@ -1488,72 +1526,172 @@ ${pdfLine}`;
                     );
 
                     return (
-                      <div style={{ display: "grid", gridTemplateColumns: cols, gap: 12 }}>
-                        {docList.map(docType => {
-                          const file = portalReuploadFiles[docType];
-                          return (
-                            <div key={docType} style={{
-                              border: `1.5px dashed ${file ? "#2E7D52" : "rgba(0,0,0,0.18)"}`,
-                              borderRadius: 14, padding: "14px 14px 12px",
-                              background: file ? "rgba(46,125,82,0.03)" : "#fafafa",
-                              display: "flex", flexDirection: "column", alignItems: "center",
-                              gap: 10, transition: "all 0.2s",
-                            }}>
-                              <div style={{ fontSize: 12, fontWeight: 700, color: file ? "#1a5c38" : "#374151", textAlign: "center" }}>
-                                {DOC_LABELS[docType] || docType}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+                        {/* ── Aadhaar Card (if required) ── */}
+                        {aadhaarNeeded && (
+                          <div style={{
+                            background: "#f8fafc",
+                            border: `1.5px solid ${(portalAadhaarMode === "photos" ? (portalReuploadFiles.aadhaar_front && portalReuploadFiles.aadhaar_back) : portalReuploadFiles.aadhaar) ? "#2E7D52" : "rgba(0,0,0,0.1)"}`,
+                            borderRadius: 14,
+                            padding: "12px 14px",
+                          }}>
+                            {/* Header + toggle */}
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: "#1a5c38" }}>Aadhaar Card</div>
+                              <div style={{ display: "inline-flex", background: "rgba(0,0,0,0.06)", borderRadius: 999, padding: 3, gap: 2 }}>
+                                {[{ val: "photos", label: "Two Photos" }, { val: "pdf", label: "PDF / Scan" }].map(({ val, label }) => (
+                                  <button key={val} type="button"
+                                    onClick={() => { setPortalAadhaarMode(val); setPortalReuploadError(""); }}
+                                    style={{
+                                      padding: "4px 12px", borderRadius: 999, border: "none",
+                                      fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.18s",
+                                      background: portalAadhaarMode === val ? "#2E7D52" : "transparent",
+                                      color: portalAadhaarMode === val ? "white" : "#6b7280",
+                                    }}>{ label }</button>
+                                ))}
                               </div>
-                              {file ? (
-                                <>
-                                  {file.type.startsWith("image/") ? (
-                                    <img src={portalPreviewUrls[docType]} alt={file.name}
-                                      style={{ width: 70, height: 70, objectFit: "cover", borderRadius: 10, border: "1.5px dashed rgba(46,125,82,0.3)" }} />
-                                  ) : (
-                                    <div style={{ width: 70, height: 70, background: "rgba(46,125,82,0.08)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", border: "1.5px dashed rgba(46,125,82,0.25)" }}>
-                                      <FileText size={28} style={{ color: "#2E7D52" }} />
-                                    </div>
-                                  )}
-                                  <div style={{ textAlign: "center", width: "100%" }}>
-                                    <div style={{ fontSize: 11, color: "#374151", fontWeight: 600, wordBreak: "break-all", lineHeight: 1.4, marginBottom: 2 }}>{file.name}</div>
-                                    <div style={{ fontSize: 10, color: "var(--muted)" }}>{(file.size / 1024).toFixed(0)} KB</div>
-                                  </div>
-                                  <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "#2E7D52", background: "rgba(46,125,82,0.1)", border: "1px dashed rgba(46,125,82,0.3)", borderRadius: 20, padding: "3px 10px" }}>
-                                    <Check size={9} /> File Selected
-                                  </div>
-                                </>
-                              ) : (
-                                <>
-                                  <div style={{ width: 70, height: 70, background: "#f3f4f6", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", border: "1.5px dashed rgba(0,0,0,0.15)" }}>
-                                    <Upload size={24} style={{ color: "#9ca3af" }} />
-                                  </div>
-                                  <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center" }}>No file selected</div>
-                                </>
-                              )}
-                              <label style={{
-                                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                                padding: "7px 0", borderRadius: 8, width: "100%", boxSizing: "border-box",
-                                cursor: portalReuploadLoading ? "not-allowed" : "pointer",
-                                fontSize: 12, fontWeight: 600,
-                                background: file ? "rgba(46,125,82,0.08)" : "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
-                                color: file ? "#2E7D52" : "white",
-                                border: file ? "1.5px dashed rgba(46,125,82,0.3)" : "none",
-                                opacity: portalReuploadLoading ? 0.6 : 1,
-                                marginTop: "auto", transition: "all 0.2s"
-                              }}>
-                                <Upload size={11} /> {file ? "Change File" : "Choose File"}
-                                <input type="file"
-                                  accept={DOC_ACCEPT[docType] || "image/jpeg,image/png,image/webp,application/pdf"}
-                                  style={{ display: "none" }}
-                                  disabled={portalReuploadLoading}
-                                  onChange={(e) => {
-                                    const f = e.target.files[0];
-                                    e.target.value = "";
-                                    if (f) setPortalReuploadFiles(prev => ({ ...prev, [docType]: f }));
-                                  }}
-                                />
-                              </label>
                             </div>
-                          );
-                        })}
+
+                            {/* Upload zones based on mode */}
+                            {portalAadhaarMode === "photos" ? (
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                {[{ key: "aadhaar_front", label: "Front Side" }, { key: "aadhaar_back", label: "Back Side" }].map(({ key, label }) => {
+                                  const file = portalReuploadFiles[key];
+                                  return (
+                                    <div key={key} style={{ border: `1.5px dashed ${file ? "#2E7D52" : "rgba(0,0,0,0.18)"}`, borderRadius: 12, padding: "12px", background: file ? "rgba(46,125,82,0.03)" : "#fafafa", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                                      <div style={{ fontSize: 11, fontWeight: 700, color: file ? "#1a5c38" : "#374151", textAlign: "center" }}>{label}</div>
+                                      {file ? (
+                                        <>
+                                          {file.type.startsWith("image/") ? (
+                                            <img src={portalPreviewUrls[key]} alt={label} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: "1.5px dashed rgba(46,125,82,0.3)" }} />
+                                          ) : (
+                                            <div style={{ width: 60, height: 60, background: "rgba(46,125,82,0.08)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                              <FileText size={24} style={{ color: "#2E7D52" }} />
+                                            </div>
+                                          )}
+                                          <div style={{ fontSize: 10, color: "var(--muted)", textAlign: "center", wordBreak: "break-all" }}>{file.name}</div>
+                                        </>
+                                      ) : (
+                                        <div style={{ width: 60, height: 60, background: "#f3f4f6", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                          <Upload size={20} style={{ color: "#9ca3af" }} />
+                                        </div>
+                                      )}
+                                      <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "6px 0", borderRadius: 8, width: "100%", cursor: portalReuploadLoading ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 600, background: file ? "rgba(46,125,82,0.1)" : "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)", color: file ? "#2E7D52" : "white", opacity: portalReuploadLoading ? 0.6 : 1, marginTop: "auto" }}>
+                                        <Upload size={10} /> {file ? "Change" : "Choose"}
+                                        <input type="file" accept={DOC_ACCEPT.aadhaar_front} style={{ display: "none" }} disabled={portalReuploadLoading} onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) setPortalReuploadFiles(prev => ({ ...prev, [key]: f })); }} />
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              /* PDF mode — single zone */
+                              (() => {
+                                const file = portalReuploadFiles.aadhaar;
+                                return (
+                                  <div style={{ border: `1.5px dashed ${file ? "#2E7D52" : "rgba(0,0,0,0.18)"}`, borderRadius: 12, padding: "12px 14px", background: file ? "rgba(46,125,82,0.03)" : "#fafafa", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                                    {file ? (
+                                      <>
+                                        {file.type.startsWith("image/") ? (
+                                          <img src={portalPreviewUrls.aadhaar} alt="Aadhaar" style={{ width: 70, height: 70, objectFit: "cover", borderRadius: 10, border: "1.5px dashed rgba(46,125,82,0.3)" }} />
+                                        ) : (
+                                          <div style={{ width: 70, height: 70, background: "rgba(46,125,82,0.08)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                            <FileText size={28} style={{ color: "#2E7D52" }} />
+                                          </div>
+                                        )}
+                                        <div style={{ fontSize: 11, color: "#374151", fontWeight: 600, wordBreak: "break-all", textAlign: "center" }}>{file.name}</div>
+                                        <div style={{ fontSize: 10, color: "var(--muted)" }}>{(file.size / 1024).toFixed(0)} KB</div>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div style={{ width: 70, height: 70, background: "#f3f4f6", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                          <Upload size={24} style={{ color: "#9ca3af" }} />
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "#9ca3af" }}>No file selected</div>
+                                      </>
+                                    )}
+                                    <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "7px 0", borderRadius: 8, width: "100%", cursor: portalReuploadLoading ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 600, background: file ? "rgba(46,125,82,0.08)" : "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)", color: file ? "#2E7D52" : "white", opacity: portalReuploadLoading ? 0.6 : 1, marginTop: "auto" }}>
+                                      <Upload size={11} /> {file ? "Change File" : "Choose File"}
+                                      <input type="file" accept={DOC_ACCEPT.aadhaar} style={{ display: "none" }} disabled={portalReuploadLoading} onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) setPortalReuploadFiles(prev => ({ ...prev, aadhaar: f })); }} />
+                                    </label>
+                                  </div>
+                                );
+                              })()
+                            )}
+                          </div>
+                        )}
+
+                        {/* ── Other documents ── */}
+                        {otherDocs.length > 0 && (
+                          <div style={{ display: "grid", gridTemplateColumns: otherDocs.length === 1 ? "1fr" : "1fr 1fr", gap: 12 }}>
+                            {otherDocs.map(docType => {
+                              const file = portalReuploadFiles[docType];
+                              return (
+                                <div key={docType} style={{
+                                  border: `1.5px dashed ${file ? "#2E7D52" : "rgba(0,0,0,0.18)"}`,
+                                  borderRadius: 14, padding: "14px 14px 12px",
+                                  background: file ? "rgba(46,125,82,0.03)" : "#fafafa",
+                                  display: "flex", flexDirection: "column", alignItems: "center",
+                                  gap: 10, transition: "all 0.2s",
+                                }}>
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: file ? "#1a5c38" : "#374151", textAlign: "center" }}>
+                                    {DOC_LABELS[docType] || docType}
+                                  </div>
+                                  {file ? (
+                                    <>
+                                      {file.type.startsWith("image/") ? (
+                                        <img src={portalPreviewUrls[docType]} alt={file.name}
+                                          style={{ width: 70, height: 70, objectFit: "cover", borderRadius: 10, border: "1.5px dashed rgba(46,125,82,0.3)" }} />
+                                      ) : (
+                                        <div style={{ width: 70, height: 70, background: "rgba(46,125,82,0.08)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", border: "1.5px dashed rgba(46,125,82,0.25)" }}>
+                                          <FileText size={28} style={{ color: "#2E7D52" }} />
+                                        </div>
+                                      )}
+                                      <div style={{ textAlign: "center", width: "100%" }}>
+                                        <div style={{ fontSize: 11, color: "#374151", fontWeight: 600, wordBreak: "break-all", lineHeight: 1.4, marginBottom: 2 }}>{file.name}</div>
+                                        <div style={{ fontSize: 10, color: "var(--muted)" }}>{(file.size / 1024).toFixed(0)} KB</div>
+                                      </div>
+                                      <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "#2E7D52", background: "rgba(46,125,82,0.1)", border: "1px dashed rgba(46,125,82,0.3)", borderRadius: 20, padding: "3px 10px" }}>
+                                        <Check size={9} /> File Selected
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div style={{ width: 70, height: 70, background: "#f3f4f6", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", border: "1.5px dashed rgba(0,0,0,0.15)" }}>
+                                        <Upload size={24} style={{ color: "#9ca3af" }} />
+                                      </div>
+                                      <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center" }}>No file selected</div>
+                                    </>
+                                  )}
+                                  <label style={{
+                                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                                    padding: "7px 0", borderRadius: 8, width: "100%", boxSizing: "border-box",
+                                    cursor: portalReuploadLoading ? "not-allowed" : "pointer",
+                                    fontSize: 12, fontWeight: 600,
+                                    background: file ? "rgba(46,125,82,0.08)" : "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
+                                    color: file ? "#2E7D52" : "white",
+                                    border: file ? "1.5px dashed rgba(46,125,82,0.3)" : "none",
+                                    opacity: portalReuploadLoading ? 0.6 : 1,
+                                    marginTop: "auto", transition: "all 0.2s"
+                                  }}>
+                                    <Upload size={11} /> {file ? "Change File" : "Choose File"}
+                                    <input type="file"
+                                      accept={DOC_ACCEPT[docType] || "image/jpeg,image/png,image/webp,application/pdf"}
+                                      style={{ display: "none" }}
+                                      disabled={portalReuploadLoading}
+                                      onChange={(e) => {
+                                        const f = e.target.files[0];
+                                        e.target.value = "";
+                                        if (f) setPortalReuploadFiles(prev => ({ ...prev, [docType]: f }));
+                                      }}
+                                    />
+                                  </label>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}

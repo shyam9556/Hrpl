@@ -25,11 +25,24 @@ export const registerSchema = Joi.object({
   location: Joi.string().required().trim().min(3).max(255)
     .messages({ "string.min": "Working location must be at least 3 characters" }),
   companyName: Joi.string().allow("", null).trim().max(255),
+  // ── Aadhaar: either a single PDF/scan OR two photos (front + back) ──
   aadhaarPhoto: Joi.object({
     name: Joi.string().required().max(255),
     type: Joi.string().required().valid("image/jpeg", "image/png", "image/webp", "application/pdf"),
     size: Joi.number().required().max(10 * 1024 * 1024), // 10MB max
     data: Joi.string().required().max(14 * 1024 * 1024), // ~10MB file after base64 encoding (~33% overhead)
+  }).allow(null),
+  aadhaarFront: Joi.object({
+    name: Joi.string().required().max(255),
+    type: Joi.string().required().valid("image/jpeg", "image/png", "image/webp", "application/pdf"),
+    size: Joi.number().required().max(10 * 1024 * 1024),
+    data: Joi.string().required().max(14 * 1024 * 1024),
+  }).allow(null),
+  aadhaarBack: Joi.object({
+    name: Joi.string().required().max(255),
+    type: Joi.string().required().valid("image/jpeg", "image/png", "image/webp", "application/pdf"),
+    size: Joi.number().required().max(10 * 1024 * 1024),
+    data: Joi.string().required().max(14 * 1024 * 1024),
   }).allow(null),
   panPhoto: Joi.object({
     name: Joi.string().required().max(255),
