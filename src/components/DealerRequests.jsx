@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { quotations as quotationsApi, uploads as uploadsApi } from "../utils/api";
-import { fmt, generatePdfQuotation, generateBOM } from "../utils/helpers";
+import { fmt, generatePdfQuotation } from "../utils/helpers";
 import { Loader2, ClipboardList, MessageCircle, Mail, Copy, Check, Camera, MapPin, Upload, X, Eye, Download, Info, FileText, Truck, Package, Clock, ChevronLeft, ChevronRight, Plus, AlertCircle, RefreshCw, AlertTriangle, Lock } from "lucide-react";
 
 import { t } from "../utils/i18n";
@@ -1017,28 +1017,7 @@ ${pdfLine}`;
                       >
                         {sharingCopyId === q.id ? <Loader2 size={13} className="animate-spin" /> : copiedId === q.id ? <Check size={13} /> : <Copy size={13} />}
                       </button>
-                      {/* UX-3: BOM download for dealer on their own Approved quotations */}
-                      {q.status === "Approved" && q.payment_mode !== "Kit Purchase" && (
-                        <button
-                          onClick={() => {
-                            const bom = generateBOM(q);
-                            const bomHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>BOM - ${q.quotation_number}</title></head><body style="font-family:sans-serif;padding:20px"><h2>Bill of Materials</h2><p>Quotation: ${q.quotation_number}</p><table border="1" cellpadding="8" style="border-collapse:collapse;width:100%"><thead><tr><th>Item</th><th>Qty</th><th>Unit</th></tr></thead><tbody>${bom.map(i => `<tr><td>${i.name}</td><td>${i.qty}</td><td>${i.unit}</td></tr>`).join("")}</tbody></table></body></html>`;
-                            const blob = new Blob([bomHtml], { type: "text/html" });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement("a");
-                            a.href = url; a.download = `BOM_${q.quotation_number}.html`;
-                            document.body.appendChild(a); a.click();
-                            document.body.removeChild(a);
-                            setTimeout(() => URL.revokeObjectURL(url), 1000);
-                          }}
-                          title="Download BOM"
-                          style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "6px", borderRadius: 8, background: "rgba(107, 101, 96, 0.06)", color: "var(--muted)", border: "1px solid rgba(107, 101, 96, 0.12)", cursor: "pointer", transition: "all 0.2s" }}
-                          onMouseOver={e => { e.currentTarget.style.background = "var(--text)"; e.currentTarget.style.color = "white"; }}
-                          onMouseOut={e => { e.currentTarget.style.background = "rgba(107, 101, 96, 0.06)"; e.currentTarget.style.color = "var(--muted)"; }}
-                        >
-                          <FileText size={13} />
-                        </button>
-                      )}
+
                     </div>
                   </td>
                 </tr>
