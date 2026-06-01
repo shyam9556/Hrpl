@@ -280,6 +280,11 @@ router.post("/single", uploadSingle("file"), handleUploadError, async (req, res,
             "UPDATE quotations SET geotag_reupload_requested = 0, geotag_reupload_reason = NULL, geotag_reupload_slots = NULL WHERE id = ?",
             [qid]
           );
+          // Notify admin that geotag re-uploads are ready for review
+          await db.query(
+            "UPDATE quotations SET geotag_needs_review = 1 WHERE id = ?",
+            [qid]
+          );
         }
       }
     }

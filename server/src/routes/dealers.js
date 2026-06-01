@@ -13,6 +13,36 @@ const router = Router();
 router.use(authenticate);
 router.use(authorize("admin"));
 
+// ─── GET /api/dealers/registrations/stats ────────────────
+// Returns counts per status + needs-review count for admin stat boxes.
+// Must be before /registrations/:id to avoid being parsed as :id.
+router.get("/registrations/stats", async (req, res, next) => {
+  try {
+    const result = await db.query(`
+      SELECT
+        COUNT(*)                                                         AS total,
+        SUM(status = 'Pending')                                          AS pending,
+        SUM(status = 'Approved')                                         AS approved,
+        SUM(status = 'Rejected')                                         AS rejected,
+        SUM(status = 'ReuploadRequested')                                AS reupload_requested,
+        SUM(status = 'Pending' AND needs_review_after_reupload = 1)      AS needs_review
+      FROM dealer_registrations
+    `);
+    const row = result.rows[0];
+    res.json({
+      success: true,
+      stats: {
+        total:             parseInt(row.total, 10)             || 0,
+        pending:           parseInt(row.pending, 10)           || 0,
+        approved:          parseInt(row.approved, 10)          || 0,
+        rejected:          parseInt(row.rejected, 10)          || 0,
+        reuploadRequested: parseInt(row.reupload_requested, 10)|| 0,
+        needsReview:       parseInt(row.needs_review, 10)      || 0,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 // ─── GET /api/dealers/registrations ──────────────────────
 // List dealer registration applications
 router.get("/registrations", async (req, res, next) => {
@@ -66,10 +96,11 @@ router.get("/registrations", async (req, res, next) => {
         [status]
       );
     } else if (status === "Pending") {
-      // For Pending, include reupload_count so we can show the "Re-uploaded" badge
-      // for registrations that went through the re-upload flow and are back for re-review
+      // For Pending, include reupload_count + needs_review_after_reupload so we can
+      // show the "Re-uploaded" badge for registrations that went through the re-upload flow
       registrationsQuery = await db.query(
-        `SELECT dr.*, u.name AS reviewed_by_name${reuploadCountSelect}
+        `SELECT dr.*, u.name AS reviewed_by_name${reuploadCountSelect},
+                dr.needs_review_after_reupload
          FROM dealer_registrations dr
          LEFT JOIN users u ON u.id = dr.reviewed_by
          WHERE dr.status = ?
@@ -201,6 +232,12 @@ router.post("/registrations/:id/approve", async (req, res, next) => {
       client.release();
     }
 
+    // Clear the review flag — admin has taken action
+    await db.query(
+      "UPDATE dealer_registrations SET needs_review_after_reupload = 0 WHERE id = ?",
+      [regId]
+    );
+
     // Fetch created user for response
     const userResult = await db.query(
       "SELECT id, name, email, role FROM users WHERE id = ?",
@@ -264,6 +301,12 @@ router.post("/registrations/:id/reject", async (req, res, next) => {
     // If rejecting a ReuploadRequested registration, also invalidate any active re-upload tokens
     await db.query(
       "UPDATE dealer_reupload_tokens SET used = 1 WHERE registration_id = ? AND used = 0",
+      [regId]
+    );
+
+    // Clear the review flag — admin has taken action
+    await db.query(
+      "UPDATE dealer_registrations SET needs_review_after_reupload = 0 WHERE id = ?",
       [regId]
     );
 

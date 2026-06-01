@@ -728,6 +728,10 @@ tr:hover td { background: #FAFAF8; }
   from { opacity: 0; transform: scale(0.95) translateY(10px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 .animate-spin { display: inline-block; animation: spin 1.5s linear infinite; }
 
 @keyframes bounce {
@@ -756,6 +760,10 @@ tr:hover td { background: #FAFAF8; }
   .quote-grid { grid-template-columns: 1fr 1fr; }
   .upload-grid { grid-template-columns: 1fr 1fr; }
   .main { padding: 1.5rem; }
+  /* Admin stat box grids — 6 or 7 columns → 3 columns */
+  [style*="repeat(6, 1fr)"], [style*="repeat(7, 1fr)"] {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════

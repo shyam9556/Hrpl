@@ -89,6 +89,15 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
   // Reset search when switching tabs
   useEffect(() => { setSearch(""); }, [tab]);
 
+  // ── Stats (for summary boxes) ──────────────────────────
+  const [stats, setStats] = useState(null);
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await dealersApi.getStats();
+      if (res.success) setStats(res.stats);
+    } catch { /* non-critical */ }
+  }, []);
+
   const fetchRegistrations = useCallback(async () => {
     setLoading(true);
     try {
@@ -97,13 +106,17 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
       setList(res.registrations || []);
       // After loading Pending tab, clear the badge — admin has now seen the list
       if (tab === "Pending") onClearBadge?.();
+      // Refresh stats whenever list refreshes
+      fetchStats();
     } catch (err) {
       console.error("Fetch registrations error:", err);
       setFetchError(true);
     } finally {
       setLoading(false);
     }
-  }, [tab, onClearBadge]);
+  }, [tab, onClearBadge, fetchStats]);
+
+  useEffect(() => { fetchStats(); }, [fetchStats]);
 
   useEffect(() => { fetchRegistrations(); }, [fetchRegistrations]);
 
@@ -123,7 +136,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
     setSelectedRegistration(null);
     try {
       await dealersApi.approve(id);
-      fetchRegistrations();
+      fetchRegistrations(); // fetchStats() is called inside fetchRegistrations via its callback
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to approve registration." });
     } finally {
@@ -147,7 +160,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
     try {
       await dealersApi.reject(rejectModal.id, rejectReason.trim());
       setRejectSuccess(true);
-      fetchRegistrations();
+      fetchRegistrations(); // fetchStats() called inside fetchRegistrations
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to reject registration." });
     } finally {
@@ -195,7 +208,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
     try {
       await dealersApi.requestReupload(reuploadModal.id, reuploadReason.trim(), selectedDocs);
       setReuploadSuccess(true);
-      fetchRegistrations();
+      fetchRegistrations(); // fetchStats() called inside fetchRegistrations
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to send re-upload request." });
     } finally {
@@ -222,6 +235,46 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
       <div className="page-header">
         <div className="page-title">Dealer Registrations</div>
         <div className="page-sub">Review and manage new dealer registration applications</div>
+      </div>
+
+      {/* ── Stat Boxes ──────────────────────────────────────────────────────── */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(6, 1fr)",
+        gap: 12,
+        marginBottom: 20,
+      }}>
+        {[
+          { label: "Total",              value: stats?.total,             color: "#1a1a1a",  bg: "#f8f9fa",  border: "#e2e8f0",  accent: "#94a3b8" },
+          { label: "Pending",            value: stats?.pending,           color: "#92400e",  bg: "#fffbeb",  border: "#fde68a",  accent: "#f59e0b" },
+          { label: "Approved",           value: stats?.approved,          color: "#166534",  bg: "#f0fdf4",  border: "#bbf7d0",  accent: "#22c55e" },
+          { label: "Rejected",           value: stats?.rejected,          color: "#991b1b",  bg: "#fef2f2",  border: "#fecaca",  accent: "#ef4444" },
+          { label: "Re-upload Requested",value: stats?.reuploadRequested, color: "#7c2d12",  bg: "#fff7ed",  border: "#fed7aa",  accent: "#f97316" },
+          { label: "Awaiting Review",    value: stats?.needsReview,       color: "#78350f",  bg: "linear-gradient(135deg,#fffbeb,#fef3c7)", border: "#fcd34d", accent: "#f59e0b", highlight: true },
+        ].map(({ label, value, color, bg, border, accent, highlight }) => (
+          <div key={label} style={{
+            background: bg,
+            border: `1px solid ${border}`,
+            borderRadius: 12,
+            padding: "14px 16px",
+            borderTop: `3px solid ${accent}`,
+            boxShadow: highlight
+              ? "0 2px 12px rgba(245,158,11,0.15)"
+              : "0 1px 4px rgba(0,0,0,0.04)",
+            transition: "transform 0.15s, box-shadow 0.15s",
+            cursor: "default",
+          }}
+            onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = highlight ? "0 6px 18px rgba(245,158,11,0.22)" : "0 4px 12px rgba(0,0,0,0.08)"; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = highlight ? "0 2px 12px rgba(245,158,11,0.15)" : "0 1px 4px rgba(0,0,0,0.04)"; }}
+          >
+            <div style={{ fontSize: 26, fontWeight: 800, color, fontFamily: "var(--mono)", lineHeight: 1, letterSpacing: -1 }}>
+              {value ?? <span style={{ fontSize: 18, opacity: 0.3 }}>—</span>}
+            </div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 6 }}>
+              {label}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Tabs + Search — one row, search pinned right */}
@@ -372,6 +425,76 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
         );
         return (
         <div className="card">
+
+          {/* ── Action Required Banners ─────────────────────────────────────────
+               Shown only on Pending tab when a dealer has re-submitted documents
+               and admin needs to review them. Mirrors the dealer-side "Action
+               Required" banner style for visual consistency.
+          ─────────────────────────────────────────────────────────────────── */}
+          {tab === "Pending" && list.filter(r => r.needs_review_after_reupload).map(reg => (
+            <div key={`banner-${reg.id}`} style={{
+              display: "flex", alignItems: "center", gap: 12,
+              background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
+              border: "1px solid #fcd34d",
+              borderLeft: "4px solid #f59e0b",
+              borderRadius: 10, padding: "13px 18px",
+              margin: "0 0 10px 0",
+              boxShadow: "0 2px 12px rgba(245,158,11,0.13)",
+              animation: "fadeInDown 0.25s ease",
+            }}>
+              {/* Icon */}
+              <div style={{
+                width: 34, height: 34, borderRadius: 8,
+                background: "rgba(245,158,11,0.15)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                flexShrink: 0,
+              }}>
+                <AlertTriangle size={17} color="#d97706" strokeWidth={2.5} />
+              </div>
+              {/* Text */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e", letterSpacing: 0.1 }}>
+                  Action Required — Documents Re-uploaded
+                </div>
+                <div style={{ fontSize: 12, color: "#b45309", marginTop: 2 }}>
+                  <span style={{ fontFamily: "var(--mono, monospace)", fontWeight: 600 }}>{reg.name}</span>
+                  <span style={{ color: "#d97706", margin: "0 6px" }}>·</span>
+                  <span>{reg.email}</span>
+                  {reg.reupload_count > 0 && (
+                    <span style={{
+                      marginLeft: 8,
+                      background: "rgba(245,158,11,0.2)", color: "#92400e",
+                      fontSize: 10, fontWeight: 700,
+                      padding: "1px 7px", borderRadius: 20,
+                      border: "1px solid rgba(245,158,11,0.35)",
+                    }}>
+                      Re-upload #{reg.reupload_count}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {/* CTA */}
+              <button
+                onClick={() => setSelectedRegistration(reg)}
+                style={{
+                  flexShrink: 0,
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  background: "#f59e0b", color: "white",
+                  border: "none", borderRadius: 8,
+                  padding: "8px 18px", fontWeight: 700, fontSize: 12,
+                  cursor: "pointer", whiteSpace: "nowrap",
+                  boxShadow: "0 2px 8px rgba(245,158,11,0.4)",
+                  transition: "background 0.15s, transform 0.1s",
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = "#d97706"}
+                onMouseLeave={e => e.currentTarget.style.background = "#f59e0b"}
+              >
+                <Eye size={13} strokeWidth={2.5} />
+                Review Now
+              </button>
+            </div>
+          ))}
+
           <div style={{ overflowX: "auto" }}>
           <table>
             <thead>

@@ -20,6 +20,38 @@ const router = Router();
 // All quotation routes require authentication
 router.use(authenticate);
 
+// ─── GET /api/quotations/stats ───────────────────────────
+// Admin & dealer — lightweight counts per status + re-upload review counts.
+// Must be before /:id routes to avoid being parsed as an :id param.
+router.get("/stats", authorize("admin"), async (req, res, next) => {
+  try {
+    const result = await db.query(`
+      SELECT
+        COUNT(*)                                            AS total,
+        SUM(status = 'Pending')                             AS pending,
+        SUM(status = 'Approved')                            AS approved,
+        SUM(status = 'Rejected')                            AS rejected,
+        SUM(status = 'ReuploadRequested')                   AS reupload_requested,
+        SUM(needs_review_after_reupload = 1)                AS docs_needs_review,
+        SUM(geotag_needs_review = 1)                        AS geotag_needs_review
+      FROM quotations
+    `);
+    const row = result.rows[0];
+    res.json({
+      success: true,
+      stats: {
+        total:             parseInt(row.total, 10)              || 0,
+        pending:           parseInt(row.pending, 10)            || 0,
+        approved:          parseInt(row.approved, 10)           || 0,
+        rejected:          parseInt(row.rejected, 10)           || 0,
+        reuploadRequested: parseInt(row.reupload_requested, 10) || 0,
+        docsNeedsReview:   parseInt(row.docs_needs_review, 10)  || 0,
+        geotagNeedsReview: parseInt(row.geotag_needs_review, 10)|| 0,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 // ─── Quotation Number Generator ──────────────────────────
 // Format: HP/2025-26/0001 (prefix/financial-year/sequential)
 // Uses MySQL GET_LOCK() as advisory lock to prevent concurrent duplicates
@@ -456,10 +488,15 @@ router.patch("/:id/status", authorize("admin"), validate(updateStatusSchema), as
       return res.status(404).json({ success: false, error: "Quotation not found." });
     }
 
-    // If approving or rejecting, invalidate any active re-upload tokens
+    // If approving or rejecting, invalidate any active re-upload tokens and clear review flags
     if (status === "Approved" || status === "Rejected") {
       await db.query(
         "UPDATE quotation_reupload_tokens SET used = 1 WHERE quotation_id = ? AND used = 0",
+        [quotationId]
+      );
+      // Clear re-upload review flags so amber badges reset after admin action
+      await db.query(
+        "UPDATE quotations SET needs_review_after_reupload = 0, geotag_needs_review = 0 WHERE id = ?",
         [quotationId]
       );
     }
@@ -848,9 +885,9 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
         );
       }
 
-      // Clear reupload flag and set status back to Pending
+      // Clear reupload flag and set status back to Pending, notify admin for review
       await client.query(
-        `UPDATE quotations SET status = 'Pending', reupload_required_docs = NULL WHERE id = ?`,
+        `UPDATE quotations SET status = 'Pending', reupload_required_docs = NULL, needs_review_after_reupload = 1 WHERE id = ?`,
         [quotationId]
       );
 
@@ -983,7 +1020,8 @@ router.patch("/:id/clear-geotag-reupload", authenticate, async (req, res, next) 
       `UPDATE quotations
        SET geotag_reupload_requested = 0,
            geotag_reupload_reason    = NULL,
-           geotag_reupload_slots     = NULL
+           geotag_reupload_slots     = NULL,
+           geotag_needs_review       = 0
        WHERE id = ?${whereExtra}`,
       params
     );

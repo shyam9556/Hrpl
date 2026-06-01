@@ -860,6 +860,13 @@ router.post("/reupload/submit", async (req, res, next) => {
       client.release();
     }
 
+    // Notify admin that re-uploaded documents need review
+    await db.query(
+      "UPDATE dealer_registrations SET needs_review_after_reupload = 1 WHERE id = ?",
+      [regId]
+    );
+
+
     // Send confirmation email (fire-and-forget)
     sendReuploadConfirmationEmail(tokenRecord.email, tokenRecord.name)
       .catch(err => console.error(`[EMAIL] Failed to send re-upload confirmation to ${tokenRecord.email}:`, err.message));

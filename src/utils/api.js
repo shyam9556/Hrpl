@@ -241,6 +241,9 @@ export const quotations = {
 
   clearGeotagReupload: (id) =>
     request(`/quotations/${id}/clear-geotag-reupload`, { method: "PATCH" }),
+
+  getStats: () =>
+    request("/quotations/stats"),
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -310,6 +313,9 @@ export const dealers = {
 
   adminResetPassword: (userId, newPassword) =>
     request(`/auth/admin-reset-password/${userId}`, { method: "POST", body: { newPassword } }),
+
+  getStats: () =>
+    request("/dealers/registrations/stats"),
 };
 
 // ═══════════════════════════════════════════════════════════

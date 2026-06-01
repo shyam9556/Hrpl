@@ -222,6 +222,36 @@ export default function DealerRequestsAdmin() {
     }
   };
 
+  // ── Stats (for summary boxes) ──────────────────────────
+  const [stats, setStats] = useState(null);
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await quotationsApi.getStats();
+      if (res.success) setStats(res.stats);
+    } catch { /* non-critical */ }
+  }, []);
+
+  // ── Review Items (filter-independent) ─────────────────────────────────
+  // Banners must show regardless of which status filter admin has applied.
+  // e.g. geotag_needs_review=1 is on Approved quotations — they would be
+  // invisible if admin has a "Pending" filter active.
+  // This fetches ALL quotations needing review, ignoring the current filter.
+  const [reviewItems, setReviewItems] = useState([]);
+
+  const fetchReviewItems = useCallback(async () => {
+    try {
+      // Fetch all quotations with no status filter; client-side filter for flags.
+      // limit=200 is generous — in practice very few items need review at once.
+      const res = await quotationsApi.list({ limit: 200 });
+      const items = (res.quotations || []).filter(
+        q => q.needs_review_after_reupload || q.geotag_needs_review
+      );
+      setReviewItems(items);
+    } catch {
+      // Non-critical — silently ignore
+    }
+  }, []);
+
   const fetchQuotations = useCallback(async (showSpinner = true) => {
     try {
       if (showSpinner) setLoading(true);
@@ -241,7 +271,7 @@ export default function DealerRequestsAdmin() {
 
   useEffect(() => { setPage(1); }, [filter]);
   useEffect(() => { setPage(1); }, [search]);
-  useEffect(() => { setLoading(true); fetchQuotations(); }, [filter, page]);
+  useEffect(() => { setLoading(true); fetchQuotations(); fetchReviewItems(); fetchStats(); }, [filter, page]);
 
   // Load secure blob URLs for documents when modal opens.
   // Uses a local Set to track created blob URLs so the cleanup closure
@@ -302,9 +332,8 @@ export default function DealerRequestsAdmin() {
     setActionLoading(id);
     try {
       await quotationsApi.updateStatus(id, status);
-      // Background refetch — don't show spinner to avoid jarring UX
-      await fetchQuotations(false);
-      // If modal is open for this quotation, update its status in-place
+      // Refresh list, review banners, and stat boxes
+      await Promise.all([fetchQuotations(false), fetchReviewItems(), fetchStats()]);
       setSelectedQuotation(prev =>
         prev && prev.id === id ? { ...prev, status } : prev
       );
@@ -319,11 +348,35 @@ export default function DealerRequestsAdmin() {
     setActionLoading(id);
     try {
       await quotationsApi.updateDeliveryStatus(id, status);
-      await fetchQuotations(false);
+      await Promise.all([fetchQuotations(false), fetchStats()]);
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to update delivery status." });
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  // ── Accept Geo-tag Photos ─────────────────────────────────────────────
+  // Called when admin clicks "Accept Geo-tag Photos" on a quotation where
+  // geotag_needs_review = 1. Clears the flag so the banner + stat box reset.
+  const [geotagAcceptLoading, setGeotagAcceptLoading] = useState(false);
+
+  const handleAcceptGeotags = async (id) => {
+    setGeotagAcceptLoading(true);
+    try {
+      await quotationsApi.clearGeotagReupload(id);
+      // Update selected quotation in-place so banner disappears immediately
+      setSelectedQuotation(prev =>
+        prev && prev.id === id
+          ? { ...prev, geotag_needs_review: 0, geotag_reupload_requested: 0 }
+          : prev
+      );
+      // Refresh list, banners, and stat boxes
+      await Promise.all([fetchQuotations(false), fetchReviewItems(), fetchStats()]);
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to accept geo-tag photos." });
+    } finally {
+      setGeotagAcceptLoading(false);
     }
   };
 
@@ -599,6 +652,63 @@ export default function DealerRequestsAdmin() {
         <div className="page-sub">Review and manage dealer quotation requests</div>
       </div>
 
+      {/* ── Stat Boxes ──────────────────────────────────────────────────────── */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(7, 1fr)",
+        gap: 12,
+        marginBottom: 20,
+      }}>
+        {[
+          { label: "Total",              value: stats?.total,             color: "#1a1a1a", bg: "#f8f9fa",  border: "#e2e8f0", accent: "#94a3b8" },
+          { label: "Pending",            value: stats?.pending,           color: "#92400e", bg: "#fffbeb",  border: "#fde68a", accent: "#f59e0b" },
+          { label: "Approved",           value: stats?.approved,          color: "#166534", bg: "#f0fdf4",  border: "#bbf7d0", accent: "#22c55e" },
+          { label: "Rejected",           value: stats?.rejected,          color: "#991b1b", bg: "#fef2f2",  border: "#fecaca", accent: "#ef4444" },
+          { label: "Re-upload Requested",value: stats?.reuploadRequested, color: "#7c2d12", bg: "#fff7ed",  border: "#fed7aa", accent: "#f97316" },
+          { label: "Docs Awaiting Review",  value: stats?.docsNeedsReview,   color: "#78350f", bg: "linear-gradient(135deg,#fffbeb,#fef3c7)", border: "#fcd34d", accent: "#f59e0b", highlight: true },
+          { label: "Geotag Awaiting Review", value: stats?.geotagNeedsReview, color: "#1e3a5f", bg: "linear-gradient(135deg,#eff6ff,#dbeafe)", border: "#93c5fd", accent: "#3b82f6", highlightBlue: true },
+        ].map(({ label, value, color, bg, border, accent, highlight, highlightBlue }) => (
+          <div key={label} style={{
+            background: bg,
+            border: `1px solid ${border}`,
+            borderRadius: 12,
+            padding: "14px 16px",
+            borderTop: `3px solid ${accent}`,
+            boxShadow: highlight
+              ? "0 2px 12px rgba(245,158,11,0.15)"
+              : highlightBlue
+                ? "0 2px 12px rgba(59,130,246,0.12)"
+                : "0 1px 4px rgba(0,0,0,0.04)",
+            transition: "transform 0.15s, box-shadow 0.15s",
+            cursor: "default",
+          }}
+            onMouseEnter={e => {
+              e.currentTarget.style.transform = "translateY(-2px)";
+              e.currentTarget.style.boxShadow = highlight
+                ? "0 6px 18px rgba(245,158,11,0.22)"
+                : highlightBlue
+                  ? "0 6px 18px rgba(59,130,246,0.2)"
+                  : "0 4px 12px rgba(0,0,0,0.08)";
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.transform = "";
+              e.currentTarget.style.boxShadow = highlight
+                ? "0 2px 12px rgba(245,158,11,0.15)"
+                : highlightBlue
+                  ? "0 2px 12px rgba(59,130,246,0.12)"
+                  : "0 1px 4px rgba(0,0,0,0.04)";
+            }}
+          >
+            <div style={{ fontSize: 26, fontWeight: 800, color, fontFamily: "var(--mono)", lineHeight: 1, letterSpacing: -1 }}>
+              {value ?? <span style={{ fontSize: 18, opacity: 0.3 }}>—</span>}
+            </div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 6 }}>
+              {label}
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* Status filter + Search bar */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         {["", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => (
@@ -673,6 +783,88 @@ export default function DealerRequestsAdmin() {
         </div>
       ) : (
         <div className="card">
+
+          {/* ── Action Required Banners ─────────────────────────────────────────
+               Shown when a dealer has re-submitted documents or geotag photos
+               and the admin needs to review them.
+               Each banner links directly to the quotation detail modal.
+               Multiple banners stack if several quotations need review.
+          ─────────────────────────────────────────────────────────────────── */}
+          {reviewItems.map(q => {
+            const docsNeeded   = q.needs_review_after_reupload === 1;
+            const geotagNeeded = q.geotag_needs_review === 1;
+            const bothNeeded   = docsNeeded && geotagNeeded;
+            const title = bothNeeded
+              ? "Action Required — Documents & Geo-tag Photos Re-uploaded"
+              : docsNeeded
+                ? "Action Required — Documents Re-uploaded"
+                : "Action Required — Geo-tag Photos Re-uploaded";
+            return (
+              <div key={`banner-${q.id}`} style={{
+                display: "flex", alignItems: "center", gap: 12,
+                background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
+                border: "1px solid #fcd34d",
+                borderLeft: "4px solid #f59e0b",
+                borderRadius: 10, padding: "13px 18px",
+                margin: "0 0 10px 0",
+                boxShadow: "0 2px 12px rgba(245,158,11,0.13)",
+                animation: "fadeInDown 0.25s ease",
+              }}>
+                {/* Icon */}
+                <div style={{
+                  width: 34, height: 34, borderRadius: 8,
+                  background: "rgba(245,158,11,0.15)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexShrink: 0,
+                }}>
+                  <AlertTriangle size={17} color="#d97706" strokeWidth={2.5} />
+                </div>
+                {/* Text */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e", letterSpacing: 0.1 }}>
+                    {title}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#b45309", marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "var(--mono, monospace)", fontWeight: 600 }}>{q.quotation_number}</span>
+                    <span style={{ color: "#d97706" }}>·</span>
+                    <span>{q.dealer_name}</span>
+                    <span style={{ color: "#d97706" }}>·</span>
+                    <span>{q.customer_name}</span>
+                    {q.reupload_count > 0 && (
+                      <span style={{
+                        background: "rgba(245,158,11,0.2)", color: "#92400e",
+                        fontSize: 10, fontWeight: 700,
+                        padding: "1px 7px", borderRadius: 20,
+                        border: "1px solid rgba(245,158,11,0.35)",
+                      }}>
+                        Re-upload #{q.reupload_count}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {/* CTA */}
+                <button
+                  onClick={() => setSelectedQuotation(q)}
+                  style={{
+                    flexShrink: 0,
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    background: "#f59e0b", color: "white",
+                    border: "none", borderRadius: 8,
+                    padding: "8px 18px", fontWeight: 700, fontSize: 12,
+                    cursor: "pointer", whiteSpace: "nowrap",
+                    boxShadow: "0 2px 8px rgba(245,158,11,0.4)",
+                    transition: "background 0.15s",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#d97706"}
+                  onMouseLeave={e => e.currentTarget.style.background = "#f59e0b"}
+                >
+                  <Eye size={13} strokeWidth={2.5} />
+                  Review Now
+                </button>
+              </div>
+            );
+          })}
+
           <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1000px" }}>
             <thead>
@@ -1390,6 +1582,64 @@ export default function DealerRequestsAdmin() {
                   <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 6 }}>
                     <FolderOpen size={14} /> Complete Project File (Geo-Tagged Photos)
                   </div>
+
+                  {/* ── Accept Geo-tag Banner ──────────────────────────────────
+                     Shown only when dealer has re-uploaded geotag photos and
+                     admin needs to review and accept them.
+                  ───────────────────────────────────────────────── */}
+                  {selectedQuotation.geotag_needs_review === 1 && (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 12,
+                      background: "linear-gradient(135deg, #eff6ff, #dbeafe)",
+                      border: "1px solid #93c5fd",
+                      borderLeft: "4px solid #3b82f6",
+                      borderRadius: 10, padding: "12px 16px",
+                      marginBottom: 14,
+                      boxShadow: "0 2px 10px rgba(59,130,246,0.12)",
+                      animation: "fadeInDown 0.2s ease",
+                    }}>
+                      <div style={{
+                        width: 32, height: 32, borderRadius: 8,
+                        background: "rgba(59,130,246,0.15)",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        flexShrink: 0,
+                      }}>
+                        <Camera size={15} color="#2563eb" strokeWidth={2.5} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 12.5, color: "#1e3a5f" }}>
+                          Geo-tag Photos Re-uploaded — Review &amp; Accept
+                        </div>
+                        <div style={{ fontSize: 11.5, color: "#2563eb", marginTop: 2 }}>
+                          Dealer has submitted updated geo-tag photos. Review the photos below, then accept.
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleAcceptGeotags(selectedQuotation.id)}
+                        disabled={geotagAcceptLoading}
+                        style={{
+                          flexShrink: 0,
+                          display: "inline-flex", alignItems: "center", gap: 6,
+                          background: geotagAcceptLoading ? "#93c5fd" : "#2563eb",
+                          color: "white",
+                          border: "none", borderRadius: 8,
+                          padding: "8px 16px", fontWeight: 700, fontSize: 12,
+                          cursor: geotagAcceptLoading ? "not-allowed" : "pointer",
+                          whiteSpace: "nowrap",
+                          boxShadow: "0 2px 8px rgba(37,99,235,0.35)",
+                          transition: "background 0.15s",
+                        }}
+                        onMouseEnter={e => { if (!geotagAcceptLoading) e.currentTarget.style.background = "#1d4ed8"; }}
+                        onMouseLeave={e => { if (!geotagAcceptLoading) e.currentTarget.style.background = "#2563eb"; }}
+                      >
+                        {geotagAcceptLoading
+                          ? <><Loader2 size={13} className="animate-spin" /> Accepting...</>
+                          : <><Check size={13} strokeWidth={2.5} /> Accept Geo-tag Photos</>
+                        }
+                      </button>
+                    </div>
+                  )}
+
                   {(() => {
                     const geotagDocs = (selectedQuotation.documents || []).filter(doc => doc.doc_type.startsWith("geotag_"));
                     return geotagDocs.length > 0 ? (
