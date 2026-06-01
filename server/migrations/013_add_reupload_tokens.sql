@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS dealer_reupload_tokens (
     token            VARCHAR(255) NOT NULL,          -- SHA-256 hash of the raw token
     reason           TEXT NOT NULL,                  -- Admin's reason for requesting re-upload
     required_docs    VARCHAR(500) NOT NULL DEFAULT '', -- Comma-separated doc types e.g. 'aadhaar,pan'
-    expires_at       DATETIME NOT NULL,              -- 48 hours from creation
+    expires_at       DATETIME NOT NULL,              -- 72 hours from creation
     used             TINYINT(1) NOT NULL DEFAULT 0,
     created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),

@@ -694,6 +694,7 @@ export async function sendDocumentReuploadEmail(toEmail, dealerName, reuploadUrl
     aadhaar: "Aadhaar Card",
     pan: "PAN Card",
     passport_photo: "Passport Photo",
+    other: "Dealership Agreement",
   };
 
   const docListHtml = docTypes.length > 0
@@ -865,6 +866,8 @@ export async function sendQuotationReuploadEmail(toEmail, dealerName, customerNa
   const docLabels = {
     aadhaar: "Aadhaar Card",
     pan: "PAN Card",
+    passport_photo: "Passport Photo",
+    other: "Dealership Agreement",
     passbook: "Bank Passbook",
     site_photo: "Latest Light Bill/Site Photo",
     vera_bill: "Vera Bill",
@@ -1046,12 +1049,17 @@ export async function sendPortalReuploadNotificationEmail(toEmail, dealerName, c
   const docLabels = {
     aadhaar: "Aadhaar Card",
     pan: "PAN Card",
+    passport_photo: "Passport Photo",
+    other: "Dealership Agreement",
     passbook: "Bank Passbook",
     site_photo: "Latest Light Bill / Site Photo",
     vera_bill: "Vera Bill",
     house_photo_1: "House Photo 1",
     house_photo_2: "House Photo 2",
     house_photo_3: "House Photo 3",
+    geotag_1: "Site / Inverter Photo (Geotagged)",
+    geotag_2: "Solar Panels Photo (Geotagged)",
+    geotag_3: "ACDB / Net Meter Photo (Geotagged)",
   };
 
   const docListHtml = docTypes.length > 0

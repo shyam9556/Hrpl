@@ -76,6 +76,8 @@ export default function DealerRequests() {
   const DOC_LABELS = {
     aadhaar: "Aadhaar Card",
     pan: "PAN Card",
+    passport_photo: "Passport Photo",
+    other: "Dealership Agreement",
     passbook: "Bank Passbook",
     site_photo: "Latest Light Bill / Site Photo",
     vera_bill: "Vera Bill",
@@ -87,6 +89,8 @@ export default function DealerRequests() {
   const DOC_ACCEPT = {
     aadhaar: "image/jpeg,image/png,image/webp,application/pdf",
     pan: "image/jpeg,image/png,image/webp,application/pdf",
+    passport_photo: "image/jpeg,image/png,image/webp,application/pdf",
+    other: "image/jpeg,image/png,image/webp,application/pdf",
     passbook: "image/jpeg,image/png,image/webp,application/pdf",
     site_photo: "image/jpeg,image/png,image/webp",
     vera_bill: "image/jpeg,image/png,image/webp,application/pdf",

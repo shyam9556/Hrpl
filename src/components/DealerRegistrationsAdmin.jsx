@@ -492,15 +492,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                           >
                             <Paperclip size={12} style={{ flexShrink: 0 }} />
                             <span>
-                              {doc.doc_type === "aadhaar"
-                                ? "Aadhaar Card"
-                                : doc.doc_type === "pan"
-                                ? "PAN Card"
-                                : doc.doc_type === "passport_photo"
-                                ? "Passport Photo"
-                                : doc.doc_type === "other"
-                                ? "Dealership Agreement"
-                                : doc.original_name}
+                              {DOC_TYPE_LABELS[doc.doc_type] || doc.original_name}
                             </span>
                           </button>
                         ))}
@@ -890,15 +882,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
                             <div className="doc-info" style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
                               <div className="doc-name" title={doc.original_name}>
-                                {doc.doc_type === "aadhaar"
-                                  ? "Aadhaar Card"
-                                  : doc.doc_type === "pan"
-                                  ? "PAN Card"
-                                  : doc.doc_type === "passport_photo"
-                                  ? "Passport Photo"
-                                  : doc.doc_type === "other"
-                                  ? "Dealership Agreement"
-                                  : doc.original_name}
+                                {DOC_TYPE_LABELS[doc.doc_type] || doc.original_name}
                               </div>
                               <div className="doc-meta">
                                 {(doc.file_size_bytes / 1024).toFixed(0)} KB

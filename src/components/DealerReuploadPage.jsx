@@ -470,7 +470,7 @@ export default function DealerReuploadPage({ token, onDone }) {
                 color: "#374151",
                 lineHeight: 1.6,
               }}>
-                <strong style={{ display: "block", marginBottom: 4, color: "#1f2937" }}>🔐 Security Note</strong>
+                <strong style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, color: "#1f2937" }}><ShieldCheck size={14} color="#f59e0b" /> Security Note</strong>
                 This is your <strong>registration password</strong> — the one you entered when you first signed up.
                 This is not the same as your dealer login (which only activates after admin approval).
               </div>
