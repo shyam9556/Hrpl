@@ -47,7 +47,7 @@ router.post("/login", validate(loginSchema), async (req, res, next) => {
 
     // Find user by email
     const result = await db.query(
-      "SELECT id, name, email, password_hash, role, is_active FROM users WHERE email = ?",
+      "SELECT id, name, email, password_hash, role, mobile, location, company_name, is_active, created_at FROM users WHERE email = ?",
       [email]
     );
 
@@ -101,6 +101,10 @@ router.post("/login", validate(loginSchema), async (req, res, next) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        mobile: user.mobile,
+        location: user.location,
+        company_name: user.company_name,
+        created_at: user.created_at,
       },
     });
   } catch (err) {

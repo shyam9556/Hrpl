@@ -4,7 +4,7 @@ import { auth as authApi, setToken, quotations as quotationsApi, dealers as deal
 import {
   FilePlus, ClipboardList, Users, LayoutDashboard, Inbox, UserPlus,
   Store, IndianRupee, Package, BarChart3, Settings, LogOut, Menu, X,
-  Shield, KeyRound, Eye, EyeOff, Loader2, CheckCircle
+  Shield, KeyRound, Eye, EyeOff, Loader2, CheckCircle, Award
 } from "lucide-react";
 import ResetPasswordPage from "./components/ResetPasswordPage";
 import DealerReuploadPage from "./components/DealerReuploadPage";
@@ -24,6 +24,7 @@ import DealersList from "./components/DealersList";
 import ReportsPage from "./components/ReportsPage";
 import SettingsPage from "./components/SettingsPage";
 import InquiryManager from "./components/InquiryManager";
+import DealerDocuments from "./components/DealerDocuments";
 
 // Map icon string IDs → Lucide components
 const ICON_MAP = {
@@ -38,6 +39,7 @@ const ICON_MAP = {
   package: Package,
   barChart3: BarChart3,
   settings: Settings,
+  award: Award,
 };
 
 function NavIcon({ name, size = 18 }) {
@@ -154,7 +156,11 @@ export default function App() {
     authApi.getProfile()
       .then((res) => {
         if (res.user) {
-          setUser((prev) => ({ ...prev, ...res.user }));
+          setUser((prev) => {
+            const updated = { ...prev, ...res.user };
+            localStorage.setItem("hp_user", JSON.stringify(updated));
+            return updated;
+          });
         }
       })
       .catch(() => {
@@ -552,6 +558,7 @@ export default function App() {
               }} 
             />
           )}
+          {user.role === "dealer" && page === "documents" && <DealerDocuments user={user} />}
           {page === "customers" && <CustomerManager />}
           {user.role === "admin" && page === "dashboard" && <AdminDashboard onNavigate={navigateTo} />}
           {user.role === "admin" && page === "requests" && <DealerRequestsAdmin />}

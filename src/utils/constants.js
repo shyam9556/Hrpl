@@ -51,6 +51,7 @@ export const DEALER_NAV = [
   { id: "requests", icon: "clipboardList", label: "My Requests" },
   { id: "inquiries", icon: "inbox", label: "Inquiries" },
   { id: "customers", icon: "users", label: "Customers" },
+  { id: "documents", icon: "award", label: "Your Certificate" },
 ];
 
 export const ADMIN_NAV = [
