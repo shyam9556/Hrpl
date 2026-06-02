@@ -292,8 +292,8 @@ export default function PriceManager() {
           </div>
         )}
 
-        <div style={{ overflowX: "auto" }}>
-        <table>
+        <div className="table-scroll-wrap">
+        <table style={{ minWidth: "500px" }}>
           <thead>
             <tr>
               <th>Brand</th>
@@ -457,8 +457,8 @@ export default function PriceManager() {
           </div>
         )}
 
-        <div style={{ overflowX: "auto" }}>
-        <table>
+        <div className="table-scroll-wrap">
+        <table style={{ minWidth: "500px" }}>
           <thead>
             <tr>
               <th>Brand</th>
@@ -591,8 +591,8 @@ export default function PriceManager() {
             <strong>Stock Tracking Only.</strong> Accessory prices here update stock valuations and material costs in the Stock Manager. They do <em>not</em> affect the quotation price shown to customers — quotation pricing is controlled by the <strong>Settings &rsaquo; Pricing</strong> parameters (DC Wire Cost, AC Wire Cost, Structure Cost per kW).
           </p>
         </div>
-        <div style={{ overflowX: "auto" }}>
-        <table>
+        <div className="table-scroll-wrap">
+        <table style={{ minWidth: "360px" }}>
           <thead>
             <tr>
               <th>Item</th>
@@ -708,8 +708,8 @@ export default function PriceManager() {
                     <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text)", marginBottom: "10px", borderBottom: "1px dashed var(--border)", paddingBottom: "6px" }}>
                       {type} ({groupKits[0].watt}W)
                     </div>
-                    <div style={{ overflowX: "auto" }}>
-                    <table style={{ margin: 0, width: "100%", fontSize: "12px" }}>
+                    <div className="table-scroll-wrap">
+                    <table style={{ margin: 0, width: "100%", fontSize: "12px", minWidth: "360px" }}>
                       <thead>
                         <tr>
                           <th>kW</th>

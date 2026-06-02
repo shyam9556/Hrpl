@@ -367,7 +367,9 @@ body {
 .main {
   flex: 1;
   overflow-y: auto;
-  overflow-x: hidden;
+  /* NOTE: Do NOT set overflow-x: hidden here — it would clip the
+     horizontal scroll on table-scroll-wrap containers inside.
+     Individual tables control their own overflow via table-scroll-wrap. */
   padding: 2rem;
   min-width: 0; /* prevent flex overflow */
 }
@@ -485,6 +487,15 @@ td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #F0EDE8; vert
 tr:last-child td { border-bottom: none; }
 tr:hover td { background: #FAFAF8; }
 
+/* ─── Inside scrollable table wrappers: prevent cell text from wrapping ───
+   This forces the table to expand to its minWidth and trigger horizontal
+   scroll instead of squishing columns on small screens. */
+.table-scroll-wrap td {
+  white-space: nowrap;
+}
+/* Allow specific "notes/description" columns to still wrap if needed */
+.table-scroll-wrap td.wrap { white-space: normal; }
+
 /* ═══════════════════════════════════════════════════════════
    BADGES
    ═══════════════════════════════════════════════════════════ */
@@ -595,14 +606,41 @@ tr:hover td { background: #FAFAF8; }
 
 /* ═══════════════════════════════════════════════════════════
    TABLE SCROLL WRAPPER
-   Adds a faint right-side gradient on scrollable tables
-   to indicate more content is available (swipe hint).
+   Enables horizontal scrolling for wide tables on mobile.
+   • -webkit-overflow-scrolling: touch for iOS momentum scroll
+   • ::after pseudo-element adds a right-fade "more →" hint
+   • Tables inside MUST have a minWidth set so they scroll
+     instead of squishing.
    ═══════════════════════════════════════════════════════════ */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 .table-scroll-wrap {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   position: relative;
+  /* Subtle scrollbar styling */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,0,0,0.15) transparent;
+  /* Rounded corners so gradient clip works */
+  border-radius: 0 0 12px 12px;
 }
+.table-scroll-wrap::-webkit-scrollbar {
+  height: 4px;
+}
+.table-scroll-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+.table-scroll-wrap::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.14);
+  border-radius: 2px;
+}
+/* Scroll hint removed due to visual overlap with table contents */
 /* Touch targets — minimum 40px for mobile usability */
 .btn-sm { min-height: 34px; }
 
@@ -1034,9 +1072,7 @@ tr:hover td { background: #FAFAF8; }
   /* Cards */
   .card { padding: 1.25rem; border-radius: 14px; margin-bottom: 1rem; }
 
-  /* Tables → ensure overflow scroll works on mobile */
-  .card table { display: block; }
-  .card thead, .card tbody, .card tr { display: table; width: 100%; table-layout: auto; }
+  /* Tables → responsive scrolling is handled by .table-scroll-wrap */
   td, th { padding: 8px 10px; font-size: 12px; }
 
   /* Cell truncation: tighter on mobile */
@@ -1172,11 +1208,14 @@ tr:hover td { background: #FAFAF8; }
     flex: 1 1 100%;
   }
 
-  /* Admin filter bar: all buttons wrap */
-  .admin-filter-bar .btn-sm {
-    flex: 1 1 calc(50% - 6px);
-    text-align: center;
-    justify-content: center;
+  /* Quotation modal footer — tighten padding on very small phones */
+  .modal-footer-responsive {
+    padding: 10px 12px !important;
+    gap: 6px !important;
+  }
+  .modal-footer-responsive .btn-sm {
+    font-size: 11px;
+    padding: 8px 10px !important;
   }
 }
 

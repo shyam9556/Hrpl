@@ -234,8 +234,8 @@ export default function CustomerManager() {
         </div>
       ) : (
         <div className="card">
-          <div style={{ overflowX: "auto" }}>
-            <table>
+          <div className="table-scroll-wrap">
+            <table style={{ minWidth: "620px" }}>
               <thead>
                 <tr>
                   <th>Name</th>

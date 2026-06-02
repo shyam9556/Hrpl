@@ -198,8 +198,8 @@ export default function ReportsPage() {
                 {(revenueData.monthly || []).length === 0 ? (
                   <div style={{ color: "var(--muted)", fontSize: 14 }}>No approved quotations for {year}.</div>
                 ) : (
-                  <div style={{ overflowX: "auto" }}>
-                    <table>
+                  <div className="table-scroll-wrap">
+                    <table style={{ minWidth: "640px" }}>
                       <thead>
                         <tr>
                           <th>Month</th>
@@ -250,8 +250,8 @@ export default function ReportsPage() {
               {(dealerData.dealers || []).length === 0 ? (
                 <div style={{ color: "var(--muted)", fontSize: 14 }}>No dealers found.</div>
               ) : (
-                <div style={{ overflowX: "auto" }}>
-                  <table>
+                <div className="table-scroll-wrap">
+                  <table style={{ minWidth: "700px" }}>
                     <thead>
                       <tr>
                         <th>Dealer</th>
@@ -316,8 +316,8 @@ export default function ReportsPage() {
                 {(customerData.topCustomers || []).length === 0 ? (
                   <div style={{ color: "var(--muted)", fontSize: 14 }}>No customers found.</div>
                 ) : (
-                  <div style={{ overflowX: "auto" }}>
-                    <table>
+                  <div className="table-scroll-wrap">
+                    <table style={{ minWidth: "540px" }}>
                       <thead>
                         <tr>
                           <th>Customer</th>

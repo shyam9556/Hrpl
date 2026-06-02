@@ -390,8 +390,8 @@ export default function StockManager() {
               </span>
             </div>
             
-            <div style={{ overflowX: "auto" }}>
-              <table>
+            <div className="table-scroll-wrap">
+              <table style={{ minWidth: "520px" }}>
                 <thead>
                   <tr>
                     <th style={{ width: "35%" }}>Item Specifications</th>

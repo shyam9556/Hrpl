@@ -702,14 +702,17 @@ export default function DealerRequestsAdmin() {
 
       {/* Status filter + Search bar */}
       <div className="admin-filter-bar">
-        {["", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => (
-          <button key={s} className={`btn-sm ${filter === s ? "primary" : ""}`} onClick={() => setFilter(s)}>
-            {s === "ReuploadRequested" ? "Re-upload" : s || "All"}
-          </button>
-        ))}
+        {/* Scrollable Tabs */}
+        <div className="hide-scrollbar" style={{ display: "flex", overflowX: "auto", gap: 8, WebkitOverflowScrolling: "touch", paddingBottom: 4, flex: 1, minWidth: 0 }}>
+          {["", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => (
+            <button key={s} className={`btn-sm ${filter === s ? "primary" : ""}`} onClick={() => setFilter(s)} style={{ flexShrink: 0 }}>
+              {s === "ReuploadRequested" ? "Re-upload" : s || "All"}
+            </button>
+          ))}
+        </div>
 
         {/* Divider — hidden on small mobile where everything wraps */}
-        <div style={{ width: 1, height: 24, background: "var(--border, #e2e8f0)", margin: "0 4px", flexShrink: 0 }} aria-hidden="true" />
+        <div style={{ width: 1, height: 24, background: "var(--border, #e2e8f0)", margin: "0 4px", flexShrink: 0 }} className="desktop-only" aria-hidden="true" />
 
         {/* Search */}
         <div className="filter-search-box">
@@ -787,7 +790,7 @@ export default function DealerRequestsAdmin() {
                 : "Action Required — Geo-tag Photos Re-uploaded";
             return (
               <div key={`banner-${q.id}`} style={{
-                display: "flex", alignItems: "center", gap: 12,
+                display: "flex", alignItems: "flex-start", gap: 12,
                 background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
                 border: "1px solid #fcd34d",
                 borderLeft: "4px solid #f59e0b",
@@ -805,53 +808,57 @@ export default function DealerRequestsAdmin() {
                 }}>
                   <AlertTriangle size={17} color="#d97706" strokeWidth={2.5} />
                 </div>
-                {/* Text */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e", letterSpacing: 0.1 }}>
-                    {title}
+                
+                {/* Right Column: Text + Button */}
+                <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                  {/* Text */}
+                  <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e", letterSpacing: 0.1 }}>
+                      {title}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#b45309", marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: "var(--mono, monospace)", fontWeight: 600 }}>{q.quotation_number}</span>
+                      <span style={{ color: "#d97706" }}>·</span>
+                      <span>{q.dealer_name}</span>
+                      <span style={{ color: "#d97706" }}>·</span>
+                      <span>{q.customer_name}</span>
+                      {q.reupload_count > 0 && (
+                        <span style={{
+                          background: "rgba(245,158,11,0.2)", color: "#92400e",
+                          fontSize: 10, fontWeight: 700,
+                          padding: "1px 7px", borderRadius: 20,
+                          border: "1px solid rgba(245,158,11,0.35)",
+                        }}>
+                          Re-upload #{q.reupload_count}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, color: "#b45309", marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: "var(--mono, monospace)", fontWeight: 600 }}>{q.quotation_number}</span>
-                    <span style={{ color: "#d97706" }}>·</span>
-                    <span>{q.dealer_name}</span>
-                    <span style={{ color: "#d97706" }}>·</span>
-                    <span>{q.customer_name}</span>
-                    {q.reupload_count > 0 && (
-                      <span style={{
-                        background: "rgba(245,158,11,0.2)", color: "#92400e",
-                        fontSize: 10, fontWeight: 700,
-                        padding: "1px 7px", borderRadius: 20,
-                        border: "1px solid rgba(245,158,11,0.35)",
-                      }}>
-                        Re-upload #{q.reupload_count}
-                      </span>
-                    )}
-                  </div>
+                  {/* CTA */}
+                  <button
+                    onClick={() => setSelectedQuotation(q)}
+                    style={{
+                      flexShrink: 0,
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      background: "#f59e0b", color: "white",
+                      border: "none", borderRadius: 8,
+                      padding: "8px 18px", fontWeight: 700, fontSize: 12,
+                      cursor: "pointer", whiteSpace: "nowrap",
+                      boxShadow: "0 2px 8px rgba(245,158,11,0.4)",
+                      transition: "background 0.15s",
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = "#d97706"}
+                    onMouseLeave={e => e.currentTarget.style.background = "#f59e0b"}
+                  >
+                    <Eye size={13} strokeWidth={2.5} />
+                    Review Now
+                  </button>
                 </div>
-                {/* CTA */}
-                <button
-                  onClick={() => setSelectedQuotation(q)}
-                  style={{
-                    flexShrink: 0,
-                    display: "inline-flex", alignItems: "center", gap: 6,
-                    background: "#f59e0b", color: "white",
-                    border: "none", borderRadius: 8,
-                    padding: "8px 18px", fontWeight: 700, fontSize: 12,
-                    cursor: "pointer", whiteSpace: "nowrap",
-                    boxShadow: "0 2px 8px rgba(245,158,11,0.4)",
-                    transition: "background 0.15s",
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#d97706"}
-                  onMouseLeave={e => e.currentTarget.style.background = "#f59e0b"}
-                >
-                  <Eye size={13} strokeWidth={2.5} />
-                  Review Now
-                </button>
               </div>
             );
           })}
 
-          <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll-wrap">
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1000px" }}>
             <thead>
               <tr>
@@ -862,7 +869,7 @@ export default function DealerRequestsAdmin() {
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>Capacity</th>
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>Total Cost</th>
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>Status</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>Delivery</th>
+                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>Delivery</th>
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>Geo-Tags</th>
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>Actions</th>
               </tr>
@@ -931,9 +938,9 @@ export default function DealerRequestsAdmin() {
                       {q.status}
                     </span>
                   </td>
-                  <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
+                  <td style={{ padding: "14px 16px", verticalAlign: "middle", textAlign: "center" }}>
                     {q.status === "Approved" ? (
-                      <div style={{ display: "flex", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
                         {q.delivery_status === "Pending" && (
                           <button
                             className="btn-sm"
@@ -1233,9 +1240,9 @@ export default function DealerRequestsAdmin() {
             <div
               style={{
                 display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "20px 24px",
+                alignItems: "flex-start",
+                gap: 12,
+                padding: "16px 20px",
                 borderBottom: "1px solid rgba(0,0,0,0.06)",
                 position: "sticky",
                 top: 0,
@@ -1243,8 +1250,9 @@ export default function DealerRequestsAdmin() {
                 zIndex: 10
               }}
             >
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {/* Left: title + badges — flex:1 so it can shrink on mobile */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px 8px", flexWrap: "wrap", marginBottom: 6 }}>
                   {/* UX-6: Click quotation number to copy it to clipboard */}
                   <span
                     onClick={() => {
@@ -1254,7 +1262,7 @@ export default function DealerRequestsAdmin() {
                       }).catch(() => {});
                     }}
                     title="Click to copy quotation number"
-                    style={{ fontSize: 18, fontWeight: 700, fontFamily: "var(--mono)", color: "var(--text)", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, userSelect: "none" }}
+                    style={{ fontSize: 16, fontWeight: 700, fontFamily: "var(--mono)", color: "var(--text)", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, userSelect: "none" }}
                   >
                     {selectedQuotation.quotation_number}
                     {copiedQuotationNumber
@@ -1271,29 +1279,34 @@ export default function DealerRequestsAdmin() {
                     borderRadius: 12, 
                     background: selectedQuotation.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.1)" : "rgba(46,125,82,0.1)", 
                     color: selectedQuotation.payment_mode === "Kit Purchase" ? "#3b82f6" : "var(--green)", 
-                    border: `1px solid ${selectedQuotation.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.2)" : "rgba(46,125,82,0.2)"}` 
+                    border: `1px solid ${selectedQuotation.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.2)" : "rgba(46,125,82,0.2)"}`,
+                    whiteSpace: "nowrap",
                   }}>
                     {selectedQuotation.payment_mode === "Kit Purchase" ? "Kit Purchase Mode" : "Commission Mode"}
                   </span>
                 </div>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
                   Submitted on {new Date(selectedQuotation.created_at).toLocaleDateString("en-IN")}
                 </div>
               </div>
+              {/* Close button — always right, never crowded */}
               <button
                 onClick={() => setSelectedQuotation(null)}
                 style={{
                   background: "var(--light, #f1f5f9)",
                   border: "none",
                   borderRadius: "50%",
-                  width: 32,
-                  height: 32,
+                  width: 34,
+                  height: 34,
+                  minWidth: 34,
                   display: "flex",
                   justifyContent: "center",
                   alignItems: "center",
                   cursor: "pointer",
                   color: "var(--text)",
-                  transition: "all 0.2s"
+                  flexShrink: 0,
+                  transition: "all 0.2s",
+                  marginTop: 2,
                 }}
               >
                 <X size={16} />
@@ -1343,6 +1356,8 @@ export default function DealerRequestsAdmin() {
                           {selectedQuotation.reupload_required_docs.split(",").map(d => {
                             const labels = {
                               aadhaar:       "Aadhaar Card",
+                              aadhaar_front: "Aadhaar Card (Front)",
+                              aadhaar_back:  "Aadhaar Card (Back)",
                               pan:           "PAN Card",
                               passbook:      "Bank Passbook",
                               site_photo:    "Latest Light Bill/Site Photo",
@@ -2048,52 +2063,52 @@ export default function DealerRequestsAdmin() {
 
             {/* Modal Footer */}
             <div
+              className="modal-footer-responsive"
               style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: 12,
-                padding: "16px 24px",
+                padding: "12px 16px",
                 borderTop: "1px solid rgba(0,0,0,0.06)",
                 background: "var(--light, #f8fafc)",
                 position: "sticky",
                 bottom: 0,
                 zIndex: 10,
                 borderBottomLeftRadius: 20,
-                borderBottomRightRadius: 20
+                borderBottomRightRadius: 20,
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
               }}
             >
-              <button
-                className="btn-sm"
-                style={{
-                  background: "var(--primary-light, #eff6ff)",
-                  color: "var(--primary, #3b82f6)",
-                  border: "none",
-                  borderRadius: 8,
-                  padding: "8px 16px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  cursor: "pointer",
-                  marginRight: "auto"
-                }}
-                onClick={() => handleDownloadPdf(selectedQuotation)}
-              >
-                <FileText size={14} /> Download PDF Quotation
-              </button>
+              {/* Top row: Download PDF */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  className="btn-sm"
+                  style={{
+                    background: "var(--primary-light, #eff6ff)",
+                    color: "var(--primary, #3b82f6)",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "8px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    cursor: "pointer",
+                    flex: "1 1 auto",
+                    justifyContent: "center",
+                    minWidth: 0,
+                    whiteSpace: "nowrap",
+                  }}
+                  onClick={() => handleDownloadPdf(selectedQuotation)}
+                >
+                  <FileText size={14} /> Download PDF Quotation
+                </button>
+              </div>
 
-              <button
-                className="btn-sm"
-                style={{ background: "white", color: "var(--text)", border: "1px solid rgba(0,0,0,0.1)", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}
-                onClick={() => setSelectedQuotation(null)}
-              >
-                Close
-              </button>
-
+              {/* Bottom row: status-specific action buttons */}
               {selectedQuotation.status === "Pending" && (
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button
                     className="btn-sm"
-                    style={{ background: "var(--green)", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    style={{ background: "var(--green)", color: "white", border: "none", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flex: "1 1 auto", justifyContent: "center", minWidth: 0, whiteSpace: "nowrap" }}
                     disabled={actionLoading === selectedQuotation.id}
                     onClick={async () => {
                       setStatusConfirm({ id: selectedQuotation.id, status: "Approved", number: selectedQuotation.quotation_number });
@@ -2104,7 +2119,7 @@ export default function DealerRequestsAdmin() {
                   </button>
                   <button
                     className="btn-sm danger"
-                    style={{ borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    style={{ borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flex: "1 1 auto", justifyContent: "center", minWidth: 0, whiteSpace: "nowrap" }}
                     disabled={actionLoading === selectedQuotation.id}
                     onClick={async () => {
                       setStatusConfirm({ id: selectedQuotation.id, status: "Rejected", number: selectedQuotation.quotation_number });
@@ -2117,7 +2132,7 @@ export default function DealerRequestsAdmin() {
                   {selectedQuotation.documents && selectedQuotation.documents.length > 0 && (
                     <button
                       className="btn-sm"
-                      style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600 }}
+                      style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600, flex: "1 1 auto", justifyContent: "center", minWidth: 0, whiteSpace: "nowrap" }}
                       disabled={actionLoading === selectedQuotation.id}
                       onClick={() => openReuploadModal(selectedQuotation)}
                     >
@@ -2131,7 +2146,7 @@ export default function DealerRequestsAdmin() {
                 selectedQuotation.documents && selectedQuotation.documents.length > 0 && (
                 <button
                   className="btn-sm"
-                  style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600 }}
+                  style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600, width: "100%", justifyContent: "center" }}
                   onClick={() => openReuploadModal(selectedQuotation)}
                 >
                   <RefreshCw size={14} /> Request Re-upload
@@ -2139,17 +2154,17 @@ export default function DealerRequestsAdmin() {
               )}
 
               {selectedQuotation.status === "ReuploadRequested" && (
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button
                     className="btn-sm"
-                    style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600 }}
+                    style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600, flex: "1 1 auto", justifyContent: "center", minWidth: 0, whiteSpace: "nowrap" }}
                     onClick={() => openReuploadModal(selectedQuotation)}
                   >
                     <RefreshCw size={14} /> Change Reupload Docs
                   </button>
                   <button
                     className="btn-sm danger"
-                    style={{ borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    style={{ borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flex: "1 1 auto", justifyContent: "center", minWidth: 0, whiteSpace: "nowrap" }}
                     disabled={actionLoading === selectedQuotation.id}
                     onClick={async () => {
                       setStatusConfirm({ id: selectedQuotation.id, status: "Rejected", number: selectedQuotation.quotation_number });
@@ -2165,7 +2180,7 @@ export default function DealerRequestsAdmin() {
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button
                     className="btn-sm"
-                    style={{ background: "var(--green)", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    style={{ background: "var(--green)", color: "white", border: "none", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flex: "1 1 auto", justifyContent: "center", minWidth: 0, whiteSpace: "nowrap" }}
                     onClick={() => handleDownloadBOM(selectedQuotation)}
                   >
                     <Download size={14} /> Download Excel BOM
@@ -2178,7 +2193,8 @@ export default function DealerRequestsAdmin() {
                         background: selectedQuotation.geotag_reupload_requested ? "rgba(249,115,22,0.1)" : "rgba(107,114,128,0.06)",
                         color: selectedQuotation.geotag_reupload_requested ? "#ea580c" : "var(--muted)",
                         border: selectedQuotation.geotag_reupload_requested ? "1px solid rgba(249,115,22,0.3)" : "1px solid rgba(0,0,0,0.1)",
-                        borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600
+                        borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600,
+                        flex: "1 1 auto", justifyContent: "center", minWidth: 0, whiteSpace: "nowrap",
                       }}
                       onClick={() => {
                         setGeotagReuploadModal({ id: selectedQuotation.id, number: selectedQuotation.quotation_number });
@@ -2199,9 +2215,14 @@ export default function DealerRequestsAdmin() {
                       {selectedQuotation.geotag_reupload_requested ? "Re-send Geo-Tag Request" : "Request Geo-Tag Reupload"}
                     </button>
                   ) : (
-                    <div style={{ fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 5, padding: "8px 12px", background: "rgba(0,0,0,0.03)", borderRadius: 8, border: "1px solid rgba(0,0,0,0.06)" }}>
-                      <Camera size={13} />
-                      Geo-tag re-upload available after dealer uploads photos
+                    <div style={{
+                      fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 5,
+                      padding: "8px 12px", background: "rgba(0,0,0,0.03)", borderRadius: 8,
+                      border: "1px solid rgba(0,0,0,0.06)", flex: "1 1 auto", minWidth: 0,
+                      lineHeight: 1.4,
+                    }}>
+                      <Camera size={13} style={{ flexShrink: 0 }} />
+                      <span>Geo-tag re-upload available after dealer uploads photos</span>
                     </div>
                   )}
                 </div>

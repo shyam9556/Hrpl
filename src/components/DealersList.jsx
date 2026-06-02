@@ -179,8 +179,8 @@ export default function DealersList() {
         </div>
       ) : (
         <div className="card">
-          <div style={{ overflowX: "auto" }}>
-            <table>
+          <div className="table-scroll-wrap">
+            <table style={{ minWidth: "700px" }}>
               <thead>
                 <tr>
                   <th>Name</th>

@@ -24,6 +24,8 @@ const STATUS_BADGE_CONFIG = {
 // Human-readable document type labels
 const DOC_TYPE_LABELS = {
   aadhaar:        "Aadhaar Card",
+  aadhaar_front:  "Aadhaar Card (Front)",
+  aadhaar_back:   "Aadhaar Card (Back)",
   pan:            "PAN Card",
   passport_photo: "Passport Photo",
   other:          "Dealership Agreement",
@@ -277,11 +279,14 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
 
       {/* Tabs + Search */}
       <div className="admin-filter-bar">
-        {["All", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => (
-          <button key={s} className={`btn-sm ${tab === s ? "primary" : ""}`} onClick={() => setTab(s)}>
-            {s === "ReuploadRequested" ? "Re-upload" : TAB_LABELS[s] || s}
-          </button>
-        ))}
+        {/* Scrollable Tabs */}
+        <div className="hide-scrollbar" style={{ display: "flex", overflowX: "auto", gap: 8, WebkitOverflowScrolling: "touch", paddingBottom: 4, flex: 1, minWidth: 0 }}>
+          {["All", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => (
+            <button key={s} className={`btn-sm ${tab === s ? "primary" : ""}`} onClick={() => setTab(s)} style={{ flexShrink: 0 }}>
+              {s === "ReuploadRequested" ? "Re-upload" : TAB_LABELS[s] || s}
+            </button>
+          ))}
+        </div>
 
         {/* Search */}
         <div className="filter-search-box"
@@ -423,7 +428,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
           ─────────────────────────────────────────────────────────────────── */}
           {tab === "Pending" && list.filter(r => r.needs_review_after_reupload).map(reg => (
             <div key={`banner-${reg.id}`} style={{
-              display: "flex", alignItems: "center", gap: 12,
+              display: "flex", alignItems: "flex-start", gap: 12,
               background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
               border: "1px solid #fcd34d",
               borderLeft: "4px solid #f59e0b",
@@ -441,52 +446,55 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
               }}>
                 <AlertTriangle size={17} color="#d97706" strokeWidth={2.5} />
               </div>
-              {/* Text */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e", letterSpacing: 0.1 }}>
-                  Action Required — Documents Re-uploaded
+              
+              {/* Right Column: Text + Button */}
+              <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                {/* Text */}
+                <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e", letterSpacing: 0.1 }}>
+                    Action Required — Documents Re-uploaded
+                  </div>
+                  <div style={{ fontSize: 12, color: "#b45309", marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "var(--mono, monospace)", fontWeight: 600 }}>{reg.name}</span>
+                    <span style={{ color: "#d97706" }}>·</span>
+                    <span>{reg.email}</span>
+                    {reg.reupload_count > 0 && (
+                      <span style={{
+                        background: "rgba(245,158,11,0.2)", color: "#92400e",
+                        fontSize: 10, fontWeight: 700,
+                        padding: "1px 7px", borderRadius: 20,
+                        border: "1px solid rgba(245,158,11,0.35)",
+                      }}>
+                        Re-upload #{reg.reupload_count}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, color: "#b45309", marginTop: 2 }}>
-                  <span style={{ fontFamily: "var(--mono, monospace)", fontWeight: 600 }}>{reg.name}</span>
-                  <span style={{ color: "#d97706", margin: "0 6px" }}>·</span>
-                  <span>{reg.email}</span>
-                  {reg.reupload_count > 0 && (
-                    <span style={{
-                      marginLeft: 8,
-                      background: "rgba(245,158,11,0.2)", color: "#92400e",
-                      fontSize: 10, fontWeight: 700,
-                      padding: "1px 7px", borderRadius: 20,
-                      border: "1px solid rgba(245,158,11,0.35)",
-                    }}>
-                      Re-upload #{reg.reupload_count}
-                    </span>
-                  )}
-                </div>
+                {/* CTA */}
+                <button
+                  onClick={() => setSelectedRegistration(reg)}
+                  style={{
+                    flexShrink: 0,
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    background: "#f59e0b", color: "white",
+                    border: "none", borderRadius: 8,
+                    padding: "8px 18px", fontWeight: 700, fontSize: 12,
+                    cursor: "pointer", whiteSpace: "nowrap",
+                    boxShadow: "0 2px 8px rgba(245,158,11,0.4)",
+                    transition: "background 0.15s, transform 0.1s",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#d97706"}
+                  onMouseLeave={e => e.currentTarget.style.background = "#f59e0b"}
+                >
+                  <Eye size={13} strokeWidth={2.5} />
+                  Review Now
+                </button>
               </div>
-              {/* CTA */}
-              <button
-                onClick={() => setSelectedRegistration(reg)}
-                style={{
-                  flexShrink: 0,
-                  display: "inline-flex", alignItems: "center", gap: 6,
-                  background: "#f59e0b", color: "white",
-                  border: "none", borderRadius: 8,
-                  padding: "8px 18px", fontWeight: 700, fontSize: 12,
-                  cursor: "pointer", whiteSpace: "nowrap",
-                  boxShadow: "0 2px 8px rgba(245,158,11,0.4)",
-                  transition: "background 0.15s, transform 0.1s",
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = "#d97706"}
-                onMouseLeave={e => e.currentTarget.style.background = "#f59e0b"}
-              >
-                <Eye size={13} strokeWidth={2.5} />
-                Review Now
-              </button>
             </div>
           ))}
 
-          <div style={{ overflowX: "auto" }}>
-          <table>
+          <div className="table-scroll-wrap">
+          <table style={{ minWidth: "860px" }}>
             <thead>
               <tr>
                 <th>Name</th>
@@ -770,8 +778,8 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                alignItems: "center",
-                padding: "20px 24px",
+                alignItems: "flex-start",
+                padding: "16px 20px",
                 borderBottom: "1px solid rgba(0,0,0,0.06)",
                 position: "sticky",
                 top: 0,
@@ -779,33 +787,35 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                 zIndex: 10
               }}
             >
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
+              <div style={{ paddingRight: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px 10px", flexWrap: "wrap", marginBottom: 6 }}>
+                  <span style={{ fontSize: 18, fontWeight: 700, color: "var(--text)", lineHeight: 1.3 }}>
                     Dealer Registration Details
                   </span>
-                  <span className={`badge ${
-                    selectedRegistration.status === "Approved" ? "badge-green" :
-                    selectedRegistration.status === "Rejected" ? "badge-red" :
-                    selectedRegistration.status === "ReuploadRequested" ? "badge-sun" :
-                    "badge-sun"
-                  }`}>
-                    {TAB_LABELS[selectedRegistration.status] || selectedRegistration.status}
-                  </span>
-                  {selectedRegistration.reupload_count > 0 && (
-                    <span style={{
-                      display: "inline-flex", alignItems: "center", gap: 4,
-                      padding: "3px 10px", borderRadius: 20,
-                      fontSize: 11, fontWeight: 700,
-                      background: "#fff3cd", color: "#856404",
-                      border: "1px solid #fcd34d",
-                    }}>
-                      <RefreshCw size={11} />
-                      Re-uploaded {selectedRegistration.reupload_count > 1 ? `×${selectedRegistration.reupload_count}` : ""}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <span className={`badge ${
+                      selectedRegistration.status === "Approved" ? "badge-green" :
+                      selectedRegistration.status === "Rejected" ? "badge-red" :
+                      selectedRegistration.status === "ReuploadRequested" ? "badge-sun" :
+                      "badge-sun"
+                    }`}>
+                      {TAB_LABELS[selectedRegistration.status] || selectedRegistration.status}
                     </span>
-                  )}
+                    {selectedRegistration.reupload_count > 0 && (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        padding: "3px 10px", borderRadius: 20,
+                        fontSize: 11, fontWeight: 700,
+                        background: "#fff3cd", color: "#856404",
+                        border: "1px solid #fcd34d",
+                      }}>
+                        <RefreshCw size={11} />
+                        Re-uploaded {selectedRegistration.reupload_count > 1 ? `×${selectedRegistration.reupload_count}` : ""}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ fontSize: 12, color: "var(--muted)", display: "flex", alignItems: "center", gap: 4 }}>
                   <Calendar size={12} />
                   <span>Submitted on {new Date(selectedRegistration.submitted_at || selectedRegistration.created_at).toLocaleDateString("en-IN")}</span>
                 </div>
@@ -1046,7 +1056,8 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
             <div
               style={{
                 display: "flex",
-                justifyContent: "flex-end",
+                justifyContent: "center",
+                flexWrap: "wrap",
                 gap: 12,
                 padding: "16px 24px",
                 borderTop: "1px solid rgba(0,0,0,0.06)",
@@ -1058,19 +1069,11 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                 borderBottomRightRadius: 20
               }}
             >
-              <button
-                className="btn-sm"
-                style={{ background: "white", color: "var(--text)", border: "1px solid rgba(0,0,0,0.1)", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}
-                onClick={() => setSelectedRegistration(null)}
-              >
-                Close
-              </button>
-
               {selectedRegistration.status === "Pending" && (
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", width: "100%" }}>
                   <button
                     className="btn-sm"
-                    style={{ background: "var(--green)", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    style={{ flex: "1 1 auto", justifyContent: "center", background: "var(--green)", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
                     disabled={actionLoading === selectedRegistration.id}
                     onClick={() => {
                       setActionConfirm({ id: selectedRegistration.id, action: "approve", name: selectedRegistration.name });
@@ -1081,14 +1084,14 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                   </button>
                   <button
                     className="btn-sm"
-                    style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fbbf24", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    style={{ flex: "1 1 auto", justifyContent: "center", background: "#fff3cd", color: "#856404", border: "1px solid #fbbf24", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
                     onClick={() => openReuploadModal(selectedRegistration)}
                   >
                     <RefreshCw size={14} /> Request Re-upload
                   </button>
                   <button
                     className="btn-sm danger"
-                    style={{ borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    style={{ flex: "1 1 auto", justifyContent: "center", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
                     disabled={actionLoading === selectedRegistration.id}
                     onClick={() => openRejectModal(selectedRegistration)}
                   >
@@ -1097,30 +1100,32 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                 </div>
               )}
 
-              {/* Show Approve/Reject buttons for ReuploadRequested registrations.
-                  This happens when admin needs to act on a registration that is still
-                  in ReuploadRequested state (e.g., link expired and dealer hasn't re-uploaded yet,
-                  or admin wants to reject without waiting for re-upload). */}
+              {/* Show Approve/Reject buttons for ReuploadRequested registrations. */}
               {selectedRegistration.status === "ReuploadRequested" && (
-                <div style={{ display: "flex", gap: 8, marginRight: "auto" }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", width: "100%" }}>
                   <div style={{
                     display: "flex",
                     alignItems: "center",
                     gap: 12,
+                    flexWrap: "wrap",
+                    justifyContent: "center",
                     background: "#fffbeb",
                     border: "1px solid #fbbf24",
                     borderRadius: 10,
-                    padding: "8px 14px",
+                    padding: "10px 14px",
                     fontSize: 12,
                     color: "#856404",
+                    flex: "1 1 auto"
                   }}>
-                    <Clock size={14} style={{ flexShrink: 0 }} />
-                    <span style={{ lineHeight: 1.4 }}>
-                      Waiting for dealer to re-upload documents.
-                      {selectedRegistration.reupload_expires_at && new Date(selectedRegistration.reupload_expires_at) < new Date() && (
-                        <strong style={{ color: "#dc2626", marginLeft: 4 }}>Link has expired.</strong>
-                      )}
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Clock size={14} style={{ flexShrink: 0 }} />
+                      <span style={{ lineHeight: 1.4, textAlign: "center" }}>
+                        Waiting for dealer to re-upload documents.
+                        {selectedRegistration.reupload_expires_at && new Date(selectedRegistration.reupload_expires_at) < new Date() && (
+                          <strong style={{ color: "#dc2626", marginLeft: 4 }}>Link has expired.</strong>
+                        )}
+                      </span>
+                    </div>
                     <button
                       style={{
                         flexShrink: 0, padding: "6px 12px",
@@ -1136,7 +1141,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                   </div>
                   <button
                     className="btn-sm danger"
-                    style={{ borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    style={{ flex: "1 1 auto", justifyContent: "center", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
                     disabled={actionLoading === selectedRegistration.id}
                     onClick={() => openRejectModal(selectedRegistration)}
                   >
@@ -1145,14 +1150,17 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                 </div>
               )}
               {selectedRegistration.status === "Rejected" && (
-                <button
-                  className="btn-sm"
-                  style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fbbf24", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
-                  onClick={() => openReuploadModal(selectedRegistration)}
-                >
-                  <RefreshCw size={14} /> Request Re-upload
-                </button>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", width: "100%" }}>
+                  <button
+                    className="btn-sm"
+                    style={{ flex: "1 1 auto", justifyContent: "center", background: "#fff3cd", color: "#856404", border: "1px solid #fbbf24", borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    onClick={() => openReuploadModal(selectedRegistration)}
+                  >
+                    <RefreshCw size={14} /> Request Re-upload
+                  </button>
+                </div>
               )}
+
             </div>
           </div>
         </div>

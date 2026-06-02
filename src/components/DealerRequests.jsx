@@ -743,9 +743,9 @@ ${pdfLine}`;
         const pending = list.filter(q => q.status === "Pending" || q.status === "ReuploadRequested").length;
         const rejected = list.filter(q => q.status === "Rejected").length;
         return (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10, marginBottom: 16 }}>
+          <div className="hide-scrollbar" style={{ display: "flex", overflowX: "auto", gap: 10, marginBottom: 16, paddingBottom: 4, WebkitOverflowScrolling: "touch" }}>
             {[{label: "Total", value: total, color: "#6366f1"}, {label: "Approved", value: approved, color: "#2E7D52"}, {label: "Pending", value: pending, color: "#d97706"}, {label: "Rejected", value: rejected, color: "#dc2626"}].map(s => (
-              <div key={s.label} style={{ background: "var(--card-bg, #fff)", borderRadius: 12, padding: "12px 16px", border: "1px solid rgba(0,0,0,0.05)", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+              <div key={s.label} style={{ flexShrink: 0, minWidth: 110, background: "var(--card-bg, #fff)", borderRadius: 12, padding: "12px 16px", border: "1px solid rgba(0,0,0,0.05)", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
                 <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", marginTop: 4, textTransform: "uppercase", letterSpacing: "0.4px" }}>{s.label}</div>
               </div>
@@ -771,7 +771,7 @@ ${pdfLine}`;
           <div style={{ fontSize: 13, marginTop: 4 }}>{t("Create your first quotation from the New Quotation page.")}</div>
         </div>
       ) : (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        <div className="card" style={{ padding: 0, overflowX: "clip" }}>
           {/* ————— Reupload alert banners —————————————————————————————————————————————————— */}
           {list.some(q => q.status === "ReuploadRequested") && (
             <div style={{
@@ -781,6 +781,7 @@ ${pdfLine}`;
               display: "flex",
               gap: 14,
               alignItems: "flex-start",
+              flexWrap: "wrap",
               borderBottom: "1px solid rgba(220,38,38,0.12)",
             }}>
               <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(220,38,38,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -791,7 +792,7 @@ ${pdfLine}`;
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {list.filter(q => q.status === "ReuploadRequested").map(q => (
                     <div key={q.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 12.5, color: "#7f1d1d", lineHeight: 1.5 }}>
+                      <div style={{ flex: "1 1 200px", fontSize: 12.5, color: "#7f1d1d", lineHeight: 1.5 }}>
                         <span style={{ fontWeight: 700, fontFamily: "var(--mono)" }}>{q.quotation_number}</span>
                         {q.customer_name && <span style={{ opacity: 0.8 }}> · {q.customer_name}</span>}
                         {q.reupload_reason && <span style={{ fontStyle: "italic", opacity: 0.7 }}> — "{q.reupload_reason}"</span>}
@@ -814,7 +815,7 @@ ${pdfLine}`;
               <div style={{
                 borderLeft: "4px solid #ea580c",
                 background: "linear-gradient(90deg, rgba(234,88,12,0.06) 0%, rgba(234,88,12,0.02) 100%)",
-                padding: "16px 20px", display: "flex", gap: 14, alignItems: "flex-start",
+                padding: "16px 20px", display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap",
                 borderBottom: "1px solid rgba(234,88,12,0.12)",
               }}>
                 <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(234,88,12,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -829,7 +830,7 @@ ${pdfLine}`;
                         : "All 3 geo-tag photos";
                       return (
                         <div key={q.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
-                          <div style={{ flex: 1, fontSize: 12.5, color: "#7c2d12", lineHeight: 1.5 }}>
+                          <div style={{ flex: "1 1 200px", fontSize: 12.5, color: "#7c2d12", lineHeight: 1.5 }}>
                             <span style={{ fontWeight: 700, fontFamily: "var(--mono)" }}>{q.quotation_number}</span>
                             {q.customer_name && <span style={{ opacity: 0.8 }}> - {q.customer_name}</span>}
                             <div style={{ fontSize: 11, color: "#92400e", marginTop: 2 }}>
@@ -851,7 +852,7 @@ ${pdfLine}`;
               </div>
             );
           })()}
-          <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll-wrap">
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "900px" }}>
             <thead>
               <tr>
@@ -861,7 +862,7 @@ ${pdfLine}`;
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{t("Capacity")}</th>
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{t("Effective Price")}</th>
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{t("Status")}</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{t("Delivery")}</th>
+                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Delivery")}</th>
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Geo-Tags")}</th>
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Actions")}</th>
               </tr>
@@ -941,7 +942,7 @@ ${pdfLine}`;
                       ) : null}
                     </div>
                   </td>
-                  <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
+                  <td style={{ padding: "14px 16px", verticalAlign: "middle", textAlign: "center" }}>
                     {q.status === "Approved" ? (
                       (() => {
                         let bg = "rgba(107, 114, 128, 0.06)";

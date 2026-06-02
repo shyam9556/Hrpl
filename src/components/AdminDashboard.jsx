@@ -144,8 +144,8 @@ export default function AdminDashboard({ onNavigate }) {
         {recentQuotations.length === 0 ? (
           <div style={{ color: "var(--muted)", fontSize: 14 }}>{t("No quotations yet")}</div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-          <table>
+          <div className="table-scroll-wrap">
+          <table style={{ minWidth: "560px" }}>
             <thead>
               <tr>
                 <th>{t("Quotation #")}</th>
