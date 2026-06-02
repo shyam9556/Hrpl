@@ -104,13 +104,13 @@ export default function DealersList() {
           <div className="page-sub">Manage approved dealer accounts</div>
         </div>
 
-        {/* Search bar pinned right */}
+        {/* Search bar — fluid on mobile */}
         <div style={{
           display: "flex", alignItems: "center", gap: 8,
           background: "var(--card, white)",
           border: "1.5px solid var(--border, #e2e8f0)",
           borderRadius: 9, padding: "0 12px",
-          height: 34, width: 260, flexShrink: 0,
+          height: 34, width: "100%", maxWidth: 260, minWidth: 0,
           boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
           transition: "border-color 0.15s",
         }}
@@ -241,7 +241,7 @@ export default function DealersList() {
           </div>
 
           {filteredList.length > PAGE_SIZE && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderTop: "1px solid var(--border, #e2e8f0)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderTop: "1px solid var(--border, #e2e8f0)", flexWrap: "wrap", gap: 8 }}>
               <span style={{ fontSize: 12, color: "var(--muted)" }}>
                 Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredList.length)} of {filteredList.length}
                 {search && ` (filtered from ${list.length})`}
@@ -283,7 +283,7 @@ export default function DealersList() {
         <div
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            zIndex: 9999, padding: 16 }}
+            zIndex: 9999, padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px" }}
           onClick={closeResetModal}
         >
           <div

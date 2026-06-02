@@ -304,7 +304,7 @@ export default function SettingsPage() {
 
       {/* Unsaved changes indicator */}
       {hasChanges && (
-        <div className="alert alert-green" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div className="alert alert-green" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
           <span>You have unsaved changes ({Object.keys(edited).length} field{Object.keys(edited).length !== 1 ? "s" : ""} modified).</span>
           <button className="btn-sm" onClick={() => setEdited({})}>Discard</button>
         </div>

@@ -27,6 +27,11 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Prevent font size inflation on orientation change (iOS) */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Smooth scrolling everywhere */
+  scroll-behavior: smooth;
 }
 
 .app { min-height: 100vh; }
@@ -208,6 +213,9 @@ body {
   padding: 0 16px;
   z-index: 90;
   box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  /* Safe area inset for notched phones (iPhone X+) */
+  padding-left: calc(16px + env(safe-area-inset-left));
+  padding-right: calc(16px + env(safe-area-inset-right));
 }
 .mobile-topbar-title {
   display: flex;
@@ -215,8 +223,17 @@ body {
   gap: 10px;
   font-size: 16px;
   font-weight: 600;
+  /* Prevent long page titles from overflowing */
+  min-width: 0;
+  flex: 1;
 }
-.mobile-topbar-role { font-size: 20px; }
+.mobile-topbar-title span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100vw - 120px);
+}
+.mobile-topbar-role { font-size: 20px; flex-shrink: 0; }
 
 .hamburger-btn {
   display: flex;
@@ -501,6 +518,161 @@ tr:hover td { background: #FAFAF8; }
 .stat-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
 /* ═══════════════════════════════════════════════════════════
+   ADMIN STAT GRID UTILITY CLASSES
+   Used instead of inline style gridTemplateColumns so
+   CSS media queries can override them properly.
+   ═══════════════════════════════════════════════════════════ */
+.stat-grid-7 {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.stat-grid-6 {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ADMIN FILTER BAR
+   Flex row of filter buttons + search that wraps cleanly
+   on mobile. Used in DealerRequestsAdmin + DealerRegistrations.
+   ═══════════════════════════════════════════════════════════ */
+.admin-filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.admin-filter-bar .filter-search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--card, white);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 6px 12px;
+  /* Grow to fill remaining row space but never overflow */
+  flex: 1;
+  min-width: 160px;
+  max-width: 320px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  transition: border-color 0.15s;
+}
+.admin-filter-bar .filter-search-box:focus-within {
+  border-color: var(--green);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DOCUMENTS LAYOUT (DealerDocuments two-column grid)
+   ═══════════════════════════════════════════════════════════ */
+.documents-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CELL TRUNCATION UTILITIES
+   Prevents long names (dealer/customer) from overflowing
+   table cells.
+   ═══════════════════════════════════════════════════════════ */
+.cell-truncate {
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cell-truncate-sm {
+  max-width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TABLE SCROLL WRAPPER
+   Adds a faint right-side gradient on scrollable tables
+   to indicate more content is available (swipe hint).
+   ═══════════════════════════════════════════════════════════ */
+.table-scroll-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+}
+/* Touch targets — minimum 40px for mobile usability */
+.btn-sm { min-height: 34px; }
+
+/* ═══════════════════════════════════════════════════════════
+   SHARE / ACTION BUTTON ROW
+   Flex row of share buttons that wraps cleanly on mobile.
+   ═══════════════════════════════════════════════════════════ */
+.share-btn-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.share-btn-row > * {
+  flex: 1 1 120px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   QUOTE SUMMARY GRID (environmental stats inside quote box)
+   2-col on desktop, 1-col on mobile.
+   ═══════════════════════════════════════════════════════════ */
+.quote-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AADHAAR PHOTO GRID
+   2-col upload grid for aadhaar front/back.
+   ═══════════════════════════════════════════════════════════ */
+.aadhaar-photo-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SPAN FULL
+   Forces a grid child to span all columns. Unlike inline
+   gridColumn:"span 2" this class can be overridden by a
+   media query (set to span 1 when grid is 1-col on mobile).
+   ═══════════════════════════════════════════════════════════ */
+.span-full {
+  grid-column: 1 / -1;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DEALERSHIP AGREEMENT DOWNLOAD ROW
+   Flex row that stacks on mobile.
+   ═══════════════════════════════════════════════════════════ */
+.agreement-download-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AADHAAR MODE TOGGLE PILL
+   Pill toggle that can wrap on very small screens.
+   ═══════════════════════════════════════════════════════════ */
+.aadhaar-mode-toggle {
+  display: inline-flex;
+  background: var(--border, #e2e8f0);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════
    MISC COMPONENTS
    ═══════════════════════════════════════════════════════════ */
 .input-inline {
@@ -755,15 +927,19 @@ tr:hover td { background: #FAFAF8; }
    RESPONSIVE — TABLET (≤1024px)
    ═══════════════════════════════════════════════════════════ */
 @media (max-width: 1024px) {
-  .stats-row { grid-template-columns: repeat(2, 1fr); }
+  /* Dashboard stats: 8 cards → 4 cols at tablet */
+  .stats-row { grid-template-columns: repeat(4, 1fr); }
   .form-grid-3 { grid-template-columns: 1fr 1fr; }
   .quote-grid { grid-template-columns: 1fr 1fr; }
   .upload-grid { grid-template-columns: 1fr 1fr; }
   .main { padding: 1.5rem; }
-  /* Admin stat box grids — 6 or 7 columns → 3 columns */
-  [style*="repeat(6, 1fr)"], [style*="repeat(7, 1fr)"] {
-    grid-template-columns: repeat(3, 1fr) !important;
-  }
+
+  /* Admin stat grids: 7 cols → 4, 6 cols → 3 */
+  .stat-grid-7 { grid-template-columns: repeat(4, 1fr); }
+  .stat-grid-6 { grid-template-columns: repeat(3, 1fr); }
+
+  /* Documents layout: two-column at 1024px+ */
+  .documents-layout { grid-template-columns: 350px 1fr; }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -785,6 +961,8 @@ tr:hover td { background: #FAFAF8; }
     transform: translateX(-100%);
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 4px 0 24px rgba(0,0,0,0.2);
+    /* iOS: account for safe-area-inset-left (home indicator side) */
+    padding-left: max(1rem, env(safe-area-inset-left));
   }
   .sidebar.open {
     transform: translateX(0);
@@ -795,6 +973,8 @@ tr:hover td { background: #FAFAF8; }
   /* Main content offset for top bar */
   .main {
     padding: calc(var(--topbar-h) + 1rem) 1rem 1.5rem 1rem;
+    /* iOS: respect safe-area insets at bottom */
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
     width: 100%;
   }
 
@@ -805,10 +985,38 @@ tr:hover td { background: #FAFAF8; }
   /* Forms → single column */
   .form-grid, .form-grid-3 { grid-template-columns: 1fr; }
 
-  /* Stat cards → 2 columns */
-  .stats-row { grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  /* Stat cards → 2 columns on mobile (8 cards = 2x4) */
+  .stats-row { grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
   .stat-card { padding: 1rem; }
   .stat-val { font-size: 20px; }
+
+  /* Admin stat grids: 7/6 cols → 2 on mobile */
+  .stat-grid-7 { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-grid-6 { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+  /* Stat grid cards — smaller padding on mobile */
+  .stat-grid-7 > div,
+  .stat-grid-6 > div {
+    padding: 10px 12px !important;
+  }
+  .stat-grid-7 > div > div:first-child,
+  .stat-grid-6 > div > div:first-child {
+    font-size: 22px !important;
+  }
+
+  /* Documents grid: single column on mobile */
+  .documents-layout { grid-template-columns: 1fr; }
+
+  /* Admin filter bar: buttons wrap, search goes full width below */
+  .admin-filter-bar {
+    gap: 6px;
+    row-gap: 8px;
+  }
+  .admin-filter-bar .filter-search-box {
+    flex: 1 1 100%;
+    max-width: 100%;
+    margin-top: 2px;
+  }
 
   /* Quote box */
   .quote-total { font-size: 28px; }
@@ -819,21 +1027,44 @@ tr:hover td { background: #FAFAF8; }
 
   /* Steps → vertical on mobile */
   .steps { flex-direction: column; gap: 0; }
-  .step { border-radius: 0 !important; }
+  .step { border-radius: 0 !important; min-height: 48px; }
   .step:first-child { border-radius: 10px 10px 0 0 !important; }
   .step:last-child { border-radius: 0 0 10px 10px !important; }
 
   /* Cards */
   .card { padding: 1.25rem; border-radius: 14px; margin-bottom: 1rem; }
 
-  /* Tables → horizontal scroll wrapper */
+  /* Tables → ensure overflow scroll works on mobile */
   .card table { display: block; }
   .card thead, .card tbody, .card tr { display: table; width: 100%; table-layout: auto; }
   td, th { padding: 8px 10px; font-size: 12px; }
 
+  /* Cell truncation: tighter on mobile */
+  .cell-truncate { max-width: 130px; }
+  .cell-truncate-sm { max-width: 90px; }
+
   /* Login card */
   .login-card { padding: 2rem 1.5rem; border-radius: 20px; }
   .login-page { padding: 1rem; }
+
+  /* Login card register mode — full width on mobile */
+  .login-card { max-width: 100% !important; }
+
+  /* Dealership agreement row — stack on mobile */
+  .agreement-download-row {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 10px;
+  }
+  .agreement-download-row a {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Aadhaar mode toggle: allow wrap on very small screens */
+  .aadhaar-mode-toggle {
+    flex-wrap: wrap;
+  }
 
   /* Success screen */
   .success-screen { padding: 2rem 1rem; }
@@ -849,8 +1080,45 @@ tr:hover td { background: #FAFAF8; }
   /* Inline inputs */
   .input-inline { width: 80px; font-size: 12px; }
 
+  /* Touch targets — larger for fingers */
+  .btn-sm { min-height: 40px; }
+
   /* Buttons on mobile */
   .btn-primary { padding: 12px; font-size: 14px; }
+
+  /* Modals — better padding on mobile */
+  .modal {
+    padding: 1.5rem 1.25rem;
+    border-radius: 16px;
+    max-height: 92vh;
+    /* iOS: account for safe areas inside modal */
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  }
+
+  /* Confirm dialog — slightly wider on mobile */
+  .modal-overlay { padding: 12px; }
+
+  /* Share/action button groups — wrap on mobile */
+  .share-btn-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .share-btn-row > * {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 120px;
+  }
+
+  /* Drawer — full width on mobile */
+  .drawer-container { max-width: 100%; }
+  .drawer-header { padding: 1.25rem; }
+  .drawer-content { padding: 1.25rem; }
+  .drawer-footer { padding: 1rem 1.25rem; }
+
+  /* Quote summary grid inside quotation box — 1 col on mobile */
+  .quote-summary-grid { grid-template-columns: 1fr !important; }
+
+  /* Aadhaar photo grid — 1 col on mobile */
+  .aadhaar-photo-grid { grid-template-columns: 1fr !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -863,6 +1131,10 @@ tr:hover td { background: #FAFAF8; }
   .stat-card { padding: 0.75rem; }
   .stat-val { font-size: 18px; }
   .stat-label { font-size: 10px; }
+
+  /* Stat grids: force to 2 or 3 columns with minimal gap */
+  .stat-grid-7 { grid-template-columns: repeat(2, 1fr) !important; gap: 8px; }
+  .stat-grid-6 { grid-template-columns: repeat(2, 1fr) !important; gap: 8px; }
 
   .upload-grid { grid-template-columns: 1fr; }
 
@@ -894,7 +1166,21 @@ tr:hover td { background: #FAFAF8; }
   .field label { font-size: 10px; }
   .field input, .field textarea { padding: 10px 12px; font-size: 13px; }
   .field select { padding: 9px 12px; font-size: 13px; }
+
+  /* Share row: one per line on small phones */
+  .share-btn-row > * {
+    flex: 1 1 100%;
+  }
+
+  /* Admin filter bar: all buttons wrap */
+  .admin-filter-bar .btn-sm {
+    flex: 1 1 calc(50% - 6px);
+    text-align: center;
+    justify-content: center;
+  }
 }
+
+/* (duplicate @media blocks removed — all rules consolidated above) */
 
 /* ═══════════════════════════════════════════════════════════
    SCROLLBAR STYLING (for webkit browsers)

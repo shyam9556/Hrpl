@@ -159,7 +159,7 @@ function DocumentZone({ docType, file, onChange, onCoords }) {
             <span style={{ fontSize: 12, fontWeight: 600, color: "#2E7D52" }}>Retrieving GPS Coordinates...</span>
           </div>
         ) : file ? (
-          <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             {isImage ? (
               <img
                 src={previewUrl}
@@ -182,7 +182,7 @@ function DocumentZone({ docType, file, onChange, onCoords }) {
               <div style={{ fontSize: 11, color: "#6b7280" }}>
                 {(file.size / 1024).toFixed(0)} KB
                 {isGeotag && coords && (
-                  <span style={{ color: "#2E7D52", fontWeight: 700, marginLeft: 8 }}>
+                  <span style={{ color: "#2E7D52", fontWeight: 700, marginLeft: 8, wordBreak: "break-all" }}>
                     📍 Geotagged ({coords.latitude.toFixed(4)}, {coords.longitude.toFixed(4)})
                   </span>
                 )}
@@ -224,7 +224,7 @@ function DocumentZone({ docType, file, onChange, onCoords }) {
       {typeError && (
         <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 6, fontSize: 11, color: "#dc2626" }}>
           <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>{typeError}</span>
+          <span style={{ wordBreak: "break-word" }}>{typeError}</span>
         </div>
       )}
     </div>
@@ -465,7 +465,7 @@ export default function QuotationReuploadPage({ token, onDone }) {
         {/* Header */}
         <div style={{
           background: "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
-          padding: "32px 32px 28px",
+          padding: "clamp(16px, 6vw, 32px) clamp(16px, 6vw, 32px) 28px",
           textAlign: "center",
         }}>
           <img
@@ -480,7 +480,7 @@ export default function QuotationReuploadPage({ token, onDone }) {
         </div>
 
         {/* Body */}
-        <div style={{ padding: "28px 32px 32px" }}>
+        <div style={{ padding: `28px clamp(16px, 6vw, 32px) clamp(16px, 6vw, 32px)` }}>
 
           {/* Step: Checking */}
           {step === "checking" && (
@@ -523,7 +523,7 @@ export default function QuotationReuploadPage({ token, onDone }) {
               {verifyError && (
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "10px 12px", marginBottom: 16, fontSize: 13, color: "#dc2626" }}>
                   <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
-                  <span>{verifyError}</span>
+                    <span style={{ wordBreak: "break-word" }}>{verifyError}</span>
                 </div>
               )}
 
@@ -661,7 +661,7 @@ export default function QuotationReuploadPage({ token, onDone }) {
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "10px 12px", marginBottom: 16, fontSize: 13, color: "#dc2626" }}>
                   <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
                   <div>
-                    <span>{submitError}</span>
+                    <span style={{ wordBreak: "break-word" }}>{submitError}</span>
                     {submitError.includes("session has expired") && (
                       <div style={{ marginTop: 8 }}>
                         <button

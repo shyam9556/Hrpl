@@ -272,7 +272,7 @@ export default function InquiryManager({ onConvertToQuote }) {
                 required
               />
             </div>
-            <div className="field" style={{ gridColumn: "span 2" }}>
+            <div className="field span-full" style={{ marginBottom: 0 }}>
               <label>Remarks / Initial Inquiry Notes</label>
               <input 
                 placeholder="Interested in a 5kW hybrid solar rooftop package..." 
@@ -291,7 +291,7 @@ export default function InquiryManager({ onConvertToQuote }) {
               </div>
             )}
             
-            <div style={{ gridColumn: "span 2", display: "flex", gap: 12, marginTop: 12 }}>
+            <div className="span-full" style={{ display: "flex", gap: 12, marginTop: 12 }}>
               <button 
                 type="submit" 
                 className="btn-primary" 
@@ -315,7 +315,7 @@ export default function InquiryManager({ onConvertToQuote }) {
 
       {/* Filter and Search Bar */}
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ flex: 1, minWidth: 280, position: "relative", display: "flex", gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 160, position: "relative", display: "flex", gap: 8 }}>
           <input
             placeholder="Search inquiries by name, location, or remark..."
             value={search}
@@ -384,7 +384,7 @@ export default function InquiryManager({ onConvertToQuote }) {
           </button>
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(320px, 100%), 1fr))", gap: 20 }}>
           {list.map(inq => {
             const statusStyle = getStatusStyle(inq.status);
             return (
@@ -491,7 +491,8 @@ export default function InquiryManager({ onConvertToQuote }) {
                 {/* Footer Actions */}
                 <div style={{ 
                   display: "flex", 
-                  gap: 8, 
+                  gap: 8,
+                  flexWrap: "wrap",
                   borderTop: "1px solid #f3f4f6", 
                   paddingTop: 12,
                   marginTop: "auto"
@@ -578,7 +579,7 @@ export default function InquiryManager({ onConvertToQuote }) {
           onClick={e => e.stopPropagation()} // Stop propagation to not close drawer
           >
             {/* Header */}
-            <div style={{ padding: "24px 28px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ padding: "env(safe-area-inset-top, 24px) 24px 24px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <span style={{ 
                   fontSize: 10, 
@@ -605,7 +606,7 @@ export default function InquiryManager({ onConvertToQuote }) {
             </div>
 
             {/* Details Content */}
-            <div style={{ padding: "24px 28px", flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
+            <div style={{ padding: "24px 24px calc(env(safe-area-inset-bottom, 0px) + 24px) 24px", flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
               {/* Location Pin */}
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: "var(--text)" }}>
                 <MapPin size={16} style={{ color: "var(--green)", marginTop: 2, flexShrink: 0 }} />

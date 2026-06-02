@@ -1104,7 +1104,7 @@ ${pdfLine}`;
             justifyContent: "center",
             alignItems: "center",
             zIndex: 1000,
-            padding: 16
+            padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px",
           }}
           onClick={() => setGeotagModalQuotation(null)}
         >
@@ -1428,7 +1428,7 @@ ${pdfLine}`;
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
           background: "rgba(15,23,42,0.45)", backdropFilter: "blur(8px)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          zIndex: 1100, padding: 16
+          zIndex: 1100, padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px"
         }}>
           <div style={{
             background: "var(--card-bg, #fff)", borderRadius: 20, width: "100%", maxWidth: 680,

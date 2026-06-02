@@ -369,7 +369,7 @@ export default function StockManager() {
         
         return (
           <div className="card" key={cat} style={{ borderLeft: `4px solid ${config.color}`, borderRadius: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
               <div className="card-title" style={{ display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
                 <span style={{ 
                   background: config.bg, 
@@ -491,6 +491,8 @@ export default function StockManager() {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 8,
             marginTop: 20,
             borderRadius: 12,
             animation: "fadeIn 0.2s ease"
@@ -634,7 +636,7 @@ export default function StockManager() {
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 4 }}>
                       {/* Qty Change */}
                       {item.qtyChanged && (
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, flexWrap: "wrap", gap: 4 }}>
                           <span style={{ color: "var(--muted)" }}>Quantity Adjustment:</span>
                           <span style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 4 }}>
                             <span style={{ textDecoration: "line-through", color: "#ef4444" }}>{item.oldQty}</span>
@@ -646,7 +648,7 @@ export default function StockManager() {
                       
                       {/* Price Change */}
                       {item.priceChanged && (
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, flexWrap: "wrap", gap: 4 }}>
                           <span style={{ color: "var(--muted)" }}>Unit Price Adjustment:</span>
                           <span style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 4 }}>
                             <span style={{ textDecoration: "line-through", color: "#ef4444" }}>{fmtCurrency(item.oldPrice)}</span>

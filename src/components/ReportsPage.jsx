@@ -121,7 +121,7 @@ export default function ReportsPage() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", overflowX: "auto" }}>
         {tabs.map(t => {
           const Icon = t.icon;
           return (

@@ -941,7 +941,7 @@ ${pdfLine}`;
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 24 }}>
           {/* Card 1: Commission */}
           <div
             onClick={() => {
@@ -1591,14 +1591,14 @@ ${pdfLine}`;
                   </div>
 
                   {/* Environmental Stats */}
-                  <div style={{ 
-                    borderTop: "1px solid rgba(255,255,255,0.1)", 
-                    paddingTop: "12px", 
-                    marginTop: "4px",
-                    display: "grid", 
-                    gridTemplateColumns: "1fr 1fr", 
-                    gap: "12px" 
-                  }}>
+                  <div
+                    className="quote-summary-grid"
+                    style={{ 
+                      borderTop: "1px solid rgba(255,255,255,0.1)", 
+                      paddingTop: "12px", 
+                      marginTop: "4px",
+                    }}
+                  >
                     <div>
                       <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.5)", textTransform: "uppercase" }}>{"Est. Annual Yield"}</div>
                       <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--sun)", display: "flex", alignItems: "center", marginTop: "2px" }}>
@@ -1735,7 +1735,7 @@ ${pdfLine}`;
                     </div>
                     {/* Upload zones */}
                     {form.aadhaarMode === "photos" ? (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <div className="aadhaar-photo-grid">
                         <UploadZone label="Front Side" icon={<IdCard size={22} />} file={form.aadhaarFront} onChange={f => set("aadhaarFront", f)} />
                         <UploadZone label="Back Side"  icon={<IdCard size={22} />} file={form.aadhaarBack}  onChange={f => set("aadhaarBack",  f)} />
                       </div>

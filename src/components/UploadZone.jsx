@@ -177,7 +177,7 @@ export default function UploadZone({ label, icon, file, onChange }) {
                 marginBottom: 6,
               }}
             />
-            <div className="upload-label" style={{ fontSize: 11 }}>{file.name}</div>
+            <div className="upload-label" style={{ fontSize: 11, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", maxWidth: "100%" }}>{file.name}</div>
             <div className="upload-text">{(file.size / 1024).toFixed(0)} KB · Tap to change</div>
           </>
         ) : (
@@ -185,13 +185,13 @@ export default function UploadZone({ label, icon, file, onChange }) {
             <div className="upload-icon" style={{ color: file ? "var(--green)" : "var(--muted)" }}>
               {file ? <CheckCircle2 size={24} /> : <Paperclip size={24} />}
             </div>
-            <div className="upload-label">{file ? file.name : dragOver ? "Drop file here" : "Tap or drag to upload"}</div>
+            <div className="upload-label" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", maxWidth: "100%" }}>{file ? file.name : dragOver ? "Drop file here" : "Tap or drag to upload"}</div>
             <div className="upload-text">{file ? "Tap to change" : "JPG, PNG, PDF · Max 10MB"}</div>
           </>
         )}
       </div>
       {error && (
-        <div style={{ fontSize: 11, color: "var(--red, #ef4444)", marginTop: 4, fontWeight: 500 }}>
+        <div style={{ fontSize: 11, color: "var(--red, #ef4444)", marginTop: 4, fontWeight: 500, wordBreak: "break-word" }}>
           {error}
         </div>
       )}

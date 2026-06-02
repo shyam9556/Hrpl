@@ -647,21 +647,16 @@ export default function DealerRequestsAdmin() {
         <div className="page-sub">Review and manage dealer quotation requests</div>
       </div>
 
-      {/* ── Stat Boxes ──────────────────────────────────────────────────────── */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(7, 1fr)",
-        gap: 12,
-        marginBottom: 20,
-      }}>
+      {/* ── Stat Boxes ────────────────────────────────────────────────────────────── */}
+      <div className="stat-grid-7">
         {[
           { label: "Total",              value: stats?.total,             color: "#1a1a1a", bg: "#f8f9fa",  border: "#e2e8f0", accent: "#94a3b8" },
           { label: "Pending",            value: stats?.pending,           color: "#92400e", bg: "#fffbeb",  border: "#fde68a", accent: "#f59e0b" },
           { label: "Approved",           value: stats?.approved,          color: "#166534", bg: "#f0fdf4",  border: "#bbf7d0", accent: "#22c55e" },
           { label: "Rejected",           value: stats?.rejected,          color: "#991b1b", bg: "#fef2f2",  border: "#fecaca", accent: "#ef4444" },
-          { label: "Re-upload Requested",value: stats?.reuploadRequested, color: "#7c2d12", bg: "#fff7ed",  border: "#fed7aa", accent: "#f97316" },
-          { label: "Docs Awaiting Review",  value: stats?.docsNeedsReview,   color: "#78350f", bg: "linear-gradient(135deg,#fffbeb,#fef3c7)", border: "#fcd34d", accent: "#f59e0b", highlight: true },
-          { label: "Geotag Awaiting Review", value: stats?.geotagNeedsReview, color: "#1e3a5f", bg: "linear-gradient(135deg,#eff6ff,#dbeafe)", border: "#93c5fd", accent: "#3b82f6", highlightBlue: true },
+          { label: "Re-upload Req.",     value: stats?.reuploadRequested, color: "#7c2d12", bg: "#fff7ed",  border: "#fed7aa", accent: "#f97316" },
+          { label: "Docs Awaiting",      value: stats?.docsNeedsReview,   color: "#78350f", bg: "linear-gradient(135deg,#fffbeb,#fef3c7)", border: "#fcd34d", accent: "#f59e0b", highlight: true },
+          { label: "Geotag Awaiting",    value: stats?.geotagNeedsReview, color: "#1e3a5f", bg: "linear-gradient(135deg,#eff6ff,#dbeafe)", border: "#93c5fd", accent: "#3b82f6", highlightBlue: true },
         ].map(({ label, value, color, bg, border, accent, highlight, highlightBlue }) => (
           <div key={label} style={{
             background: bg,
@@ -676,6 +671,7 @@ export default function DealerRequestsAdmin() {
                 : "0 1px 4px rgba(0,0,0,0.04)",
             transition: "transform 0.15s, box-shadow 0.15s",
             cursor: "default",
+            minWidth: 0,
           }}
             onMouseEnter={e => {
               e.currentTarget.style.transform = "translateY(-2px)";
@@ -697,7 +693,7 @@ export default function DealerRequestsAdmin() {
             <div style={{ fontSize: 26, fontWeight: 800, color, fontFamily: "var(--mono)", lineHeight: 1, letterSpacing: -1 }}>
               {value ?? <span style={{ fontSize: 18, opacity: 0.3 }}>—</span>}
             </div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 6 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 6, wordBreak: "break-word" }}>
               {label}
             </div>
           </div>
@@ -705,39 +701,34 @@ export default function DealerRequestsAdmin() {
       </div>
 
       {/* Status filter + Search bar */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+      <div className="admin-filter-bar">
         {["", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => (
-          <button key={s} className={`btn-sm ${filter === s ? "primary" : ""}`} onClick={() => setFilter(s)} style={{ padding: "6px 14px", borderRadius: 8 }}>
-            {s === "ReuploadRequested" ? "Re-upload Requested" : s || "All"}
+          <button key={s} className={`btn-sm ${filter === s ? "primary" : ""}`} onClick={() => setFilter(s)}>
+            {s === "ReuploadRequested" ? "Re-upload" : s || "All"}
           </button>
         ))}
 
-        {/* Divider */}
-        <div style={{ width: 1, height: 24, background: "var(--border, #e2e8f0)", margin: "0 4px" }} />
+        {/* Divider — hidden on small mobile where everything wraps */}
+        <div style={{ width: 1, height: 24, background: "var(--border, #e2e8f0)", margin: "0 4px", flexShrink: 0 }} aria-hidden="true" />
 
         {/* Search */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 8,
-          background: "var(--card, white)", border: "1px solid var(--border, #e2e8f0)",
-          borderRadius: 10, padding: "6px 12px", minWidth: 240,
-          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-        }}>
+        <div className="filter-search-box">
           <Search size={14} style={{ color: "var(--muted)", flexShrink: 0 }} />
           <input
             type="text"
             placeholder="Search quotation, dealer, customer..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{ border: "none", outline: "none", background: "transparent", flex: 1, fontSize: 13, color: "var(--text)" }}
+            style={{ border: "none", outline: "none", background: "transparent", flex: 1, fontSize: 13, color: "var(--text)", minWidth: 0 }}
           />
           {search && (
-            <button onClick={() => setSearch("")} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "flex" }}>
+            <button onClick={() => setSearch("")} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "flex", flexShrink: 0 }} aria-label="Clear search">
               <X size={13} />
             </button>
           )}
         </div>
         {search && (
-          <span style={{ fontSize: 12, color: "var(--muted)" }}>
+          <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>
             {(() => {
               const count = list.filter(q => {
                 const s = search.toLowerCase();
@@ -1219,7 +1210,7 @@ export default function DealerRequestsAdmin() {
             justifyContent: "center",
             alignItems: "center",
             zIndex: 1000,
-            padding: 16
+            padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px",
           }}
           onClick={() => setSelectedQuotation(null)}
         >
@@ -2251,7 +2242,7 @@ export default function DealerRequestsAdmin() {
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
           background: "rgba(15,23,42,0.4)", backdropFilter: "blur(4px)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          zIndex: 9999, padding: 16
+          zIndex: 9999, padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px"
         }}>
           <div style={{
             background: "white", borderRadius: 20, width: "100%", maxWidth: 640,
@@ -2420,7 +2411,7 @@ export default function DealerRequestsAdmin() {
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
           background: "rgba(15,23,42,0.4)", backdropFilter: "blur(4px)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          zIndex: 9999, padding: 16
+          zIndex: 9999, padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px"
         }}>
           <div style={{
             background: "white", borderRadius: 20, width: "100%", maxWidth: 500,

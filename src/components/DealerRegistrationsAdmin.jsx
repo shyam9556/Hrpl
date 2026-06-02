@@ -239,19 +239,14 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
         <div className="page-sub">Review and manage new dealer registration applications</div>
       </div>
 
-      {/* ── Stat Boxes ──────────────────────────────────────────────────────── */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(6, 1fr)",
-        gap: 12,
-        marginBottom: 20,
-      }}>
+      {/* ── Stat Boxes ────────────────────────────────────────────────────────────── */}
+      <div className="stat-grid-6">
         {[
           { label: "Total",              value: stats?.total,             color: "#1a1a1a",  bg: "#f8f9fa",  border: "#e2e8f0",  accent: "#94a3b8" },
           { label: "Pending",            value: stats?.pending,           color: "#92400e",  bg: "#fffbeb",  border: "#fde68a",  accent: "#f59e0b" },
           { label: "Approved",           value: stats?.approved,          color: "#166534",  bg: "#f0fdf4",  border: "#bbf7d0",  accent: "#22c55e" },
           { label: "Rejected",           value: stats?.rejected,          color: "#991b1b",  bg: "#fef2f2",  border: "#fecaca",  accent: "#ef4444" },
-          { label: "Re-upload Requested",value: stats?.reuploadRequested, color: "#7c2d12",  bg: "#fff7ed",  border: "#fed7aa",  accent: "#f97316" },
+          { label: "Re-upload Req.",     value: stats?.reuploadRequested, color: "#7c2d12",  bg: "#fff7ed",  border: "#fed7aa",  accent: "#f97316" },
           { label: "Awaiting Review",    value: stats?.needsReview,       color: "#78350f",  bg: "linear-gradient(135deg,#fffbeb,#fef3c7)", border: "#fcd34d", accent: "#f59e0b", highlight: true },
         ].map(({ label, value, color, bg, border, accent, highlight }) => (
           <div key={label} style={{
@@ -265,6 +260,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
               : "0 1px 4px rgba(0,0,0,0.04)",
             transition: "transform 0.15s, box-shadow 0.15s",
             cursor: "default",
+            minWidth: 0,
           }}
             onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = highlight ? "0 6px 18px rgba(245,158,11,0.22)" : "0 4px 12px rgba(0,0,0,0.08)"; }}
             onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = highlight ? "0 2px 12px rgba(245,158,11,0.15)" : "0 1px 4px rgba(0,0,0,0.04)"; }}
@@ -272,44 +268,35 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
             <div style={{ fontSize: 26, fontWeight: 800, color, fontFamily: "var(--mono)", lineHeight: 1, letterSpacing: -1 }}>
               {value ?? <span style={{ fontSize: 18, opacity: 0.3 }}>—</span>}
             </div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 6 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 6, wordBreak: "break-word" }}>
               {label}
             </div>
           </div>
         ))}
       </div>
 
-      {/* Tabs + Search — one row, search pinned right */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+      {/* Tabs + Search */}
+      <div className="admin-filter-bar">
         {["All", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => (
-          <button key={s} className={`btn-sm ${tab === s ? "primary" : ""}`} onClick={() => setTab(s)} style={{ padding: "6px 14px", borderRadius: 8 }}>
-            {TAB_LABELS[s] || s}
+          <button key={s} className={`btn-sm ${tab === s ? "primary" : ""}`} onClick={() => setTab(s)}>
+            {s === "ReuploadRequested" ? "Re-upload" : TAB_LABELS[s] || s}
           </button>
         ))}
 
-        {/* Search — pushed to the right */}
-        <div style={{
-          marginLeft: "auto",
-          display: "flex", alignItems: "center", gap: 8,
-          background: "var(--card, white)",
-          border: "1.5px solid var(--border, #e2e8f0)",
-          borderRadius: 9, padding: "0 12px",
-          height: 34, width: 260,
-          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-          transition: "border-color 0.15s",
-        }}
+        {/* Search */}
+        <div className="filter-search-box"
           onFocusCapture={e => e.currentTarget.style.borderColor = "var(--primary, #2E7D52)"}
           onBlurCapture={e => e.currentTarget.style.borderColor = "var(--border, #e2e8f0)"}
         >
           <Search size={13} style={{ color: "var(--muted)", flexShrink: 0 }} />
           <input
             type="text"
-            placeholder="Search..."
+            placeholder="Search name, email, location..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{
               border: "none", outline: "none", background: "transparent",
-              flex: 1, fontSize: 13, color: "var(--text)", height: "100%",
+              flex: 1, fontSize: 13, color: "var(--text)", minWidth: 0,
             }}
           />
           {search && (
@@ -330,6 +317,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
               <button
                 onClick={() => setSearch("")}
                 style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "flex", alignItems: "center", flexShrink: 0 }}
+                aria-label="Clear search"
               >
                 <X size={12} />
               </button>
@@ -759,7 +747,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
             justifyContent: "center",
             alignItems: "center",
             zIndex: 1000,
-            padding: 16
+            padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px"
           }}
           onClick={() => setSelectedRegistration(null)}
         >
@@ -1222,7 +1210,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
             position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
             background: "rgba(15,23,42,0.5)", backdropFilter: "blur(8px)",
             display: "flex", justifyContent: "center", alignItems: "center",
-            zIndex: 1500, padding: 16,
+            zIndex: 1500, padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px",
           }}
           onClick={() => { if (!reuploadLoading) setReuploadModal(null); }}
         >
@@ -1395,7 +1383,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
             position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
             background: "rgba(15,23,42,0.5)", backdropFilter: "blur(8px)",
             display: "flex", justifyContent: "center", alignItems: "center",
-            zIndex: 1500, padding: 16,
+            zIndex: 1500, padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px",
           }}
           onClick={() => { if (!rejectLoading) setRejectModal(null); }}
         >

@@ -246,7 +246,7 @@ export default function PriceManager() {
 
       {/* ── Panels ── */}
       <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: 8 }}>
           <div className="card-title" style={{ margin: 0 }}>Solar Panels</div>
           <button className="btn-sm primary" onClick={() => setShowAddPanel(!showAddPanel)}>
             {showAddPanel ? "Cancel" : "+ Add Panel"}
@@ -283,7 +283,7 @@ export default function PriceManager() {
                 <label style={{ fontSize: 10 }}>Price per Panel (₹)</label>
                 <input type="number" placeholder="e.g. 12000" value={newPanel.pricePerPanel} onChange={e => setNewPanel({ ...newPanel, pricePerPanel: e.target.value })} />
               </div>
-              <div style={{ display: "flex", alignItems: "flex-end", gridColumn: "span 2" }}>
+              <div className="span-full" style={{ display: "flex", alignItems: "flex-end" }}>
                 <button className="btn-primary" style={{ height: 42, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} onClick={handleAddPanel}>
                   <span><Plus size={14} /></span> Add to Product List
                 </button>
@@ -412,7 +412,7 @@ export default function PriceManager() {
 
       {/* ── Inverters ── */}
       <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: 8 }}>
           <div className="card-title" style={{ margin: 0 }}>Inverters</div>
           <button className="btn-sm primary" onClick={() => setShowAddInv(!showAddInv)}>
             {showAddInv ? "Cancel" : "+ Add Inverter"}
@@ -448,7 +448,7 @@ export default function PriceManager() {
                 <label style={{ fontSize: 10 }}>Price per Unit (₹)</label>
                 <input type="number" placeholder="e.g. 24000" value={newInv.pricePerUnit} onChange={e => setNewInv({ ...newInv, pricePerUnit: e.target.value })} />
               </div>
-              <div style={{ display: "flex", alignItems: "flex-end", gridColumn: "span 2" }}>
+              <div className="span-full" style={{ display: "flex", alignItems: "flex-end" }}>
                 <button className="btn-primary" style={{ height: 42, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} onClick={handleAddInv}>
                   <span><Plus size={14} /></span> Add to Inverter List
                 </button>
@@ -576,7 +576,7 @@ export default function PriceManager() {
 
       {/* ── Accessories ── */}
       <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: 8 }}>
           <div className="card-title" style={{ margin: 0 }}>Accessories & Labour</div>
           <button className="btn-primary" style={{ width: "auto", padding: "8px 20px" }} onClick={saveAccessoryPrices} disabled={saving}>
             {saving ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : accessorySaved ? <><Check size={14} /> Saved!</> : <><Save size={14} /> Save Accessory Prices</>}
@@ -626,7 +626,7 @@ export default function PriceManager() {
 
       {/* ── Pre-packaged Kits ── */}
       <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: 8 }}>
           <div className="card-title" style={{ margin: 0 }}>Pre-packaged Kit Prices</div>
           <button
             className="btn-sm"
@@ -692,7 +692,7 @@ export default function PriceManager() {
             </button>
           </div>
         )}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "24px", width: "100%" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))", gap: "24px", width: "100%" }}>
         {/* GAP-05 fix: derive brands dynamically from DB data — any new kit brand
             added to kit_prices will appear automatically without code changes. */}
         {[...new Set(kits.map(k => k.brand))].map(brand => (

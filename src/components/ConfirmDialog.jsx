@@ -134,7 +134,7 @@ export default function ConfirmDialog({
         </div>
 
         {/* Action buttons */}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20, flexWrap: "wrap" }}>
           {!hideCancel && (
             <button
               onClick={onCancel}
@@ -148,6 +148,8 @@ export default function ConfirmDialog({
                 fontWeight: 600,
                 cursor: "pointer",
                 transition: "all 0.15s",
+                minWidth: 90,
+                flex: "1 1 auto",
               }}
             >
               {cancelText}
@@ -166,6 +168,8 @@ export default function ConfirmDialog({
               fontWeight: 600,
               cursor: "pointer",
               transition: "all 0.15s",
+              minWidth: 90,
+              flex: "1 1 auto",
             }}
           >
             {confirmText}

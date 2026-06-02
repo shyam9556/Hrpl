@@ -313,12 +313,7 @@ export default function DealerDocuments({ user }) {
         </button>
       </div>
 
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "1fr",
-        lgGridTemplateColumns: "350px 1fr",
-        gap: "1.5rem",
-      }} className="documents-grid-wrapper">
+      <div className="documents-layout">
         
         {/* Left Control Column */}
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
@@ -489,6 +484,7 @@ export default function DealerDocuments({ user }) {
                 style={{
                   width: "100%",
                   flex: 1,
+                  minHeight: "300px",
                   border: "1px solid var(--border, #e5e7eb)",
                   borderRadius: "12px",
                   background: "#f1f5f9"
@@ -500,7 +496,7 @@ export default function DealerDocuments({ user }) {
 
       </div>
 
-      {/* Styled JSX injection for custom responsive breakpoints and micro-animations */}
+      {/* Keyframe animations for this component */}
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes spin {
           0% { transform: rotate(0deg); }
@@ -513,11 +509,6 @@ export default function DealerDocuments({ user }) {
         @keyframes slideDown {
           from { opacity: 0; transform: translateY(-10px); }
           to { opacity: 1; transform: translateY(0); }
-        }
-        @media (min-width: 1024px) {
-          .documents-grid-wrapper {
-            grid-template-columns: 350px 1fr !important;
-          }
         }
       `}} />
     </div>

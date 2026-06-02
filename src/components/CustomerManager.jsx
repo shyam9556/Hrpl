@@ -200,7 +200,7 @@ export default function CustomerManager() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           onKeyDown={handleSearch}
-          style={{ flex: 1, minWidth: 200, padding: "10px 14px", borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
+          style={{ flex: 1, minWidth: 120, padding: "10px 14px", borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
         />
         {search && (
           <button className="btn-sm" onClick={handleClearSearch} style={{ padding: "10px 10px", display: "flex", alignItems: "center" }} title="Clear search">
@@ -282,7 +282,7 @@ export default function CustomerManager() {
 
           {/* Pagination Controls */}
           {pagination.totalPages > 1 && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderTop: "1px solid var(--border, #e2e8f0)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderTop: "1px solid var(--border, #e2e8f0)", flexWrap: "wrap", gap: 8 }}>
               <span style={{ fontSize: 12, color: "var(--muted)" }}>
                 Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, pagination.total)} of {pagination.total}
               </span>

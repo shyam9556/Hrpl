@@ -577,7 +577,7 @@ export default function App() {
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            zIndex: 9999, padding: 16,
+            zIndex: 9999, padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px",
           }}
           onClick={closeChangePwd}
         >
@@ -720,7 +720,7 @@ export default function App() {
                 )}
 
                 {/* Actions */}
-                <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <button
                     type="button"
                     onClick={closeChangePwd}

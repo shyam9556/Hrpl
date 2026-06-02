@@ -220,7 +220,7 @@ export default function LoginPage({ onLogin }) {
 
   return (
     <div className="login-page">
-      <div className="login-card" style={{ maxWidth: mode === "register" ? 650 : 420 }}>
+      <div className="login-card" style={{ maxWidth: mode === "register" ? "min(650px, 100%)" : 420 }}>
         <div className="login-logo">
           <div className="login-logo-img-wrap">
             <img src="/logo.png" alt="Highlight Pro" />
@@ -412,7 +412,7 @@ export default function LoginPage({ onLogin }) {
               )}
             </div>
 
-            <div style={{
+            <div className="agreement-download-row" style={{
               background: "var(--light, #f8fafc)",
               border: "1px solid var(--border, #e2e8f0)",
               borderRadius: 12,
@@ -474,7 +474,7 @@ export default function LoginPage({ onLogin }) {
                         <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Aadhaar Card</span>
                       </div>
                       {/* Mode toggle pill */}
-                      <div style={{
+                      <div className="aadhaar-mode-toggle" style={{
                         display: "inline-flex",
                         background: "var(--border, #e2e8f0)",
                         borderRadius: 999,
@@ -522,7 +522,7 @@ export default function LoginPage({ onLogin }) {
 
                     {/* Upload zones */}
                     {aadhaarMode === "photos" ? (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <div className="aadhaar-photo-grid">
                         <UploadZone
                           label="Front Side"
                           icon={<IdCard size={22} />}
@@ -683,8 +683,8 @@ export default function LoginPage({ onLogin }) {
       </div>
 
       {showForgotPassword && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
-        <div style={{ background: "var(--card)", borderRadius: 12, padding: 32, maxWidth: 400, width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: "1px solid var(--border)" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px" }}>
+        <div style={{ background: "var(--card)", borderRadius: 12, padding: "clamp(20px, 5vw, 32px)", maxWidth: 400, width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: "1px solid var(--border)" }}>
             <h3 style={{ margin: "0 0 8px 0", fontSize: 20, color: "var(--text)", fontWeight: 700 }}>Forgot Password</h3>
             <p style={{ margin: "0 0 20px 0", fontSize: 14, color: "var(--muted)" }}>Enter your email to receive a password reset link.</p>
             {forgotStatus === "sent" ? (
@@ -706,7 +706,7 @@ export default function LoginPage({ onLogin }) {
                   style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)", fontSize: 14, marginBottom: 12, boxSizing: "border-box", opacity: forgotStatus === "sending" ? 0.7 : 1, background: "var(--input-bg, var(--bg-secondary))", color: "var(--text)" }}
                 />
                 {forgotStatus === "error" && <p style={{ color: "#ef4444", fontSize: 13, margin: "0 0 12px 0" }}>{forgotMessage}</p>}
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button type="button" onClick={() => { setShowForgotPassword(false); setForgotStatus(""); }} style={{ flex: 1, padding: 10, borderRadius: 8, background: "var(--bg-secondary)", color: "var(--text)", border: "1px solid var(--border)", cursor: "pointer", fontWeight: 500, fontSize: 14 }}>Cancel</button>
                   <button type="submit" disabled={forgotStatus === "sending"} className="btn-primary sun" style={{ flex: 1, opacity: forgotStatus === "sending" ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                     {forgotStatus === "sending" ? <><Loader2 size={14} className="animate-spin" />Sending...</> : "Send Reset Link"}
