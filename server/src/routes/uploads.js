@@ -243,51 +243,15 @@ router.post("/single", uploadSingle("file"), handleUploadError, async (req, res,
     );
 
     // ── Geotag post-upload tracking ───────────────────────────────────────
-    // After any geotag upload on a quotation:
-    // 1. Mark geotag_uploaded = 1 (first-upload tracking)
-    // 2. If a reupload was requested, check if all requested slots are now done
-    //    and clear the flag only when ALL requested slots have been uploaded.
+    // Mark geotag_uploaded=1 so the admin guard in request-geotag-reupload
+    // knows at least one file has ever been saved for this quotation.
+    // Actual locking (geotag_submitted) is handled by POST /submit-geotag.
     if (GEOTAG_TYPES.includes(docType) && entityType === "quotation") {
       const qid = parseInt(entityId, 10);
-
-      // Step 1: mark uploaded
       await db.query(
         "UPDATE quotations SET geotag_uploaded = 1 WHERE id = ?",
         [qid]
       );
-
-      // Step 2: smart-clear reupload flag
-      const flagResult = await db.query(
-        "SELECT geotag_reupload_requested, geotag_reupload_slots FROM quotations WHERE id = ?",
-        [qid]
-      );
-      if (flagResult.rows.length > 0 && flagResult.rows[0].geotag_reupload_requested) {
-        const slotsStr = flagResult.rows[0].geotag_reupload_slots;
-        const requestedSlots = slotsStr
-          ? slotsStr.split(",").filter(Boolean)
-          : GEOTAG_TYPES; // legacy: all 3
-
-        // Check which requested slots still have no uploaded doc
-        const uploadedResult = await db.query(
-          `SELECT doc_type FROM documents
-           WHERE entity_type = 'quotation' AND entity_id = ? AND doc_type IN (${requestedSlots.map(() => "?").join(",")})`,
-          [qid, ...requestedSlots]
-        );
-        const uploadedSlots = new Set(uploadedResult.rows.map(r => r.doc_type));
-        const allDone = requestedSlots.every(s => uploadedSlots.has(s));
-
-        if (allDone) {
-          await db.query(
-            "UPDATE quotations SET geotag_reupload_requested = 0, geotag_reupload_reason = NULL, geotag_reupload_slots = NULL WHERE id = ?",
-            [qid]
-          );
-          // Notify admin that geotag re-uploads are ready for review
-          await db.query(
-            "UPDATE quotations SET geotag_needs_review = 1 WHERE id = ?",
-            [qid]
-          );
-        }
-      }
     }
 
     res.status(201).json({ success: true, message: "File uploaded successfully.", document: result.rows[0] });
@@ -431,9 +395,27 @@ router.get("/:id", async (req, res, next) => {
 
     const doc = result.rows[0];
 
-    // Access control: only uploader or admin
+    // Access control: only uploader or admin can view a document
     if (req.user.role !== "admin" && doc.uploaded_by !== req.user.id) {
       return res.status(403).json({ success: false, error: "You do not have permission to view this document." });
+    }
+
+    // ── Geo-tag view restriction ───────────────────────────────────────────
+    // After a dealer submits geo-tag photos, only admin can view them.
+    // During admin-requested re-upload (geotag_reupload_requested=1), the
+    // dealer can still view photos in the unlocked slots so they can replace them.
+    if (["geotag_1", "geotag_2", "geotag_3"].includes(doc.doc_type) && req.user.role !== "admin") {
+      const qRow = await db.query(
+        "SELECT geotag_submitted, geotag_reupload_requested FROM quotations WHERE id = ?",
+        [doc.entity_id]
+      );
+      const quotation = qRow.rows[0];
+      if (quotation?.geotag_submitted && !quotation?.geotag_reupload_requested) {
+        return res.status(403).json({
+          success: false,
+          error: "Geo-tag photos can only be viewed by admin after submission.",
+        });
+      }
     }
 
     // Resolve and validate path — safeResolvePath normalises and confirms containment in UPLOADS_DIR.

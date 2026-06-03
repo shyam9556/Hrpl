@@ -462,6 +462,11 @@ body {
   cursor: pointer;
   transition: all 0.2s;
   background: #FAFAF8;
+  /* Prevent expansion beyond grid/flex cell when filename is long */
+  overflow: hidden;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 .upload-zone:hover { border-color: var(--green); background: var(--green-light); }
 .upload-zone.has-file { border-color: var(--green); background: var(--green-light); }
@@ -469,7 +474,16 @@ body {
 .upload-zone.drag-over { border-color: var(--green); border-width: 2.5px; background: var(--green-light); transform: scale(1.02); transition: all 0.15s; }
 .upload-icon { font-size: 28px; margin-bottom: 8px; }
 .upload-text { font-size: 12px; color: var(--muted); }
-.upload-label { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.upload-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  /* Break long filenames so they never overflow the upload zone */
+  word-break: break-all;
+  overflow-wrap: break-word;
+  overflow: hidden;
+  max-width: 100%;
+}
 .upload-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
 
 /* ═══════════════════════════════════════════════════════════
@@ -665,6 +679,27 @@ tr:hover td { background: #FAFAF8; }
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   QUOTE METRICS (key 3-column stats inside the quote box)
+   Default desktop sizes; overridden in media queries for mobile.
+   ═══════════════════════════════════════════════════════════ */
+.quote-metric-val {
+  font-size: 18px;
+}
+.quote-metric-label {
+  font-size: 10px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   QUOTE SPECS GRID (System Specifications 4-item grid)
+   auto-fit on desktop; overridden to 2-col / 1-col on mobile.
+   ═══════════════════════════════════════════════════════════ */
+.quote-specs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1155,6 +1190,17 @@ tr:hover td { background: #FAFAF8; }
 
   /* Aadhaar photo grid — 1 col on mobile */
   .aadhaar-photo-grid { grid-template-columns: 1fr !important; }
+
+  /* Quote metrics grid — reduce font sizes so labels don't wrap on mobile */
+  .quote-metrics-grid { gap: 8px !important; padding: 12px !important; }
+  .quote-metric-val { font-size: 14px !important; }
+  .quote-metric-label { font-size: 9px !important; white-space: nowrap !important; }
+
+  /* System specs grid — 2 cols on mobile (was auto-fit minmax 220px) */
+  .quote-specs-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+
+  /* Quote box — reduce padding on mobile */
+  .quote-box { padding: 20px 16px !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1203,7 +1249,6 @@ tr:hover td { background: #FAFAF8; }
   .field input, .field textarea { padding: 10px 12px; font-size: 13px; }
   .field select { padding: 9px 12px; font-size: 13px; }
 
-  /* Share row: one per line on small phones */
   .share-btn-row > * {
     flex: 1 1 100%;
   }
@@ -1217,6 +1262,14 @@ tr:hover td { background: #FAFAF8; }
     font-size: 11px;
     padding: 8px 10px !important;
   }
+
+  /* Quote metrics: even smaller on very small screens */
+  .quote-metrics-grid { gap: 4px !important; padding: 10px 8px !important; }
+  .quote-metric-val { font-size: 12px !important; }
+  .quote-metric-label { font-size: 8px !important; }
+
+  /* System specs: single column on very small screens */
+  .quote-specs-grid { grid-template-columns: 1fr !important; gap: 8px !important; }
 }
 
 /* (duplicate @media blocks removed — all rules consolidated above) */

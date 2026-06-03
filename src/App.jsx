@@ -448,7 +448,7 @@ export default function App() {
             <span>{currentNav?.label || "Highlight Pro"}</span>
           </div>
           <div className="mobile-topbar-role">
-            {user.role === "admin" ? <Shield size={18} /> : <img src="/logo.png" alt="" style={{ width: 26, height: 26, objectFit: "contain", background: "white", padding: 2, borderRadius: 5 }} />}
+            {user.role === "admin" ? <Shield size={18} /> : null}
           </div>
         </div>
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { quotations as quotationsApi, uploads as uploadsApi } from "../utils/api";
 import { fmt, generatePdfQuotation } from "../utils/helpers";
-import { Loader2, ClipboardList, MessageCircle, Mail, Copy, Check, Camera, MapPin, Upload, X, Eye, Download, Info, FileText, Truck, Package, Clock, ChevronLeft, ChevronRight, Plus, AlertCircle, RefreshCw, AlertTriangle, Lock } from "lucide-react";
+import { Loader2, ClipboardList, MessageCircle, Mail, Copy, Check, Camera, MapPin, Upload, X, Eye, Download, Info, FileText, Truck, Package, Clock, ChevronLeft, ChevronRight, Plus, AlertCircle, RefreshCw, AlertTriangle } from "lucide-react";
 
 import { t } from "../utils/i18n";
 import ConfirmDialog from "./ConfirmDialog";
@@ -34,9 +34,8 @@ export default function DealerRequests() {
   const [uploadingSlot, setUploadingSlot] = useState(null);
   // Tracks which upload phase the slot is in: null | 'gps' | 'upload'
   const [uploadPhase, setUploadPhase] = useState(null);
-  // Tracks which slots were freshly re-uploaded IN THIS MODAL SESSION
-  // (used to avoid false-clearing the flag based on old pre-existing docs)
-  const [sessionReuploadedSlots, setSessionReuploadedSlots] = useState(new Set());
+  // Tracks whether the geo-tag submit action is in progress
+  const [geotagSubmitting, setGeotagSubmitting] = useState(false);
 
   // Portal document re-upload state
   const [portalReuploadModal, setPortalReuploadModal] = useState(null); // quotation object
@@ -294,39 +293,8 @@ export default function DealerRequests() {
       setGeotagModalQuotation(prev =>
         prev && prev.id === qId ? { ...prev, geotag_uploaded: 1 } : prev
       );
-
-      // Smart auto-clear: only clear flag after ALL requested slots are freshly
-      // uploaded IN THIS SESSION. We use sessionReuploadedSlots (not updatedDocs)
-      // because old pre-existing docs for other slots must NOT count as "done".
-      const currentQ = list.find(item => item.id === qId);
-      if (currentQ?.geotag_reupload_requested) {
-        const requestedSlots = currentQ.geotag_reupload_slots
-          ? currentQ.geotag_reupload_slots.split(",").filter(Boolean)
-          : ["geotag_1", "geotag_2", "geotag_3"];
-
-        // Add this slot to the session set
-        const updatedSessionSlots = new Set(sessionReuploadedSlots);
-        if (requestedSlots.includes(slotKey)) {
-          updatedSessionSlots.add(slotKey);
-          setSessionReuploadedSlots(updatedSessionSlots);
-        }
-
-        // Only clear when every requested slot has been uploaded in this session
-        const allDone = requestedSlots.every(s => updatedSessionSlots.has(s));
-        if (allDone) {
-          quotationsApi.clearGeotagReupload(qId).catch(() => {});
-          setList(prev => prev.map(item =>
-            item.id === qId
-              ? { ...item, geotag_reupload_requested: 0, geotag_reupload_reason: null, geotag_reupload_slots: null }
-              : item
-          ));
-          setGeotagModalQuotation(prev =>
-            prev && prev.id === qId
-              ? { ...prev, geotag_reupload_requested: 0, geotag_reupload_reason: null, geotag_reupload_slots: null }
-              : prev
-          );
-        }
-      }
+      // Note: clearing geotag_reupload flags is now done in handleSubmitGeotag,
+      // not automatically on upload. Dealer must explicitly click Submit.
 
     } catch (err) {
       console.error("Upload geotag error:", err);
@@ -342,10 +310,41 @@ export default function DealerRequests() {
     }
   };
 
-  // Reset session tracking every time the geo-tag modal is opened
+  // Open the geo-tag modal for a given quotation
   const openGeotagModal = (q) => {
-    setSessionReuploadedSlots(new Set());
     setGeotagModalQuotation(q);
+  };
+
+  // Submit geo-tag photos — locks them and auto-closes the modal.
+  // For first-time: all 3 slots must be uploaded.
+  // For re-upload: all admin-requested slots must be uploaded.
+  const handleSubmitGeotag = async (qId) => {
+    setGeotagSubmitting(true);
+    try {
+      const res = await quotationsApi.submitGeotag(qId);
+      const isReupload = res?.isReupload;
+      // Update local state: mark submitted and clear reupload flags if applicable
+      setList(prev => prev.map(item =>
+        item.id === qId
+          ? {
+              ...item,
+              geotag_submitted: 1,
+              ...(isReupload ? { geotag_reupload_requested: 0, geotag_reupload_reason: null, geotag_reupload_slots: null } : {})
+            }
+          : item
+      ));
+      // Close modal automatically after successful submit
+      setGeotagModalQuotation(null);
+    } catch (err) {
+      setDialogState({
+        open: true,
+        title: "Submit Failed",
+        message: err.message || "Failed to submit geo-tag photos. Please try again.",
+        variant: "danger"
+      });
+    } finally {
+      setGeotagSubmitting(false);
+    }
   };
 
   useEffect(() => {
@@ -1105,7 +1104,7 @@ ${pdfLine}`;
             justifyContent: "center",
             alignItems: "center",
             zIndex: 1000,
-            padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px",
+            padding: "env(safe-area-inset-top, 12px) 12px env(safe-area-inset-bottom, 12px) 12px",
           }}
           onClick={() => setGeotagModalQuotation(null)}
         >
@@ -1116,7 +1115,9 @@ ${pdfLine}`;
               width: "100%",
               maxWidth: 680,
               maxHeight: "90vh",
-              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
               boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
               border: "1px solid rgba(0,0,0,0.06)",
               animation: "modalFadeIn 0.2s ease-out",
@@ -1127,10 +1128,8 @@ ${pdfLine}`;
             {/* Modal Header */}
             <div
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "20px 24px",
+                padding: "16px 20px",
+                paddingRight: 56,
                 borderBottom: "1px solid rgba(0,0,0,0.06)",
                 position: "sticky",
                 top: 0,
@@ -1138,31 +1137,13 @@ ${pdfLine}`;
                 zIndex: 10
               }}
             >
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
-                    Geo-Tag Project Photos
-                  </span>
-                  <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 12, background: "rgba(46,125,82,0.1)", color: "var(--green)", border: "1px solid rgba(46,125,82,0.2)" }}>
-                    {geotagModalQuotation.quotation_number}
-                  </span>
-                </div>
-                {geotagModalQuotation.geotag_reupload_requested ? (
-                  <div style={{ fontSize: 12, color: "#ea580c", marginTop: 4, display: "flex", alignItems: "center", gap: 5, fontWeight: 600 }}>
-                    <AlertTriangle size={12} /> Admin has requested geo-tag re-upload
-                    {geotagModalQuotation.geotag_reupload_reason && (
-                      <span style={{ fontWeight: 400, color: "#9a3412" }}> - {geotagModalQuotation.geotag_reupload_reason}</span>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-                    Upload on-site images with GPS tagging enabled to complete the installation file.
-                  </div>
-                )}
-              </div>
+              {/* Close button — absolutely positioned top-right */}
               <button
                 onClick={() => setGeotagModalQuotation(null)}
                 style={{
+                  position: "absolute",
+                  top: 14,
+                  right: 16,
                   background: "var(--light, #f1f5f9)",
                   border: "none",
                   borderRadius: "50%",
@@ -1173,15 +1154,54 @@ ${pdfLine}`;
                   alignItems: "center",
                   cursor: "pointer",
                   color: "var(--text)",
-                  transition: "all 0.2s"
+                  transition: "all 0.2s",
+                  flexShrink: 0,
                 }}
               >
                 <X size={16} />
               </button>
+
+              {/* Title + badge */}
+              <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
+                <span style={{ fontSize: 17, fontWeight: 700, color: "var(--text)", lineHeight: 1.3 }}>
+                  Geo-Tag Project Photos
+                </span>
+                <span style={{
+                  fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 12,
+                  background: "rgba(46,125,82,0.1)", color: "var(--green)",
+                  border: "1px solid rgba(46,125,82,0.2)",
+                  whiteSpace: "nowrap"
+                }}>
+                  {geotagModalQuotation.quotation_number}
+                </span>
+              </div>
+
+              {/* Subtitle */}
+              {geotagModalQuotation.geotag_reupload_requested ? (
+                <div style={{
+                  fontSize: 12, color: "#ea580c", display: "flex",
+                  alignItems: "flex-start", gap: 5, fontWeight: 600,
+                  lineHeight: 1.4
+                }}>
+                  <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span>
+                    Admin has requested geo-tag re-upload
+                    {geotagModalQuotation.geotag_reupload_reason && (
+                      <span style={{ fontWeight: 400, color: "#9a3412" }}>
+                        {" "}— {geotagModalQuotation.geotag_reupload_reason}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.4 }}>
+                  Upload on-site images with GPS tagging enabled to complete the installation file.
+                </div>
+              )}
             </div>
 
-            {/* Modal Content */}
-            <div style={{ padding: 24 }}>
+            {/* Modal Content — scrollable body */}
+            <div style={{ padding: "clamp(14px, 4vw, 24px)", overflowY: "auto", flex: 1 }}>
               {/* GPS Info Banner */}
               <div 
                 style={{ 
@@ -1203,7 +1223,7 @@ ${pdfLine}`;
 
               {/* Grid of 3 Upload Slots */}
               {(() => {
-                const isFirstUpload = !geotagModalQuotation.geotag_uploaded;
+                const isSubmitted = !!geotagModalQuotation.geotag_submitted;
                 const reuploadRequested = !!geotagModalQuotation.geotag_reupload_requested;
                 const requestedSlots = reuploadRequested && geotagModalQuotation.geotag_reupload_slots
                   ? geotagModalQuotation.geotag_reupload_slots.split(",").filter(Boolean)
@@ -1216,14 +1236,13 @@ ${pdfLine}`;
                 ];
 
                 return (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 16 }}>
                     {slots.map(slot => {
                       const doc = geotagModalQuotation.documents?.find(d => d.doc_type === slot.key);
                       const fileUrl = doc ? (blobUrls.get(doc.id) ?? null) : null;
 
-                      // Determine if this slot is editable
-                      const isUnlocked = isFirstUpload || requestedSlots.includes(slot.key);
-                      const isLocked = !isUnlocked && !!doc; // submitted & locked
+                      // isLocked = submitted AND this slot is NOT in admin re-upload list
+                      const isLocked = isSubmitted && !requestedSlots.includes(slot.key) && !!doc;
                       const needsReupload = reuploadRequested && requestedSlots.includes(slot.key);
 
                       return (
@@ -1253,11 +1272,6 @@ ${pdfLine}`;
                             <div style={{ fontSize: 13, fontWeight: 700, color: isLocked ? "#1a5c38" : needsReupload ? "#c2410c" : "var(--text)" }}>
                               {slot.label}
                             </div>
-                            {isLocked && (
-                              <div style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, fontWeight: 700, color: "#2E7D52", background: "rgba(46,125,82,0.1)", borderRadius: 20, padding: "2px 7px", border: "1px solid rgba(46,125,82,0.2)" }}>
-                                <Lock size={8} /> Locked
-                              </div>
-                            )}
                             {needsReupload && (
                               <div style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, fontWeight: 700, color: "#ea580c", background: "rgba(249,115,22,0.1)", borderRadius: 20, padding: "2px 7px", border: "1px solid rgba(249,115,22,0.25)" }}>
                                 <AlertTriangle size={8} /> Re-upload
@@ -1271,7 +1285,13 @@ ${pdfLine}`;
                           <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", position: "relative" }}>
                             {doc ? (
                               <div style={{ width: "100%", textAlign: "center" }}>
-                                {doc.mime_type.startsWith("image/") ? (
+                                {isLocked ? (
+                                  /* Submitted slot: show checkmark placeholder, no image preview */
+                                  <div style={{ width: "100%", height: 110, borderRadius: 8, marginBottom: 10, background: "rgba(46,125,82,0.05)", border: "1px solid rgba(46,125,82,0.15)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 6 }}>
+                                    <Check size={28} style={{ color: "#2E7D52", opacity: 0.7 }} />
+                                    <span style={{ fontSize: 10, color: "#2E7D52", fontWeight: 600, opacity: 0.8 }}>Photo submitted</span>
+                                  </div>
+                                ) : doc.mime_type.startsWith("image/") ? (
                                   fileUrl ? (
                                     <img
                                       src={fileUrl}
@@ -1317,25 +1337,15 @@ ${pdfLine}`;
                             )}
                           </div>
 
-                          {/* Upload / Locked Buttons */}
+                          {/* Upload / Submitted Buttons */}
                           <div style={{ marginTop: 14, display: "flex", gap: 6 }}>
                             {isLocked ? (
-                              // Slot is submitted & admin hasn't requested re-upload  -  show locked state
-                              <>
-                                <button
-                                  onClick={() => fileUrl && window.open(fileUrl, "_blank")}
-                                  className="btn-sm"
-                                  disabled={!fileUrl}
-                                  style={{ flex: 1, padding: "6px 0", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "white", color: fileUrl ? "var(--text)" : "var(--muted)", border: "1.5px solid var(--border)", cursor: fileUrl ? "pointer" : "default", borderRadius: 8, opacity: fileUrl ? 1 : 0.6 }}
-                                >
-                                  <Eye size={12} /> {fileUrl ? "View" : "Loading..."}
-                                </button>
-                                <div style={{ flex: 1.2, padding: "6px 0", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "rgba(46,125,82,0.06)", color: "#2E7D52", border: "1.5px solid rgba(46,125,82,0.2)", borderRadius: 8, fontWeight: 600 }}>
-                                  <Check size={12} /> Submitted
-                                </div>
-                              </>
+                              // Slot is submitted — show non-clickable Submitted label only (no View button)
+                              <div style={{ flex: 1, padding: "8px 0", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, background: "rgba(46,125,82,0.07)", color: "#2E7D52", border: "1.5px solid rgba(46,125,82,0.2)", borderRadius: 8, fontWeight: 700 }}>
+                                <Check size={13} /> Submitted
+                              </div>
                             ) : doc ? (
-                              // Slot has a doc & is unlocked (re-upload requested for this slot)
+                              // Slot has a doc and is unlocked (editing before submit, or re-upload slot)
                               <>
                                 <button
                                   onClick={() => fileUrl && window.open(fileUrl, "_blank")}
@@ -1349,16 +1359,17 @@ ${pdfLine}`;
                                   style={{
                                     flex: 1.2, padding: "6px 0", fontSize: 11,
                                     display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4,
-                                    background: "rgba(234,88,12,0.08)", color: "#c2410c",
-                                    border: "1.5px dashed rgba(234,88,12,0.4)",
+                                    background: needsReupload ? "rgba(234,88,12,0.08)" : "rgba(59,130,246,0.08)",
+                                    color: needsReupload ? "#c2410c" : "#2563eb",
+                                    border: needsReupload ? "1.5px dashed rgba(234,88,12,0.4)" : "1.5px dashed rgba(59,130,246,0.4)",
                                     borderRadius: 8, cursor: uploadingSlot === slot.key ? "not-allowed" : "pointer",
                                     fontWeight: 600
                                   }}
                                 >
                                   {uploadingSlot === slot.key ? (
-                                    <><Loader2 size={12} className="animate-spin" />{uploadPhase === "gps" ? "Getting GPS..." : "UpLoading..."}</>
+                                    <><Loader2 size={12} className="animate-spin" />{uploadPhase === "gps" ? "Getting GPS..." : "Uploading..."}</>
                                   ) : (
-                                    <><Upload size={12} /> Re-upload</>
+                                    <><Upload size={12} /> {needsReupload ? "Re-upload" : "Replace"}</>
                                   )}
                                   <input type="file" accept="image/jpeg,image/png,image/webp" style={{ display: "none" }}
                                     disabled={uploadingSlot !== null}
@@ -1367,18 +1378,18 @@ ${pdfLine}`;
                                 </label>
                               </>
                             ) : (
-                              // Slot has no doc  -  free upload (first time)
+                              // Slot has no doc — upload for first time
                               <label
                                 style={{
                                   width: "100%", padding: "8px 0", fontSize: 12,
                                   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-                                  background: "var(--primary, #3b82f6)", color: "white",
+                                  background: "linear-gradient(135deg, #2563eb, #1d4ed8)", color: "white",
                                   borderRadius: 8, cursor: uploadingSlot === slot.key ? "not-allowed" : "pointer",
-                                  fontWeight: 600
+                                  fontWeight: 600, boxShadow: "0 2px 8px rgba(37,99,235,0.25)"
                                 }}
                               >
                                 {uploadingSlot === slot.key ? (
-                                  <><Loader2 size={13} className="animate-spin" />{uploadPhase === "gps" ? "Getting GPS..." : "UpLoading..."}</>
+                                  <><Loader2 size={13} className="animate-spin" />{uploadPhase === "gps" ? "Getting GPS..." : "Uploading..."}</>
                                 ) : (
                                   <><Upload size={13} /> Upload Photo</>
                                 )}
@@ -1399,26 +1410,78 @@ ${pdfLine}`;
                   
             </div>
 
-            {/* Modal Footer */}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                padding: "16px 24px",
-                borderTop: "1px solid rgba(0,0,0,0.06)",
-                background: "var(--light, #f8fafc)",
-                borderBottomLeftRadius: 20,
-                borderBottomRightRadius: 20
-              }}
-            >
-              <button
-                onClick={() => setGeotagModalQuotation(null)}
-                className="btn-primary"
-                style={{ padding: "8px 20px", borderRadius: 10 }}
-              >
-                Done
-              </button>
-            </div>
+            {/* Modal Footer — Single Submit Button */}
+            {(() => {
+              const SLOTS = ["geotag_1", "geotag_2", "geotag_3"];
+              const hasDoc = (key) => geotagModalQuotation.documents?.some(d => d.doc_type === key);
+              const isSubmittedQ = !!geotagModalQuotation.geotag_submitted;
+              const reuploadQ = !!geotagModalQuotation.geotag_reupload_requested;
+              const reqSlotsQ = reuploadQ && geotagModalQuotation.geotag_reupload_slots
+                ? geotagModalQuotation.geotag_reupload_slots.split(",").filter(Boolean)
+                : reuploadQ ? SLOTS : [];
+
+              const allSlotsUploaded = SLOTS.every(hasDoc);
+              const allReuploadDone = reqSlotsQ.length > 0 && reqSlotsQ.every(hasDoc);
+
+              // Show Submit footer when dealer has not yet submitted, OR re-upload pending.
+              // Always visible (even with 0 photos) so dealer sees it and knows to upload all 3.
+              const showSubmit = !isSubmittedQ || reuploadQ;
+              if (!showSubmit) return null;
+
+              const isReuploadSubmit = !!reuploadQ;
+              const submitEnabled = isReuploadSubmit ? allReuploadDone : allSlotsUploaded;
+              const submitText = isReuploadSubmit ? "Submit Updated Photos" : "Submit Geo-Tag Photos";
+              const enabledBg = isReuploadSubmit
+                ? "linear-gradient(135deg, #ea580c, #c2410c)"
+                : "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)";
+              const enabledShadow = isReuploadSubmit
+                ? "0 4px 14px rgba(234,88,12,0.35)"
+                : "0 4px 14px rgba(46,125,82,0.35)";
+              const uploadedCount = SLOTS.filter(hasDoc).length;
+
+              return (
+                <div style={{ padding: "16px 24px", borderTop: "1px solid rgba(0,0,0,0.06)", background: "var(--light, #f8fafc)", borderBottomLeftRadius: 20, borderBottomRightRadius: 20 }}>
+                  <button
+                    onClick={() => handleSubmitGeotag(geotagModalQuotation.id)}
+                    disabled={!submitEnabled || geotagSubmitting}
+                    style={{
+                      width: "100%",
+                      padding: "12px 24px",
+                      borderRadius: 12,
+                      fontSize: 14,
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      border: "none",
+                      cursor: submitEnabled && !geotagSubmitting ? "pointer" : "not-allowed",
+                      background: !submitEnabled || geotagSubmitting ? "rgba(0,0,0,0.08)" : enabledBg,
+                      color: !submitEnabled || geotagSubmitting ? "var(--muted)" : "white",
+                      opacity: !submitEnabled && !geotagSubmitting ? 0.65 : 1,
+                      transition: "all 0.2s",
+                      boxShadow: submitEnabled && !geotagSubmitting ? enabledShadow : "none"
+                    }}
+                  >
+                    {geotagSubmitting ? (
+                      <><Loader2 size={16} className="animate-spin" /> Submitting...</>
+                    ) : (
+                      <><Upload size={16} /> {submitText}</>
+                    )}
+                  </button>
+                  {!submitEnabled && !isReuploadSubmit && (
+                    <div style={{ fontSize: 11, color: "var(--muted)", textAlign: "center", marginTop: 8 }}>
+                      {uploadedCount}/3 photos uploaded — upload all 3 to enable Submit
+                    </div>
+                  )}
+                  {!submitEnabled && isReuploadSubmit && (
+                    <div style={{ fontSize: 11, color: "var(--muted)", textAlign: "center", marginTop: 8 }}>
+                      Upload all requested photos to submit
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -1429,7 +1492,7 @@ ${pdfLine}`;
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
           background: "rgba(15,23,42,0.45)", backdropFilter: "blur(8px)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          zIndex: 1100, padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px"
+          zIndex: 1100, padding: "env(safe-area-inset-top, 12px) 12px env(safe-area-inset-bottom, 12px) 12px"
         }}>
           <div style={{
             background: "var(--card-bg, #fff)", borderRadius: 20, width: "100%", maxWidth: 680,
@@ -1451,10 +1514,12 @@ ${pdfLine}`;
                   {portalReuploadSuccess ? "Documents Submitted Successfully" : "Re-upload Documents"}
                 </div>
                 {!portalReuploadSuccess && (
-                  <div style={{ fontSize: 12, color: "#b45309", marginTop: 2, fontWeight: 500 }}>
-                    Quotation: {portalReuploadModal.quotation_number}
-                    {portalReuploadModal.reupload_reason && `  -  ${portalReuploadModal.reupload_reason}`}
-                  </div>
+                <div style={{
+                fontSize: 12, color: "#b45309", marginTop: 2, fontWeight: 500,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "calc(100vw - 120px)"
+              }}>
+                Quotation: {portalReuploadModal.quotation_number}
+              </div>
                 )}
               </div>
               <button
@@ -1466,7 +1531,7 @@ ${pdfLine}`;
             </div>
 
             {/* Body */}
-            <div style={{ padding: 24, overflowY: "auto", flex: 1 }}>
+            <div style={{ padding: "clamp(14px, 4vw, 24px)", overflowY: "auto", flex: 1 }}>
               {portalReuploadSuccess ? (
                 <div style={{ textAlign: "center", padding: "24px 0" }}>
                   <div style={{
@@ -1625,7 +1690,7 @@ ${pdfLine}`;
 
                         {/* ── Other documents ── */}
                         {otherDocs.length > 0 && (
-                          <div style={{ display: "grid", gridTemplateColumns: otherDocs.length === 1 ? "1fr" : "1fr 1fr", gap: 12 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
                             {otherDocs.map(docType => {
                               const file = portalReuploadFiles[docType];
                               return (
@@ -1714,13 +1779,13 @@ ${pdfLine}`;
             {/* Footer */}
             {!portalReuploadSuccess && (
               <div style={{
-                padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center",
-                borderTop: "1px solid rgba(0,0,0,0.06)", gap: 12
+                padding: "14px 20px",
+                borderTop: "1px solid rgba(0,0,0,0.06)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
               }}>
-                <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.4 }}>
-                  After submission, your quotation will be reviewed by the admin team.
-                </div>
-                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
                   <button
                     onClick={() => setPortalReuploadModal(null)}
                     className="btn-sm"
@@ -1746,6 +1811,9 @@ ${pdfLine}`;
                       <><Check size={14} /> Submit Documents</>
                     )}
                   </button>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.4, textAlign: "center" }}>
+                  After submission, your quotation will be reviewed by the admin team.
                 </div>
               </div>
             )}

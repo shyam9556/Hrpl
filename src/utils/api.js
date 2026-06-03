@@ -242,6 +242,9 @@ export const quotations = {
   clearGeotagReupload: (id) =>
     request(`/quotations/${id}/clear-geotag-reupload`, { method: "PATCH" }),
 
+  submitGeotag: (id) =>
+    request(`/quotations/${id}/submit-geotag`, { method: "POST" }),
+
   getStats: () =>
     request("/quotations/stats"),
 };

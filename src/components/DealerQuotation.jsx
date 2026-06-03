@@ -1512,38 +1512,41 @@ ${pdfLine}`;
                 </div>
 
                 {/* Key Metrics Grid */}
-                <div style={{ 
-                  display: "grid", 
-                  gridTemplateColumns: "repeat(3, 1fr)", 
-                  gap: "12px", 
-                  background: "rgba(255, 255, 255, 0.08)", 
-                  borderRadius: "14px", 
-                  padding: "16px",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  marginBottom: "24px",
-                  textAlign: "center"
-                }}>
-                  <div style={{ borderRight: "1px solid rgba(255,255,255,0.15)" }}>
-                    <div style={{ fontSize: "18px", fontWeight: 800, fontFamily: "var(--mono)" }}>
+                <div
+                  className="quote-metrics-grid"
+                  style={{ 
+                    display: "grid", 
+                    gridTemplateColumns: "repeat(3, 1fr)", 
+                    gap: "12px", 
+                    background: "rgba(255, 255, 255, 0.08)", 
+                    borderRadius: "14px", 
+                    padding: "16px",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    marginBottom: "24px",
+                    textAlign: "center"
+                  }}
+                >
+                  <div className="quote-metric-cell" style={{ borderRight: "1px solid rgba(255,255,255,0.15)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start" }}>
+                    <div className="quote-metric-val" style={{ fontWeight: 800, fontFamily: "var(--mono)" }}>
                       {quote.systemKw.toFixed(2)} kW
                     </div>
-                    <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.7)", fontWeight: 600, marginTop: "2px" }}>
+                    <div className="quote-metric-label" style={{ color: "rgba(255,255,255,0.7)", fontWeight: 600, marginTop: "2px", whiteSpace: "nowrap" }}>
                       System Capacity
                     </div>
                   </div>
-                  <div style={{ borderRight: "1px solid rgba(255,255,255,0.15)" }}>
-                    <div style={{ fontSize: "18px", fontWeight: 800, fontFamily: "var(--mono)" }}>
+                  <div className="quote-metric-cell" style={{ borderRight: "1px solid rgba(255,255,255,0.15)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start" }}>
+                    <div className="quote-metric-val" style={{ fontWeight: 800, fontFamily: "var(--mono)" }}>
                       {fmt(quote.pricePerKw)}
                     </div>
-                    <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.7)", fontWeight: 600, marginTop: "2px" }}>
+                    <div className="quote-metric-label" style={{ color: "rgba(255,255,255,0.7)", fontWeight: 600, marginTop: "2px", whiteSpace: "nowrap" }}>
                       Per kW Price
                     </div>
                   </div>
-                  <div>
-                    <div style={{ fontSize: "18px", fontWeight: 800, fontFamily: "var(--mono)" }}>
+                  <div className="quote-metric-cell" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start" }}>
+                    <div className="quote-metric-val" style={{ fontWeight: 800, fontFamily: "var(--mono)" }}>
                       {quote.panelCount} Pcs
                     </div>
-                    <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.7)", fontWeight: 600, marginTop: "2px" }}>
+                    <div className="quote-metric-label" style={{ color: "rgba(255,255,255,0.7)", fontWeight: 600, marginTop: "2px", whiteSpace: "nowrap" }}>
                       Solar Panels
                     </div>
                   </div>
@@ -1563,7 +1566,7 @@ ${pdfLine}`;
                     <Package size={13} style={{ marginRight: 6 }} /> {"System Specifications"}
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
+                  <div className="quote-specs-grid">
                     <div>
                       <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.6)" }}>{"Solar Panels"}</div>
                       <div style={{ fontSize: "13px", fontWeight: 600, display: "flex", alignItems: "center", marginTop: "3px" }}>

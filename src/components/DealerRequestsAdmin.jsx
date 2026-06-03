@@ -2185,8 +2185,8 @@ export default function DealerRequestsAdmin() {
                   >
                     <Download size={14} /> Download Excel BOM
                   </button>
-                  {/* Request Geo-Tag Reupload button — only after dealer has uploaded at least once */}
-                  {selectedQuotation.geotag_uploaded ? (
+                  {/* Request Geo-Tag Reupload button — only after dealer has submitted at least once */}
+                  {selectedQuotation.geotag_submitted ? (
                     <button
                       className="btn-sm"
                       style={{
@@ -2222,7 +2222,7 @@ export default function DealerRequestsAdmin() {
                       lineHeight: 1.4,
                     }}>
                       <Camera size={13} style={{ flexShrink: 0 }} />
-                      <span>Geo-tag re-upload available after dealer uploads photos</span>
+                      <span>Geo-tag re-upload available after dealer submits photos</span>
                     </div>
                   )}
                 </div>

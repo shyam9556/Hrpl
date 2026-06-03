@@ -307,6 +307,7 @@ router.get("/", async (req, res, next) => {
            q.geotag_reupload_requested AS geotag_reupload_requested,
            q.geotag_reupload_reason    AS geotag_reupload_reason,
            q.geotag_uploaded           AS geotag_uploaded,
+           q.geotag_submitted          AS geotag_submitted,
            q.geotag_reupload_slots     AS geotag_reupload_slots`;
 
     const reuploadCountSelect = `,
@@ -979,7 +980,7 @@ router.post("/:id/request-geotag-reupload", authorize("admin"), async (req, res,
 
     // Only allowed on Approved quotations WHERE geo-tags have been uploaded at least once
     const qResult = await db.query(
-      `SELECT q.id, q.quotation_number, q.status, q.geotag_uploaded,
+      `SELECT q.id, q.quotation_number, q.status, q.geotag_submitted,
               u.name AS dealer_name, u.email AS dealer_email
        FROM quotations q
        JOIN users u ON u.id = q.dealer_id
@@ -996,11 +997,11 @@ router.post("/:id/request-geotag-reupload", authorize("admin"), async (req, res,
 
     const q = qResult.rows[0];
 
-    // Guard: dealer must have uploaded geo-tags at least once
-    if (!q.geotag_uploaded) {
+    // Guard: dealer must have submitted geo-tags at least once before admin can request re-upload
+    if (!q.geotag_submitted) {
       return res.status(400).json({
         success: false,
-        error: "Dealer has not uploaded any geo-tag photos yet. Re-upload can only be requested after the initial upload.",
+        error: "Dealer has not submitted any geo-tag photos yet. Re-upload can only be requested after the dealer's first submission.",
       });
     }
 
@@ -1029,6 +1030,92 @@ router.post("/:id/request-geotag-reupload", authorize("admin"), async (req, res,
       success: true,
       message: `Geo-tag re-upload request sent to dealer ${q.dealer_name}.`,
       slots: requestedSlots,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/quotations/:id/submit-geotag ────────────────────
+// Dealer only — Explicitly submit geo-tag photos, locking them.
+// For first-time: requires all 3 slots to have docs.
+// For re-upload: requires all admin-requested slots to have docs.
+router.post("/:id/submit-geotag", authorize("dealer"), async (req, res, next) => {
+  try {
+    const quotationId = parseInt(req.params.id, 10);
+    if (isNaN(quotationId)) {
+      return res.status(400).json({ success: false, error: "Invalid quotation ID." });
+    }
+
+    // Verify quotation belongs to this dealer and is Approved
+    const qResult = await db.query(
+      `SELECT q.id, q.quotation_number, q.status, q.geotag_submitted,
+              q.geotag_reupload_requested, q.geotag_reupload_slots
+       FROM quotations q
+       WHERE q.id = ? AND q.dealer_id = ? AND q.status = 'Approved'`,
+      [quotationId, req.user.id]
+    );
+
+    if (qResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Quotation not found, does not belong to you, or is not in Approved status.",
+      });
+    }
+
+    const q = qResult.rows[0];
+    const GEOTAG_SLOTS = ["geotag_1", "geotag_2", "geotag_3"];
+    const isReupload = !!q.geotag_reupload_requested;
+
+    // Determine which slots are required for this submission
+    const requiredSlots = isReupload && q.geotag_reupload_slots
+      ? q.geotag_reupload_slots.split(",").filter(Boolean)
+      : GEOTAG_SLOTS; // first-time: all 3 required
+
+    // Validate all required slots have uploaded docs
+    const placeholders = requiredSlots.map(() => "?").join(",");
+    const docsResult = await db.query(
+      `SELECT doc_type FROM documents
+       WHERE entity_type = 'quotation' AND entity_id = ? AND doc_type IN (${placeholders})`,
+      [quotationId, ...requiredSlots]
+    );
+    const uploadedSlots = new Set(docsResult.rows.map(r => r.doc_type));
+    const missingSlots = requiredSlots.filter(s => !uploadedSlots.has(s));
+
+    if (missingSlots.length > 0) {
+      const SLOT_LABELS = { geotag_1: "Site / Inverter Photo", geotag_2: "Solar Panels Photo", geotag_3: "ACDB / Net Meter Photo" };
+      return res.status(400).json({
+        success: false,
+        error: `Please upload photos for all required slots before submitting: ${missingSlots.map(s => SLOT_LABELS[s] || s).join(", ")}.`,
+      });
+    }
+
+    // Build UPDATE — always set geotag_submitted=1
+    // If re-upload: clear flags and notify admin via geotag_needs_review=1
+    if (isReupload) {
+      await db.query(
+        `UPDATE quotations
+         SET geotag_submitted = 1,
+             geotag_reupload_requested = 0,
+             geotag_reupload_reason    = NULL,
+             geotag_reupload_slots     = NULL,
+             geotag_needs_review       = 1
+         WHERE id = ?`,
+        [quotationId]
+      );
+    } else {
+      await db.query(
+        `UPDATE quotations SET geotag_submitted = 1 WHERE id = ?`,
+        [quotationId]
+      );
+    }
+
+    console.log(`[AUDIT] Geo-tag photos submitted: dealer ${req.user.id} → quotation ${quotationId} (${q.quotation_number}) isReupload=${isReupload}`);
+
+    res.json({
+      success: true,
+      message: "Geo-tag photos submitted successfully.",
+      isReupload,
     });
   } catch (err) {
     next(err);

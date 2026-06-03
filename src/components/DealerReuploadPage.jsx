@@ -9,6 +9,8 @@ import {
 // ─── Document labels ────────────────────────────────────────
 const DOC_LABELS = {
   aadhaar:        "Aadhaar Card",
+  aadhaar_front:  "Front Side",
+  aadhaar_back:   "Back Side",
   pan:            "PAN Card",
   passport_photo: "Passport Photo",
   other:          "Dealership Agreement",
@@ -120,7 +122,7 @@ function DocumentZone({ docType, file, onChange }) {
             )}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 13, color: "#111827", marginBottom: 2 }}>{label}</div>
-              <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
+              <div style={{ fontSize: 11, color: "#6b7280", wordBreak: "break-all", overflowWrap: "break-word", lineHeight: 1.4 }}>{file.name}</div>
               <div style={{ fontSize: 11, color: "#6b7280" }}>{(file.size / 1024).toFixed(0)} KB</div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
