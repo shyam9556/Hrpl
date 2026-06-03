@@ -89,18 +89,18 @@ export default function DealerRequests() {
   };
 
   const DOC_ACCEPT = {
-    aadhaar:       "image/jpeg,image/png,image/webp,application/pdf",
-    aadhaar_front: "image/jpeg,image/png,image/webp,application/pdf",
-    aadhaar_back:  "image/jpeg,image/png,image/webp,application/pdf",
-    pan:           "image/jpeg,image/png,image/webp,application/pdf",
+    aadhaar:        "image/jpeg,image/png,image/webp,application/pdf",
+    aadhaar_front:  "image/jpeg,image/png,image/webp,application/pdf",
+    aadhaar_back:   "image/jpeg,image/png,image/webp,application/pdf",
+    pan:            "image/jpeg,image/png,image/webp,application/pdf",
     passport_photo: "image/jpeg,image/png,image/webp,application/pdf",
-    other:         "image/jpeg,image/png,image/webp,application/pdf",
-    passbook:      "image/jpeg,image/png,image/webp,application/pdf",
-    site_photo:    "image/jpeg,image/png,image/webp",
-    vera_bill:     "image/jpeg,image/png,image/webp,application/pdf",
-    house_photo_1: "image/jpeg,image/png,image/webp",
-    house_photo_2: "image/jpeg,image/png,image/webp",
-    house_photo_3: "image/jpeg,image/png,image/webp",
+    other:          "image/jpeg,image/png,image/webp,application/pdf",
+    passbook:       "image/jpeg,image/png,image/webp,application/pdf",
+    site_photo:     "image/jpeg,image/png,image/webp,application/pdf",
+    vera_bill:      "image/jpeg,image/png,image/webp,application/pdf",
+    house_photo_1:  "image/jpeg,image/png,image/webp,application/pdf",
+    house_photo_2:  "image/jpeg,image/png,image/webp,application/pdf",
+    house_photo_3:  "image/jpeg,image/png,image/webp,application/pdf",
   };
 
   // Convert a File to a base64 payload for portal reupload submission
