@@ -592,6 +592,43 @@ tr:hover td { background: #FAFAF8; }
 }
 
 /* ═══════════════════════════════════════════════════════════
+   DEALER STATS STRIP  (My Requests — 5 boxes)
+   Desktop : flex row, each box grows equally, no scroll.
+   Mobile  : 2-column CSS grid so boxes wrap cleanly.
+   ═══════════════════════════════════════════════════════════ */
+.dealer-stats-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.dealer-stats-strip .dss-box {
+  flex: 1 1 calc(20% - 8px); /* 5 equal cols on wide screen */
+  min-width: 90px;
+  background: var(--card-bg, #fff);
+  border-radius: 12px;
+  padding: 12px 16px;
+  border: 1px solid rgba(0,0,0,0.05);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.dealer-stats-strip .dss-val {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+}
+.dealer-stats-strip .dss-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── Utility: hide on mobile (tab/search divider) ── */
+.desktop-only { display: flex; }
+
+/* ═══════════════════════════════════════════════════════════
    DOCUMENTS LAYOUT (DealerDocuments two-column grid)
    ═══════════════════════════════════════════════════════════ */
 .documents-layout {
@@ -1091,6 +1128,16 @@ tr:hover td { background: #FAFAF8; }
     margin-top: 2px;
   }
 
+  /* Dealer stats strip → 2-column grid on mobile */
+  .dealer-stats-strip { gap: 8px; }
+  .dealer-stats-strip .dss-box {
+    flex: 1 1 calc(50% - 4px); /* 2 per row */
+    min-width: 0;
+    padding: 10px 12px;
+  }
+  .dealer-stats-strip .dss-val { font-size: 20px; }
+  .desktop-only { display: none !important; }
+
   /* Quote box */
   .quote-total { font-size: 28px; }
   .quote-grid { grid-template-columns: 1fr; gap: 0.75rem; }
@@ -1199,6 +1246,9 @@ tr:hover td { background: #FAFAF8; }
   /* System specs grid — 2 cols on mobile (was auto-fit minmax 220px) */
   .quote-specs-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
 
+  /* Dealer My Requests — New Quotation button full width on mobile */
+  .page-header > a { width: 100%; justify-content: center; }
+
   /* Quote box — reduce padding on mobile */
   .quote-box { padding: 20px 16px !important; }
 }
@@ -1217,6 +1267,12 @@ tr:hover td { background: #FAFAF8; }
   /* Stat grids: force to 2 or 3 columns with minimal gap */
   .stat-grid-7 { grid-template-columns: repeat(2, 1fr) !important; gap: 8px; }
   .stat-grid-6 { grid-template-columns: repeat(2, 1fr) !important; gap: 8px; }
+
+  /* Dealer stats strip → compact on very small screens */
+  .dealer-stats-strip { gap: 6px; }
+  .dealer-stats-strip .dss-box { flex: 1 1 calc(50% - 3px); padding: 8px 10px; }
+  .dealer-stats-strip .dss-val { font-size: 18px; }
+  .dealer-stats-strip .dss-label { font-size: 9px; }
 
   .upload-grid { grid-template-columns: 1fr; }
 
@@ -1644,3 +1700,102 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   15%, 45%, 75% { transform: translateX(-8px); }
   30%, 60%, 90% { transform: translateX(8px); }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   QUOTATIONS — MOBILE CARD VIEW
+   ═══════════════════════════════════════════════════════════ */
+
+/* Desktop: show table, hide cards */
+.q-table-wrap  { display: block; }
+.q-card-list   { display: none;  }
+
+/* Mobile: hide table, show cards */
+@media (max-width: 767px) {
+  .q-table-wrap { display: none;  }
+  .q-card-list  { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 12px; }
+
+  .q-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    cursor: pointer;
+    transition: box-shadow 0.18s, border-color 0.18s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .q-card:active {
+    box-shadow: 0 0 0 2px var(--green);
+    border-color: var(--green);
+  }
+
+  .q-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .q-card-number {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .q-card-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 4px;
+  }
+
+  .q-card-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+  }
+  .q-card-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .q-card-field-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .q-card-field-value {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    word-break: break-word;       /* full name always visible */
+  }
+  .q-card-field-value.mono {
+    font-family: var(--mono);
+    font-weight: 700;
+    color: var(--green);
+    font-size: 13px;
+  }
+  .q-card-field-value.muted {
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .q-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .q-card-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+}
+

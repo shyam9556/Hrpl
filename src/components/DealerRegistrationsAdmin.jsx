@@ -80,11 +80,19 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
   const [reuploadLoading, setReuploadLoading] = useState(false);
   const [reuploadSuccess, setReuploadSuccess] = useState(false);
 
+  // Cross-tab review items: registrations with needs_review_after_reupload = 1
+  // Fetched independently of the current tab filter so banners appear on ALL tabs.
+  const [reviewItems, setReviewItems] = useState([]);
+
   // Reject modal state
   const [rejectModal, setRejectModal] = useState(null); // { id, name, email }
   const [rejectReason, setRejectReason] = useState("");
   const [rejectLoading, setRejectLoading] = useState(false);
   const [rejectSuccess, setRejectSuccess] = useState(false);
+
+  // Doc count badge tooltip — stores { id, docs, x, y } for fixed-position rendering
+  // outside the overflow-clipped table-scroll-wrap
+  const [docTooltip, setDocTooltip] = useState(null);
 
   // Clear the sidebar notification badge as soon as admin opens this page
   useEffect(() => { onClearBadge?.(); }, []);
@@ -100,6 +108,13 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
       const res = await dealersApi.getStats();
       if (res.success) setStats(res.stats);
     } catch { /* non-critical */ }
+  }, []);
+
+  const fetchReviewItems = useCallback(async () => {
+    try {
+      const res = await dealersApi.registrations("All");
+      setReviewItems((res.registrations || []).filter(r => r.needs_review_after_reupload));
+    } catch { /* non-critical — banners degrade gracefully */ }
   }, []);
 
   const fetchRegistrations = useCallback(async () => {
@@ -121,6 +136,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
   }, [tab, onClearBadge, fetchStats]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
+  useEffect(() => { fetchReviewItems(); }, [fetchReviewItems]);
 
   useEffect(() => { fetchRegistrations(); }, [fetchRegistrations]);
 
@@ -140,7 +156,8 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
     setSelectedRegistration(null);
     try {
       await dealersApi.approve(id);
-      fetchRegistrations(); // fetchStats() is called inside fetchRegistrations via its callback
+      fetchRegistrations();
+      fetchReviewItems(); // refresh cross-tab banners
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to approve registration." });
     } finally {
@@ -164,7 +181,8 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
     try {
       await dealersApi.reject(rejectModal.id, rejectReason.trim());
       setRejectSuccess(true);
-      fetchRegistrations(); // fetchStats() called inside fetchRegistrations
+      fetchRegistrations();
+      fetchReviewItems(); // refresh cross-tab banners
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to reject registration." });
     } finally {
@@ -212,7 +230,8 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
     try {
       await dealersApi.requestReupload(reuploadModal.id, reuploadReason.trim(), selectedDocs);
       setReuploadSuccess(true);
-      fetchRegistrations(); // fetchStats() called inside fetchRegistrations
+      fetchRegistrations();
+      fetchReviewItems(); // refresh cross-tab banners
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to send re-upload request." });
     } finally {
@@ -281,11 +300,29 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
       <div className="admin-filter-bar">
         {/* Scrollable Tabs */}
         <div className="hide-scrollbar" style={{ display: "flex", overflowX: "auto", gap: 8, WebkitOverflowScrolling: "touch", paddingBottom: 4, flex: 1, minWidth: 0 }}>
-          {["All", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => (
-            <button key={s} className={`btn-sm ${tab === s ? "primary" : ""}`} onClick={() => setTab(s)} style={{ flexShrink: 0 }}>
-              {s === "ReuploadRequested" ? "Re-upload" : TAB_LABELS[s] || s}
-            </button>
-          ))}
+          {["All", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => {
+            // Badge: Pending shows count of re-submitted dealers needing review;
+            // Re-upload shows total count of dealers waiting to submit.
+            const badgeCount =
+              s === "Pending"           ? reviewItems.length :
+              s === "ReuploadRequested" ? (stats?.reuploadRequested || 0) : 0;
+            return (
+              <button key={s} className={`btn-sm ${tab === s ? "primary" : ""}`} onClick={() => setTab(s)} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                {s === "ReuploadRequested" ? "Re-upload" : TAB_LABELS[s] || s}
+                {badgeCount > 0 && (
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    minWidth: 16, height: 16, borderRadius: 9999,
+                    background: tab === s ? "rgba(255,255,255,0.3)" : "#f97316",
+                    color: "white",
+                    fontSize: 10, fontWeight: 800, padding: "0 4px",
+                  }}>
+                    {badgeCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Search */}
@@ -418,15 +455,46 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
             </button>
           </div>
         );
+
+        // ── Sort by urgency for Pending and Re-upload tabs ────────────────────────────
+        // Pending   : re-uploaded docs (flag=1) float to top, new applications below
+        // Re-upload : expired links float to top (need resend), active links below
+        const isExpiredFn = r => r.reupload_expires_at && new Date(r.reupload_expires_at) < new Date();
+        const displayList =
+          tab === "Pending"
+            ? [
+                ...filteredList.filter(r =>  r.needs_review_after_reupload),
+                ...filteredList.filter(r => !r.needs_review_after_reupload),
+              ]
+          : tab === "ReuploadRequested"
+            ? [
+                ...filteredList.filter(r =>  isExpiredFn(r)),
+                ...filteredList.filter(r => !isExpiredFn(r)),
+              ]
+          : filteredList;
+
+        // Counts used to position section headers at the right index
+        const regPendingDocsCount = tab === "Pending"           ? filteredList.filter(r =>  r.needs_review_after_reupload).length : 0;
+        const regPendingNewCount  = tab === "Pending"           ? filteredList.filter(r => !r.needs_review_after_reupload).length : 0;
+        const expiredCount        = tab === "ReuploadRequested" ? filteredList.filter(r =>  isExpiredFn(r)).length               : 0;
+        const activeCount         = tab === "ReuploadRequested" ? filteredList.filter(r => !isExpiredFn(r)).length               : 0;
+
+        // Dynamic colSpan: 4 fixed cols + conditional cols per tab
+        const regColSpan = 4
+          + (tab === "All"               ? 1 : 0)  // Status column
+          + (tab === "ReuploadRequested" ? 1 : 0)  // Re-upload Sent column
+          + 1                                       // Documents column
+          + (tab !== "Approved"          ? 1 : 0); // Actions column
+
         return (
         <div className="card">
 
-          {/* ── Action Required Banners ─────────────────────────────────────────
-               Shown only on Pending tab when a dealer has re-submitted documents
-               and admin needs to review them. Mirrors the dealer-side "Action
-               Required" banner style for visual consistency.
+          {/* ── Action Required Banners ─────────────────────────────────────────────────
+               Fetched independently of the active tab so banners are visible
+               on ALL tabs — same cross-tab pattern used in Quotations.
+               Clicking “Review Now” opens the registration detail modal.
           ─────────────────────────────────────────────────────────────────── */}
-          {tab === "Pending" && list.filter(r => r.needs_review_after_reupload).map(reg => (
+          {reviewItems.map(reg => (
             <div key={`banner-${reg.id}`} style={{
               display: "flex", alignItems: "flex-start", gap: 12,
               background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
@@ -494,31 +562,90 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
           ))}
 
           <div className="table-scroll-wrap">
-          <table style={{ minWidth: "860px" }}>
+          <table style={{ minWidth: "680px" }}>
             <thead>
               <tr>
                 <th>Name</th>
                 <th>Contact</th>
-                <th>Location</th>
-                <th>Company</th>
+                <th>Company / Location</th>
                 <th>Submitted</th>
                 {tab === "All" && <th>Status</th>}
                 {tab === "ReuploadRequested" && <th>Re-upload Sent</th>}
                 <th>Documents</th>
-                <th>Actions</th>
+                {tab !== "Approved" && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {filteredList.map(reg => (
-                <tr key={reg.id}>
+              {displayList.flatMap((reg, idx) => {
+                const isDocsReview = !!reg.needs_review_after_reupload;
+                const isExpired    = isExpiredFn(reg);
+                // Amber tint for urgent rows: re-uploaded on Pending, expired on Re-upload
+                const regRowNeedsAmberTint =
+                  (tab === "Pending"           && isDocsReview) ||
+                  (tab === "ReuploadRequested" && isExpired);
+                const rows = [];
+
+                // ── Pending tab sections ─────────────────────────────────────────
+                if (tab === "Pending") {
+                  if (idx === 0 && regPendingDocsCount > 0) {
+                    rows.push(
+                      <tr key="hdr-reg-docs-review" style={{ background: "rgba(245,158,11,0.06)", pointerEvents: "none" }}>
+                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "#b45309", borderBottom: "1px solid rgba(245,158,11,0.18)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
+                          <CheckCircle size={12} /> Documents Re-uploaded — Review Required ({regPendingDocsCount})
+                        </td>
+                      </tr>
+                    );
+                  }
+                  if (!isDocsReview && idx === regPendingDocsCount && regPendingNewCount > 0 && regPendingDocsCount > 0) {
+                    rows.push(
+                      <tr key="hdr-reg-new-apps" style={{ background: "var(--bg, #f8fafc)", pointerEvents: "none" }}>
+                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "var(--muted)", borderBottom: "1px solid var(--border)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
+                          <UserPlus size={12} /> New Applications ({regPendingNewCount})
+                        </td>
+                      </tr>
+                    );
+                  }
+                }
+
+                // ── Re-upload tab sections ──────────────────────────────────────
+                if (tab === "ReuploadRequested") {
+                  if (idx === 0 && expiredCount > 0) {
+                    rows.push(
+                      <tr key="hdr-reg-expired" style={{ background: "rgba(220,38,38,0.04)", pointerEvents: "none" }}>
+                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "#b91c1c", borderBottom: "1px solid rgba(220,38,38,0.15)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
+                          <AlertTriangle size={12} /> Link Expired — Resend Required ({expiredCount})
+                        </td>
+                      </tr>
+                    );
+                  }
+                  if (!isExpired && idx === expiredCount && activeCount > 0 && expiredCount > 0) {
+                    rows.push(
+                      <tr key="hdr-reg-active" style={{ background: "var(--bg, #f8fafc)", pointerEvents: "none" }}>
+                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "var(--muted)", borderBottom: "1px solid var(--border)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
+                          <Clock size={12} /> Awaiting Dealer Response ({activeCount})
+                        </td>
+                      </tr>
+                    );
+                  }
+                }
+
+                rows.push(
+                <tr
+                  key={reg.id}
+                  className="table-row-hover"
+                  style={{ cursor: "pointer", ...(regRowNeedsAmberTint ? { background: "rgba(245,158,11,0.025)" } : {}) }}
+                  onClick={() => setSelectedRegistration(reg)}
+                >
                   {/* Name cell */}
                   <td style={{ fontWeight: 500 }}>{reg.name}</td>
                   <td>
                     <div>{reg.email}</div>
                     <div style={{ fontSize: 11, color: "var(--muted)" }}>{reg.mobile || "—"}</div>
                   </td>
-                  <td>{reg.location || "—"}</td>
-                  <td>{reg.company_name || "—"}</td>
+                  <td>
+                    <div style={{ fontWeight: 500, fontSize: 13 }}>{reg.company_name || "—"}</div>
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{reg.location || "—"}</div>
+                  </td>
                   {/* Submitted date — also shows Re-uploaded indicator if dealer has resubmitted */}
                   <td style={{ color: "var(--muted)", fontSize: 12 }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -543,14 +670,15 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                         const cfg = STATUS_BADGE_CONFIG[reg.status];
                         return cfg ? (
                           <span style={{
-                            display: "inline-flex", alignItems: "center",
+                            display: "inline-flex", alignItems: "center", justifyContent: "center",
                             padding: "3px 10px", borderRadius: 20,
                             fontSize: 11, fontWeight: 700,
                             background: cfg.bg, color: cfg.color,
                             border: `1px solid ${cfg.border}`,
-                            whiteSpace: "nowrap",
+                            whiteSpace: reg.status === "ReuploadRequested" ? "pre-line" : "nowrap",
+                            textAlign: "center", lineHeight: 1.35,
                           }}>
-                            {cfg.label}
+                            {reg.status === "ReuploadRequested" ? "Re-upload\nRequested" : cfg.label}
                           </span>
                         ) : <span style={{ color: "var(--muted)", fontSize: 11 }}>{reg.status}</span>;
                       })()}
@@ -571,96 +699,95 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                           ) : (
                             reg.reupload_requested_at && <span style={{ color: "#2E7D52", fontWeight: 600, fontSize: 10 }}>Link Active</span>
                           )}
-                          {reg.reupload_required_docs && (
-                            <div style={{ color: "var(--muted)", fontSize: 10 }}>
-                              {reg.reupload_required_docs.split(",").map(d => DOC_TYPE_LABELS[d] || d).join(", ")}
-                            </div>
-                          )}
                         </div>
                       ) : <span style={{ color: "var(--muted)" }}>—</span>}
                     </td>
                   )}
                   <td>
                     {reg.documents && reg.documents.length > 0 ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {reg.documents.map(doc => (
-                          <button
-                            key={doc.id}
-                            onClick={async () => {
-                              try {
-                                const blobUrl = await uploadsApi.getSecureBlobUrl(doc.id);
-                                const w = window.open(blobUrl, '_blank');
-                                // Revoke after 90s — enough time for the browser to load the file
-                                // Use a shorter window than before to reduce memory leakage
-                                setTimeout(() => URL.revokeObjectURL(blobUrl), 90_000);
-                                // Fallback: if window was blocked by popup blocker, revoke immediately
-                                if (!w) URL.revokeObjectURL(blobUrl);
-                              } catch(err) { console.error('Failed to open document:', err); }
-                            }}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
-                              fontSize: 11,
-                              color: "var(--primary)",
-                              textDecoration: "none",
-                              fontWeight: 500,
-                              background: "none",
-                              border: "none",
-                              cursor: "pointer",
-                              padding: 0
-                            }}
-                          >
-                            <Paperclip size={12} style={{ flexShrink: 0 }} />
-                            <span>
-                              {DOC_TYPE_LABELS[doc.doc_type] || doc.original_name}
-                            </span>
-                          </button>
-                        ))}
+                      <div
+                        style={{ display: 'inline-block' }}
+                        onMouseEnter={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setDocTooltip({
+                            id: reg.id,
+                            docs: reg.documents,
+                            x: rect.left,
+                            y: rect.top,
+                          });
+                        }}
+                        onMouseLeave={() => setDocTooltip(null)}
+                      >
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                          fontSize: 11, fontWeight: 600,
+                          color: '#3b82f6', background: '#eff6ff',
+                          border: '1px solid rgba(59,130,246,0.18)',
+                          padding: '3px 9px', borderRadius: 6,
+                          cursor: 'default', userSelect: 'none',
+                        }}>
+                          <Paperclip size={10} style={{ flexShrink: 0 }} />
+                          {reg.documents.length} {reg.documents.length === 1 ? 'doc' : 'docs'}
+                        </span>
                       </div>
                     ) : (
-                      <span style={{ color: "var(--muted)", fontSize: 11 }}>—</span>
+                      <span style={{ color: 'var(--muted)', fontSize: 11 }}>—</span>
                     )}
                   </td>
-                  <td style={{ whiteSpace: "nowrap" }}>
-                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  {tab !== "Approved" && (
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
 
-                      {/* View Details — always shown */}
-                      <button
-                        title="View Details"
-                        onClick={() => setSelectedRegistration(reg)}
-                        style={{
-                          width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          background: "#eff6ff", color: "#3b82f6", flexShrink: 0,
-                        }}
-                      >
-                        <Eye size={13} />
-                      </button>
-
-                      {/* effectiveStatus drives action icons */}
-                      {(() => {
-                        const effectiveStatus = tab === "All" ? reg.status : tab;
-                        return (
-                          <>
-                            {effectiveStatus === "Pending" && (
-                              <>
-                                <button
-                                  title="Approve"
-                                  disabled={actionLoading === reg.id}
-                                  onClick={() => setActionConfirm({ id: reg.id, action: "approve", name: reg.name })}
-                                  style={{
-                                    width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    background: "#dcfce7", color: "#166534", flexShrink: 0,
-                                    opacity: actionLoading === reg.id ? 0.5 : 1,
-                                  }}
-                                >
-                                  {actionLoading === reg.id ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle size={13} />}
-                                </button>
+                        {/* effectiveStatus drives action icons */}
+                        {(() => {
+                          const effectiveStatus = tab === "All" ? reg.status : tab;
+                          return (
+                            <>
+                              {effectiveStatus === "Pending" && (
+                                <>
+                                  <button
+                                    title="Approve"
+                                    disabled={actionLoading === reg.id}
+                                    onClick={(e) => { e.stopPropagation(); setActionConfirm({ id: reg.id, action: "approve", name: reg.name }); }}
+                                    style={{
+                                      width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
+                                      display: "flex", alignItems: "center", justifyContent: "center",
+                                      background: "#dcfce7", color: "#166534", flexShrink: 0,
+                                      opacity: actionLoading === reg.id ? 0.5 : 1,
+                                    }}
+                                  >
+                                    {actionLoading === reg.id ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle size={13} />}
+                                  </button>
+                                  <button
+                                    title="Request Re-upload"
+                                    onClick={(e) => { e.stopPropagation(); openReuploadModal(reg); }}
+                                    style={{
+                                      width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
+                                      display: "flex", alignItems: "center", justifyContent: "center",
+                                      background: "#fff3cd", color: "#856404", flexShrink: 0,
+                                    }}
+                                  >
+                                    <RefreshCw size={13} />
+                                  </button>
+                                  <button
+                                    title="Reject"
+                                    disabled={actionLoading === reg.id}
+                                    onClick={(e) => { e.stopPropagation(); openRejectModal(reg); }}
+                                    style={{
+                                      width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
+                                      display: "flex", alignItems: "center", justifyContent: "center",
+                                      background: "#fee2e2", color: "#991b1b", flexShrink: 0,
+                                      opacity: actionLoading === reg.id ? 0.5 : 1,
+                                    }}
+                                  >
+                                    <XCircle size={13} />
+                                  </button>
+                                </>
+                              )}
+                              {effectiveStatus === "Rejected" && (
                                 <button
                                   title="Request Re-upload"
-                                  onClick={() => openReuploadModal(reg)}
+                                  onClick={(e) => { e.stopPropagation(); openReuploadModal(reg); }}
                                   style={{
                                     width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
                                     display: "flex", alignItems: "center", justifyContent: "center",
@@ -669,75 +796,83 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                                 >
                                   <RefreshCw size={13} />
                                 </button>
-                                <button
-                                  title="Reject"
-                                  disabled={actionLoading === reg.id}
-                                  onClick={() => openRejectModal(reg)}
-                                  style={{
-                                    width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    background: "#fee2e2", color: "#991b1b", flexShrink: 0,
-                                    opacity: actionLoading === reg.id ? 0.5 : 1,
-                                  }}
-                                >
-                                  <XCircle size={13} />
-                                </button>
-                              </>
-                            )}
-                            {effectiveStatus === "Rejected" && (
-                              <button
-                                title="Request Re-upload"
-                                onClick={() => openReuploadModal(reg)}
-                                style={{
-                                  width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
-                                  display: "flex", alignItems: "center", justifyContent: "center",
-                                  background: "#fff3cd", color: "#856404", flexShrink: 0,
-                                }}
-                              >
-                                <RefreshCw size={13} />
-                              </button>
-                            )}
-                            {effectiveStatus === "ReuploadRequested" && (
-                              <>
-                                <button
-                                  title="Send Re-upload Link Again"
-                                  onClick={() => openReuploadModal(reg)}
-                                  style={{
-                                    width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    background: "#fff3cd", color: "#856404", flexShrink: 0,
-                                  }}
-                                >
-                                  <Send size={13} />
-                                </button>
-                                <button
-                                  title="Reject Registration"
-                                  disabled={actionLoading === reg.id}
-                                  onClick={() => openRejectModal(reg)}
-                                  style={{
-                                    width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    background: "#fee2e2", color: "#991b1b", flexShrink: 0,
-                                    opacity: actionLoading === reg.id ? 0.5 : 1,
-                                  }}
-                                >
-                                  <XCircle size={13} />
-                                </button>
-                              </>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </td>
+                              )}
+                              {effectiveStatus === "ReuploadRequested" && (
+                                <>
+                                  <button
+                                    title="Send Re-upload Link Again"
+                                    onClick={(e) => { e.stopPropagation(); openReuploadModal(reg); }}
+                                    style={{
+                                      width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
+                                      display: "flex", alignItems: "center", justifyContent: "center",
+                                      background: "#fff3cd", color: "#856404", flexShrink: 0,
+                                    }}
+                                  >
+                                    <Send size={13} />
+                                  </button>
+                                  <button
+                                    title="Reject Registration"
+                                    disabled={actionLoading === reg.id}
+                                    onClick={(e) => { e.stopPropagation(); openRejectModal(reg); }}
+                                    style={{
+                                      width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer",
+                                      display: "flex", alignItems: "center", justifyContent: "center",
+                                      background: "#fee2e2", color: "#991b1b", flexShrink: 0,
+                                      opacity: actionLoading === reg.id ? 0.5 : 1,
+                                    }}
+                                  >
+                                    <XCircle size={13} />
+                                  </button>
+                                </>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </td>
+                  )}
                 </tr>
-              ))}
+                );
+                return rows;
+              })}
             </tbody>
           </table>
           </div>
         </div>
         );
       })()}
+
+      {/* ── Document count tooltip rendered at viewport level ──────────────────
+          Uses position:fixed so it's never clipped by table-scroll-wrap's
+          overflow-x:auto. Coordinates are captured from getBoundingClientRect()
+          on mouse-enter of the badge. */}
+      {docTooltip && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: `calc(100vh - ${docTooltip.y}px + 6px)`,
+            left: docTooltip.x,
+            background: '#1e293b',
+            color: 'white',
+            borderRadius: 8,
+            padding: '8px 12px',
+            fontSize: 11,
+            whiteSpace: 'nowrap',
+            zIndex: 9999,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.22)',
+            pointerEvents: 'none',
+            lineHeight: 1.8,
+            animation: 'fadeIn 0.12s ease',
+          }}
+        >
+          {docTooltip.docs.map(doc => (
+            <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <Paperclip size={9} style={{ opacity: 0.45, flexShrink: 0 }} />
+              {DOC_TYPE_LABELS[doc.doc_type] || doc.original_name}
+            </div>
+          ))}
+        </div>
+      )}
 
 
       {/* Detailed Dealer Registration Modal */}

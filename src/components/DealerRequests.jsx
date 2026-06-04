@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { quotations as quotationsApi, uploads as uploadsApi } from "../utils/api";
 import { fmt, generatePdfQuotation } from "../utils/helpers";
-import { Loader2, ClipboardList, MessageCircle, Mail, Copy, Check, Camera, MapPin, Upload, X, Eye, Download, Info, FileText, Truck, Package, Clock, ChevronLeft, ChevronRight, Plus, AlertCircle, RefreshCw, AlertTriangle } from "lucide-react";
+import { Loader2, ClipboardList, MessageCircle, Mail, Copy, Check, Camera, MapPin, Upload, X, Eye, Download, Info, FileText, Truck, Package, Clock, ChevronLeft, ChevronRight, Plus, AlertCircle, RefreshCw, AlertTriangle, Phone, Zap, Cpu, Home, CreditCard, Search } from "lucide-react";
 
 import { t } from "../utils/i18n";
 import ConfirmDialog from "./ConfirmDialog";
@@ -13,6 +13,13 @@ export default function DealerRequests() {
   const [fetchError, setFetchError] = useState(false);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
+  // Tab filter: "" = All | "Pending" | "Approved" | "Rejected" | "ReuploadRequested"
+  const [filter, setFilter] = useState("");
+  // Client-side search string (filtered from current page's list)
+  const [search, setSearch] = useState("");
+  // Filter-independent: ALL dealer quotations — feeds stats + action banners.
+  // Fetched once (and on any mutation) at a high limit to cover all practical dealer sizes.
+  const [globalList, setGlobalList] = useState([]);
   // Using a Map instead of a plain object so that doc.id keys never risk
   // prototype-chain access (fixes CWE-94: bracket notation with server-supplied input).
   const [blobUrls, setBlobUrls] = useState(() => new Map());
@@ -44,6 +51,10 @@ export default function DealerRequests() {
   const [portalReuploadLoading, setPortalReuploadLoading] = useState(false);
   const [portalReuploadSuccess, setPortalReuploadSuccess] = useState(false);
   const [portalReuploadError, setPortalReuploadError] = useState("");
+
+  // Detail modal — opened when dealer clicks a row in the My Requests table
+  const [selectedQuotation, setSelectedQuotation] = useState(null);
+  const [detailPdfDownloading, setDetailPdfDownloading] = useState(false);
 
   // Compute stable blob URLs for portal reupload image previews.
   // useMemo ensures we create a URL exactly once per file reference, not on every render.
@@ -190,6 +201,8 @@ export default function DealerRequests() {
           ? { ...q, status: "Pending", reupload_required_docs: null, reupload_reason: null }
           : q
       ));
+      // Refresh global stats + banners — the Re-upload banner must disappear immediately
+      fetchGlobalData();
     } catch (err) {
       setPortalReuploadError(err.message || "Failed to submit documents. Please try again.");
     } finally {
@@ -333,6 +346,8 @@ export default function DealerRequests() {
             }
           : item
       ));
+      // Refresh global stats + banners — the Geo-Tag banner must disappear immediately
+      fetchGlobalData();
       // Close modal automatically after successful submit
       setGeotagModalQuotation(null);
     } catch (err) {
@@ -347,19 +362,43 @@ export default function DealerRequests() {
     }
   };
 
-  useEffect(() => {
-    setLoading(true);
-    quotationsApi.list({ page, limit: 20 })
-      .then(res => {
-        setList(res.quotations || []);
-        if (res.pagination) setPagination(res.pagination);
-      })
-      .catch(err => {
-        console.error("Fetch quotations error:", err);
-        setFetchError(true);
-      })
-      .finally(() => setLoading(false));
-  }, [page]);
+  // fetchQuotations — server-side status filter + pagination
+  const fetchQuotations = useCallback(async (showSpinner = true) => {
+    try {
+      if (showSpinner) setLoading(true);
+      setFetchError(false);
+      const params = { page, limit: 20 };
+      if (filter) params.status = filter;
+      const res = await quotationsApi.list(params);
+      setList(res.quotations || []);
+      if (res.pagination) setPagination(res.pagination);
+    } catch (err) {
+      console.error("Fetch quotations error:", err);
+      setFetchError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [filter, page]);
+
+  // fetchGlobalData — filter-independent fetch of ALL dealer quotations.
+  // Used to compute stats (Total/Approved/Pending/Rejected) and action-required banners.
+  // limit:500 covers all practical dealer sizes without backend changes.
+  const fetchGlobalData = useCallback(async () => {
+    try {
+      const res = await quotationsApi.list({ limit: 500 });
+      setGlobalList(res.quotations || []);
+    } catch { /* non-critical — stats and banners are UX enhancements */ }
+  }, []);
+
+  // Reset to page 1 whenever filter or search changes
+  useEffect(() => { setPage(1); }, [filter]);
+  useEffect(() => { setPage(1); }, [search]);
+  // fetchQuotations re-runs on filter or page change (paginated, filter-sensitive)
+  useEffect(() => { fetchQuotations(); }, [filter, page]);
+  // fetchGlobalData runs once on mount only — refreshed explicitly after mutations
+  // (portal reupload, geotag submit). Running it on every page change is wasteful.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchGlobalData(); }, []);
 
   useEffect(() => {
     if (geotagModalQuotation) {
@@ -370,7 +409,7 @@ export default function DealerRequests() {
     return () => { document.body.style.overflow = ''; };
   }, [geotagModalQuotation]);
 
-  // Body scroll lock for portal reupload modal \u2014 mirrors the geotag modal behaviour.
+  // Body scroll lock for portal reupload modal — mirrors the geotag modal behaviour.
   // Without this the page scrolls behind the modal on mobile/touch devices.
   useEffect(() => {
     if (portalReuploadModal) {
@@ -380,6 +419,24 @@ export default function DealerRequests() {
     }
     return () => { document.body.style.overflow = ''; };
   }, [portalReuploadModal]);
+
+  // Body scroll lock for detail modal
+  useEffect(() => {
+    if (selectedQuotation) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [selectedQuotation]);
+
+  // Keep selectedQuotation in sync when list changes (e.g. after geo-tag submit or reupload)
+  useEffect(() => {
+    if (!selectedQuotation) return;
+    const updated = list.find(q => q.id === selectedQuotation.id);
+    if (updated) setSelectedQuotation(updated);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list]);
 
   useEffect(() => {
     if (!geotagModalQuotation) {
@@ -718,6 +775,73 @@ ${pdfLine}`;
     }
   };
 
+  // Download PDF from the detail modal footer — uses same generatePdfQuotation helper
+  const handleDownloadPdfDetail = async (q) => {
+    if (detailPdfDownloading) return;
+    setDetailPdfDownloading(true);
+    try {
+      const customerData = {
+        id: q.quotation_number,
+        date: new Date(q.created_at).toLocaleDateString("en-IN"),
+        customerName: q.customer_name,
+        customerAddress: q.customer_address || q.customer_city || "",
+        customerCity: q.customer_city,
+        customerPhone: q.customer_phone,
+        structureHeight: q.structure_height,
+        paymentMode: q.payment_mode,
+      };
+      const quoteData = {
+        panelCount: q.panel_count,
+        subtotal: Number(q.subtotal),
+        pricePerKw: Number(q.price_per_kw),
+        gst: Number(q.gst_amount),
+        total: Number(q.total),
+        subsidy: Number(q.subsidy_amount),
+        effectivePrice: Number(q.effective_price),
+      };
+      const panelData    = { brand: q.panel_brand, watt: q.panel_watt, type: q.panel_type };
+      const inverterData = { brand: q.inverter_brand, kw: q.inverter_kw, type: q.inverter_type };
+      await generatePdfQuotation(customerData, quoteData, panelData, inverterData, { download: true });
+    } catch (err) {
+      console.error("PDF download failed:", err);
+      setDialogState({ open: true, title: "Download Failed", message: "Could not generate the PDF. Please try again.", variant: "danger" });
+    } finally {
+      setDetailPdfDownloading(false);
+    }
+  };
+
+  // ── Client-side search filter (applied to current page's list) ──────────
+  const filteredList = useMemo(() => {
+    if (!search.trim()) return list;
+    const s = search.toLowerCase();
+    return list.filter(q =>
+      q.quotation_number?.toLowerCase().includes(s) ||
+      q.customer_name?.toLowerCase().includes(s) ||
+      q.customer_city?.toLowerCase().includes(s)
+    );
+  }, [list, search]);
+
+  // ── Column visibility per active tab (mirrors admin logic) ───────────────
+  const showStatus   = filter === "";                              // redundant on single-status tabs
+  const showDelivery = filter === "" || filter === "Approved";    // only meaningful post-approval
+  const showGeoTags  = filter === "" || filter === "Approved";    // only meaningful post-approval
+  const showActions  = filter !== "Rejected";                     // no actions exist for Rejected
+
+  // ── Derived from globalList (all dealer quotations, filter-independent) ──
+  // Action-required items for the alert banners (shown on every tab)
+  const reviewItems   = globalList.filter(q =>
+    q.status === "ReuploadRequested" || (q.status === "Approved" && !!q.geotag_reupload_requested)
+  );
+  // Tab badge counts ("Admin needs action FROM me")
+  const reuploadBadge = globalList.filter(q => q.status === "ReuploadRequested").length;
+  const geotagBadge   = globalList.filter(q => q.status === "Approved" && !!q.geotag_reupload_requested).length;
+  // Stats — accurate global counts across all pages and tabs
+  const statsTotal    = globalList.length;
+  const statsApproved = globalList.filter(q => q.status === "Approved").length;
+  const statsPending  = globalList.filter(q => q.status === "Pending").length;
+  const statsRejected = globalList.filter(q => q.status === "Rejected").length;
+  const statsReupload = globalList.filter(q => q.status === "ReuploadRequested").length;
+
   return (
     <div>
       {/* ————— Page Header ——————————————————————————————————————————————————————————————— */}
@@ -735,23 +859,78 @@ ${pdfLine}`;
         </a>
       </div>
 
-      {/* ————— Quick stats strip ————————————————————————————————————————————————————————— */}
-      {!loading && !fetchError && list.length > 0 && (() => {
-        const total = list.length;
-        const approved = list.filter(q => q.status === "Approved").length;
-        const pending = list.filter(q => q.status === "Pending" || q.status === "ReuploadRequested").length;
-        const rejected = list.filter(q => q.status === "Rejected").length;
-        return (
-          <div className="hide-scrollbar" style={{ display: "flex", overflowX: "auto", gap: 10, marginBottom: 16, paddingBottom: 4, WebkitOverflowScrolling: "touch" }}>
-            {[{label: "Total", value: total, color: "#6366f1"}, {label: "Approved", value: approved, color: "#2E7D52"}, {label: "Pending", value: pending, color: "#d97706"}, {label: "Rejected", value: rejected, color: "#dc2626"}].map(s => (
-              <div key={s.label} style={{ flexShrink: 0, minWidth: 110, background: "var(--card-bg, #fff)", borderRadius: 12, padding: "12px 16px", border: "1px solid rgba(0,0,0,0.05)", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", marginTop: 4, textTransform: "uppercase", letterSpacing: "0.4px" }}>{s.label}</div>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
+      {/* ————— Stats strip — ALL tabs, accurate global counts, 5 boxes matching 5 tabs ——————— */}
+      {statsTotal > 0 && (
+        <div className="dealer-stats-strip">
+          {[
+            { label: "Total",     value: statsTotal,    color: "#6366f1" },
+            { label: "Approved",  value: statsApproved, color: "#2E7D52" },
+            { label: "Pending",   value: statsPending,  color: "#d97706" },
+            { label: "Rejected",  value: statsRejected, color: "#dc2626" },
+            { label: "Re-upload", value: statsReupload, color: "#ea580c" },
+          ].map(s => (
+            <div key={s.label} className="dss-box">
+              <div className="dss-val" style={{ color: s.color }}>{s.value}</div>
+              <div className="dss-label">{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ————— Filter Bar: Tabs + Search ——————————————————————————————————————————————— */}
+      <div className="admin-filter-bar">
+        {/* Scrollable Tab buttons */}
+        <div className="hide-scrollbar" style={{ display: "flex", overflowX: "auto", gap: 8, WebkitOverflowScrolling: "touch", paddingBottom: 4, flex: 1, minWidth: 0 }}>
+          {["", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => {
+            const badge =
+              s === "ReuploadRequested" ? reuploadBadge :
+              s === "Approved"          ? geotagBadge   : 0;
+            return (
+              <button
+                key={s}
+                className={`btn-sm ${filter === s ? "primary" : ""}`}
+                onClick={() => setFilter(s)}
+                style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5 }}
+              >
+                {s === "ReuploadRequested" ? "Re-upload" : (s || "All")}
+                {badge > 0 && (
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    minWidth: 16, height: 16, borderRadius: 9999, padding: "0 4px",
+                    background: filter === s ? "rgba(255,255,255,0.3)" : "#ea580c",
+                    color: "white", fontSize: 10, fontWeight: 800,
+                  }}>{badge}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Divider */}
+        <div style={{ width: 1, height: 24, background: "var(--border, #e2e8f0)", margin: "0 4px", flexShrink: 0 }} className="desktop-only" aria-hidden="true" />
+
+        {/* Search */}
+        <div className="filter-search-box">
+          <Search size={14} style={{ color: "var(--muted)", flexShrink: 0 }} />
+          <input
+            type="text"
+            placeholder="Search quotation # or customer…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ border: "none", outline: "none", background: "transparent", flex: 1, fontSize: 13, color: "var(--text)", minWidth: 0 }}
+          />
+          {search && (
+            <button onClick={() => setSearch("")} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "flex", flexShrink: 0 }} aria-label="Clear search">
+              <X size={13} />
+            </button>
+          )}
+        </div>
+        {search && (
+          <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>
+            {filteredList.length} result{filteredList.length !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
 
       {loading ? (
         <div style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
@@ -761,18 +940,26 @@ ${pdfLine}`;
         <ErrorState
           title="Failed to load quotations."
           message="Something went wrong while fetching your requests. Please try again."
-          onRetry={() => { setFetchError(false); setPage(1); }}
+          onRetry={() => { setFetchError(false); fetchQuotations(true); }}
         />
       ) : list.length === 0 ? (
         <div className="card" style={{ textAlign: "center", padding: "3rem", color: "var(--muted)" }}>
           <div style={{ marginBottom: 12 }}><ClipboardList size={40} strokeWidth={1} /></div>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>{t("No quotations submitted yet")}</div>
-          <div style={{ fontSize: 13, marginTop: 4 }}>{t("Create your first quotation from the New Quotation page.")}</div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>
+            {filter === "ReuploadRequested" ? "No re-upload requests"
+              : filter ? `No ${filter} quotations`
+              : t("No quotations submitted yet")}
+          </div>
+          <div style={{ fontSize: 13, marginTop: 4 }}>
+            {filter
+              ? <button className="btn-sm" style={{ marginTop: 8 }} onClick={() => setFilter("")}>View all quotations</button>
+              : t("Create your first quotation from the New Quotation page.")}
+          </div>
         </div>
       ) : (
         <div className="card" style={{ padding: 0, overflowX: "clip" }}>
-          {/* ————— Reupload alert banners —————————————————————————————————————————————————— */}
-          {list.some(q => q.status === "ReuploadRequested") && (
+          {/* ————— Action-required alert banners — filter-independent, using reviewItems ————— */}
+          {reviewItems.some(q => q.status === "ReuploadRequested") && (
             <div style={{
               borderLeft: "4px solid #dc2626",
               background: "linear-gradient(90deg, rgba(220,38,38,0.06) 0%, rgba(220,38,38,0.02) 100%)",
@@ -789,7 +976,7 @@ ${pdfLine}`;
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#991b1b", marginBottom: 6 }}>Action Required — Document Re-upload</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {list.filter(q => q.status === "ReuploadRequested").map(q => (
+                  {reviewItems.filter(q => q.status === "ReuploadRequested").map(q => (
                     <div key={q.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <div style={{ flex: "1 1 200px", fontSize: 12.5, color: "#7f1d1d", lineHeight: 1.5 }}>
                         <span style={{ fontWeight: 700, fontFamily: "var(--mono)" }}>{q.quotation_number}</span>
@@ -808,7 +995,7 @@ ${pdfLine}`;
               </div>
             </div>
           )}
-          {list.some(q => q.status === "Approved" && q.geotag_reupload_requested) && (() => {
+          {reviewItems.some(q => q.status === "Approved" && q.geotag_reupload_requested) && (() => {
             const SLOT_LABELS = { geotag_1: "Site / Inverter Photo", geotag_2: "Solar Panels Photo", geotag_3: "ACDB / Net Meter Photo" };
             return (
               <div style={{
@@ -823,19 +1010,13 @@ ${pdfLine}`;
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#7c2d12", marginBottom: 6 }}>Action Required - Geo-Tag Photo Re-upload</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {list.filter(q => q.status === "Approved" && q.geotag_reupload_requested).map(q => {
-                      const slotNames = q.geotag_reupload_slots
-                        ? q.geotag_reupload_slots.split(",").filter(Boolean).map(s => SLOT_LABELS[s] || s).join(", ")
-                        : "All 3 geo-tag photos";
+                    {reviewItems.filter(q => q.status === "Approved" && q.geotag_reupload_requested).map(q => {
                       return (
                         <div key={q.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
                           <div style={{ flex: "1 1 200px", fontSize: 12.5, color: "#7c2d12", lineHeight: 1.5 }}>
                             <span style={{ fontWeight: 700, fontFamily: "var(--mono)" }}>{q.quotation_number}</span>
                             {q.customer_name && <span style={{ opacity: 0.8 }}> - {q.customer_name}</span>}
-                            <div style={{ fontSize: 11, color: "#92400e", marginTop: 2 }}>
-                              <strong>Photos needed:</strong> {slotNames}
-                              {q.geotag_reupload_reason && <span style={{ fontStyle: "italic", opacity: 0.7 }}> - "{q.geotag_reupload_reason}"</span>}
-                            </div>
+                            {q.geotag_reupload_reason && <span style={{ fontStyle: "italic", opacity: 0.7 }}> — "{q.geotag_reupload_reason}"</span>}
                           </div>
                           <button
                             onClick={() => openGeotagModal(q)}
@@ -851,8 +1032,9 @@ ${pdfLine}`;
               </div>
             );
           })()}
+          <div className="q-table-wrap">
           <div className="table-scroll-wrap">
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "900px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: filter === "" ? "900px" : filter === "Approved" ? "820px" : "640px" }}>
             <thead>
               <tr>
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{t("Quotation #")}</th>
@@ -860,15 +1042,20 @@ ${pdfLine}`;
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{t("Customer")}</th>
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{t("Capacity")}</th>
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{t("Effective Price")}</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{t("Status")}</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Delivery")}</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Geo-Tags")}</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Actions")}</th>
+                {showStatus   && <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{t("Status")}</th>}
+                {showDelivery && <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Delivery")}</th>}
+                {showGeoTags  && <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Geo-Tags")}</th>}
+                {showActions  && <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Actions")}</th>}
               </tr>
             </thead>
             <tbody>
-              {list.map(q => (
-                <tr key={q.id} style={{ borderBottom: "1px solid rgba(0,0,0,0.04)", transition: "background 0.2s" }} className="table-row-hover">
+              {filteredList.map(q => (
+                <tr
+                  key={q.id}
+                  style={{ borderBottom: "1px solid rgba(0,0,0,0.04)", transition: "background 0.2s", cursor: "pointer" }}
+                  className="table-row-hover"
+                  onClick={() => setSelectedQuotation(q)}
+                >
                   <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
                     <div style={{ fontWeight: 600, fontFamily: "var(--mono)", color: "var(--text)", fontSize: "13px" }}>{q.quotation_number}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
@@ -904,44 +1091,33 @@ ${pdfLine}`;
                   <td style={{ padding: "14px 16px", verticalAlign: "middle", fontFamily: "var(--mono)", color: "var(--green)", fontWeight: 700, fontSize: "14px" }}>
                     {fmt(q.effective_price)}
                   </td>
-                  <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
+                  {showStatus && (
+                  <td style={{ padding: "14px 16px", verticalAlign: "middle" }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       <span className={`badge ${q.status === "Approved" ? "badge-green" : q.status === "Rejected" ? "badge-red" : "badge-sun"}`} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", alignSelf: "flex-start" }}>
                         {q.status === "ReuploadRequested" ? "Re-upload Requested" : q.status}
                       </span>
-                      {/* Document reupload button  -  show whenever status is ReuploadRequested */}
                       {q.status === "ReuploadRequested" && (
                         <button
                           onClick={() => openPortalReuploadModal(q)}
-                          style={{
-                            display: "inline-flex", alignItems: "center", gap: 5,
-                            fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
-                            background: "rgba(220,38,38,0.08)", color: "#dc2626",
-                            border: "1px solid rgba(220,38,38,0.2)", cursor: "pointer",
-                            whiteSpace: "nowrap"
-                          }}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: "rgba(220,38,38,0.08)", color: "#dc2626", border: "1px solid rgba(220,38,38,0.2)", cursor: "pointer", whiteSpace: "nowrap" }}
                         >
                           <RefreshCw size={9} /> Re-upload Documents
                         </button>
                       )}
-                      {/* Geo-tag reupload alert banner */}
                       {q.status === "Approved" && q.geotag_reupload_requested ? (
                         <button
                           onClick={() => openGeotagModal(q)}
-                          style={{
-                            display: "inline-flex", alignItems: "center", gap: 5,
-                            fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
-                            background: "rgba(234,88,12,0.08)", color: "#ea580c",
-                            border: "1px solid rgba(234,88,12,0.2)", cursor: "pointer",
-                            whiteSpace: "nowrap"
-                          }}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: "rgba(234,88,12,0.08)", color: "#ea580c", border: "1px solid rgba(234,88,12,0.2)", cursor: "pointer", whiteSpace: "nowrap" }}
                         >
                           <Camera size={9} /> Re-upload Geo-Tags
                         </button>
                       ) : null}
                     </div>
                   </td>
-                  <td style={{ padding: "14px 16px", verticalAlign: "middle", textAlign: "center" }}>
+                  )}
+                  {showDelivery && (
+                  <td style={{ padding: "14px 16px", verticalAlign: "middle", textAlign: "center" }} onClick={e => e.stopPropagation()}>
                     {q.status === "Approved" ? (
                       (() => {
                         let bg = "rgba(107, 114, 128, 0.06)";
@@ -949,34 +1125,13 @@ ${pdfLine}`;
                         let border = "1px solid rgba(107, 114, 128, 0.15)";
                         let text = "Material Pending";
                         let icon = <Clock size={11} strokeWidth={2.5} />;
-
                         if (q.delivery_status === "Dispatched") {
-                          bg = "rgba(217, 119, 6, 0.06)";
-                          color = "#b45309";
-                          border = "1px solid rgba(217, 119, 6, 0.18)";
-                          text = "Dispatched";
-                          icon = <Truck size={11} strokeWidth={2.5} />;
+                          bg = "rgba(217, 119, 6, 0.06)"; color = "#b45309"; border = "1px solid rgba(217, 119, 6, 0.18)"; text = "Dispatched"; icon = <Truck size={11} strokeWidth={2.5} />;
                         } else if (q.delivery_status === "Delivered") {
-                          bg = "rgba(16, 185, 129, 0.08)";
-                          color = "#047857";
-                          border = "1px solid rgba(16, 185, 129, 0.18)";
-                          text = "Delivered";
-                          icon = <Check size={11} strokeWidth={3} />;
+                          bg = "rgba(16, 185, 129, 0.08)"; color = "#047857"; border = "1px solid rgba(16, 185, 129, 0.18)"; text = "Delivered"; icon = <Check size={11} strokeWidth={3} />;
                         }
-
                         return (
-                          <span style={{ 
-                            fontSize: "11px", 
-                            fontWeight: 600, 
-                            padding: "4px 12px", 
-                            borderRadius: "9999px", 
-                            background: bg, 
-                            color: color, 
-                            border: border,
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 6
-                          }}>
+                          <span style={{ fontSize: "11px", fontWeight: 600, padding: "4px 12px", borderRadius: "9999px", background: bg, color, border, display: "inline-flex", alignItems: "center", gap: 6 }}>
                             {icon} {text}
                           </span>
                         );
@@ -985,6 +1140,8 @@ ${pdfLine}`;
                       <span style={{ color: "var(--muted)", fontSize: "12px" }}> - </span>
                     )}
                   </td>
+                  )}
+                  {showGeoTags && (
                   <td style={{ padding: "14px 16px", verticalAlign: "middle", textAlign: "center" }}>
                     {q.status === "Approved" ? (
                       (() => {
@@ -993,31 +1150,11 @@ ${pdfLine}`;
                         const g3 = q.documents?.some(d => d.doc_type === "geotag_3");
                         const count = [g1, g2, g3].filter(Boolean).length;
                         const needsReupload = !!q.geotag_reupload_requested;
-
                         return (
                           <button
                             onClick={() => openGeotagModal(q)}
                             className="btn-sm"
-                            style={{
-                              padding: "4px 8px",
-                              fontSize: "10px",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                              fontWeight: 600,
-                              borderRadius: "6px",
-                              background: needsReupload
-                                ? "rgba(234,88,12,0.1)"
-                                : count === 3 ? "rgba(46, 125, 82, 0.08)" : "rgba(249, 115, 22, 0.08)",
-                              color: needsReupload
-                                ? "#ea580c"
-                                : count === 3 ? "var(--green)" : "#f97316",
-                              border: `1px solid ${needsReupload
-                                ? "rgba(234,88,12,0.25)"
-                                : count === 3 ? "var(--green)" : "rgba(249, 115, 22, 0.2)"}`,
-                              cursor: "pointer",
-                              transition: "all 0.2s"
-                            }}
+                            style={{ padding: "4px 8px", fontSize: "10px", display: "inline-flex", alignItems: "center", gap: "4px", fontWeight: 600, borderRadius: "6px", background: needsReupload ? "rgba(234,88,12,0.1)" : count === 3 ? "rgba(46, 125, 82, 0.08)" : "rgba(249, 115, 22, 0.08)", color: needsReupload ? "#ea580c" : count === 3 ? "var(--green)" : "#f97316", border: `1px solid ${needsReupload ? "rgba(234,88,12,0.25)" : count === 3 ? "var(--green)" : "rgba(249, 115, 22, 0.2)"}`, cursor: "pointer", transition: "all 0.2s" }}
                           >
                             <Camera size={11} />
                             <span>{needsReupload ? "Re-upload" : `${count}/3 Uploaded`}</span>
@@ -1028,7 +1165,9 @@ ${pdfLine}`;
                       <span style={{ color: "var(--muted)", fontSize: "12px" }}> - </span>
                     )}
                   </td>
-                  <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
+                  )}
+                  {showActions && (
+                  <td style={{ padding: "14px 16px", verticalAlign: "middle" }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center", flexWrap: "wrap" }}>
                       <button
                         onClick={() => shareWhatsApp(q)}
@@ -1058,14 +1197,121 @@ ${pdfLine}`;
                       >
                         {sharingCopyId === q.id ? <Loader2 size={13} className="animate-spin" /> : copiedId === q.id ? <Check size={13} /> : <Copy size={13} />}
                       </button>
-
                     </div>
                   </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
-          </div>
+          </div>{/* end table-scroll-wrap */}
+          </div>{/* end q-table-wrap */}
+
+          {/* ── Mobile Card List (< 768px) ─────────────────────────────────── */}
+          <div className="q-card-list">
+            {filteredList.map(q => {
+              const statusLabel = q.status === "ReuploadRequested" ? "Re-upload" : q.status;
+              const statusClass = q.status === "Approved" ? "badge-green" : q.status === "Rejected" ? "badge-red" : "badge-sun";
+              const needsDocReupload  = q.status === "ReuploadRequested";
+              const needsGeoReupload  = q.status === "Approved" && !!q.geotag_reupload_requested;
+              const geoCount = ["geotag_1","geotag_2","geotag_3"].filter(t => q.documents?.some(d => d.doc_type === t)).length;
+              return (
+                <div key={q.id} className="q-card"
+                  style={needsDocReupload || needsGeoReupload ? { borderLeft: "3px solid #ea580c" } : {}}
+                  onClick={() => setSelectedQuotation(q)}
+                >
+                  {/* Header: quotation # + status badge */}
+                  <div className="q-card-header">
+                    <div>
+                      <div className="q-card-number">{q.quotation_number}</div>
+                      <div className="q-card-badges">
+                        <span style={{ display: "inline-block", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: q.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.08)" : "rgba(46,125,82,0.08)", color: q.payment_mode === "Kit Purchase" ? "#3b82f6" : "var(--green)", border: `1px solid ${q.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.15)" : "rgba(46,125,82,0.15)"}` }}>
+                          {q.payment_mode === "Kit Purchase" ? "Kit" : "Commission"}
+                        </span>
+                        {needsDocReupload && (
+                          <span style={{ display: "inline-block", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: "rgba(220,38,38,0.1)", color: "#dc2626", border: "1px solid rgba(220,38,38,0.2)" }}>Re-upload Required</span>
+                        )}
+                        {needsGeoReupload && (
+                          <span style={{ display: "inline-block", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: "rgba(234,88,12,0.1)", color: "#ea580c", border: "1px solid rgba(234,88,12,0.2)" }}>Geo-Tag Re-upload</span>
+                        )}
+                      </div>
+                    </div>
+                    <span className={`badge ${statusClass}`} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", flexShrink: 0 }}>
+                      {statusLabel}
+                    </span>
+                  </div>
+
+                  {/* Body: 2-col grid of key fields */}
+                  <div className="q-card-body">
+                    <div className="q-card-field">
+                      <span className="q-card-field-label">Date</span>
+                      <span className="q-card-field-value muted">{new Date(q.created_at).toLocaleDateString("en-IN")}</span>
+                    </div>
+                    <div className="q-card-field">
+                      <span className="q-card-field-label">Capacity</span>
+                      <span className="q-card-field-value">{Number(q.system_kw).toFixed(2)} kW</span>
+                    </div>
+                    <div className="q-card-field">
+                      <span className="q-card-field-label">Eff. Price</span>
+                      <span className="q-card-field-value mono">{fmt(q.effective_price)}</span>
+                    </div>
+                    <div className="q-card-field">
+                      <span className="q-card-field-label">Customer</span>
+                      <span className="q-card-field-value">{q.customer_name || "—"}</span>
+                    </div>
+                    {q.status === "Approved" && (
+                      <div className="q-card-field">
+                        <span className="q-card-field-label">Delivery</span>
+                        <span className="q-card-field-value muted">{q.delivery_status || "Material Pending"}</span>
+                      </div>
+                    )}
+                    {q.status === "Approved" && (
+                      <div className="q-card-field">
+                        <span className="q-card-field-label">Geo-Tags</span>
+                        <span className="q-card-field-value muted">{needsGeoReupload ? "Re-upload" : `${geoCount}/3 Uploaded`}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer: Tap hint + action buttons */}
+                  <div className="q-card-footer" onClick={e => e.stopPropagation()}>
+                    <span style={{ fontSize: 11, color: "var(--muted)" }}>Tap to view details</span>
+                    <div className="q-card-actions">
+                      {needsDocReupload && (
+                        <button
+                          onClick={e => { e.stopPropagation(); openPortalReuploadModal(q); }}
+                          style={{ padding: "7px 12px", borderRadius: 8, background: "rgba(220,38,38,0.08)", color: "#dc2626", border: "1px solid rgba(220,38,38,0.2)", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+                        >
+                          <RefreshCw size={12} /> Re-upload
+                        </button>
+                      )}
+                      {needsGeoReupload && (
+                        <button
+                          onClick={e => { e.stopPropagation(); openGeotagModal(q); }}
+                          style={{ padding: "7px 12px", borderRadius: 8, background: "rgba(234,88,12,0.08)", color: "#ea580c", border: "1px solid rgba(234,88,12,0.2)", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+                        >
+                          <Camera size={12} /> Re-upload Geo
+                        </button>
+                      )}
+                      <button onClick={e => { e.stopPropagation(); shareWhatsApp(q); }} disabled={sharingWaId === q.id} title="Share via WhatsApp"
+                        style={{ padding: "7px", borderRadius: 8, background: "rgba(37,211,102,0.08)", color: "#25D366", border: "1px solid rgba(37,211,102,0.15)", cursor: "pointer", display: "flex", alignItems: "center" }}>
+                        {sharingWaId === q.id ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />}
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); shareEmail(q); }} disabled={sharingEmailId === q.id} title="Share via Email"
+                        style={{ padding: "7px", borderRadius: 8, background: "rgba(46,125,82,0.08)", color: "var(--green)", border: "1px solid rgba(46,125,82,0.15)", cursor: "pointer", display: "flex", alignItems: "center" }}>
+                        {sharingEmailId === q.id ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); copyToClipboard(q); }} title="Copy"
+                        style={{ padding: "7px", borderRadius: 8, background: copiedId === q.id ? "rgba(46,125,82,0.1)" : "rgba(107,101,96,0.06)", color: copiedId === q.id ? "var(--green)" : "var(--muted)", border: copiedId === q.id ? "1px solid var(--green)" : "1px solid rgba(107,101,96,0.12)", cursor: "pointer", display: "flex", alignItems: "center" }}>
+                        {sharingCopyId === q.id ? <Loader2 size={14} className="animate-spin" /> : copiedId === q.id ? <Check size={14} /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>{/* end q-card-list */}
+
           {pagination.totalPages > 1 && (
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderTop: "1px solid var(--border)" }}>
               <span style={{ fontSize: 12, color: "var(--muted)" }}>
@@ -1820,6 +2066,294 @@ ${pdfLine}`;
           </div>
         </div>
       )}
+
+      {/* ————— Quotation Detail Modal ——————————————————————————————————————————————————— */}
+      {selectedQuotation && (() => {
+        const q = selectedQuotation;
+        const SLOT_LABELS = { geotag_1: "Site / Inverter Photo", geotag_2: "Solar Panels Photo", geotag_3: "ACDB / Net Meter Photo" };
+        const geoCount = [1,2,3].filter(i => q.documents?.some(d => d.doc_type === `geotag_${i}`)).length;
+        const statusColor = q.status === "Approved" ? "#2E7D52"
+          : q.status === "Rejected" ? "#dc2626"
+          : q.status === "ReuploadRequested" ? "#b45309"
+          : "#d97706";
+        const statusBg = q.status === "Approved" ? "rgba(46,125,82,0.1)"
+          : q.status === "Rejected" ? "rgba(220,38,38,0.1)"
+          : q.status === "ReuploadRequested" ? "rgba(180,83,9,0.1)"
+          : "rgba(217,119,6,0.1)";
+        const statusLabel = q.status === "ReuploadRequested" ? "Re-upload Requested" : q.status;
+
+        const PriceLine = ({ label, value, highlight, muted, negative }) => (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: highlight ? "10px 0" : "5px 0", borderTop: highlight ? "1px solid rgba(0,0,0,0.08)" : "none", marginTop: highlight ? 6 : 0 }}>
+            <span style={{ fontSize: highlight ? 14 : 13, fontWeight: highlight ? 700 : 500, color: muted ? "var(--muted)" : "var(--text)" }}>{label}</span>
+            <span style={{ fontSize: highlight ? 17 : 13, fontWeight: highlight ? 800 : 600, fontFamily: "var(--mono)", color: highlight ? "var(--green)" : muted ? "var(--muted)" : negative ? "#2E7D52" : "var(--text)" }}>{value}</span>
+          </div>
+        );
+
+        return (
+          <div
+            style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15,23,42,0.45)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 950, padding: "env(safe-area-inset-top, 12px) 12px env(safe-area-inset-bottom, 12px) 12px" }}
+            onClick={() => setSelectedQuotation(null)}
+          >
+            <div
+              style={{ background: "var(--card-bg, #fff)", borderRadius: 20, width: "100%", maxWidth: 800, maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 25px 60px -12px rgba(0,0,0,0.3)", border: "1px solid rgba(0,0,0,0.06)", animation: "modalFadeIn 0.2s ease-out" }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* ── Modal Header ──────────────────────────────────────────────────────── */}
+              <div style={{ padding: "20px 24px", paddingRight: 64, borderBottom: "1px solid var(--border)", background: "linear-gradient(135deg, rgba(28,58,42,0.03) 0%, rgba(46,125,82,0.02) 100%)", borderRadius: "20px 20px 0 0", position: "relative" }}>
+                {/* Close button */}
+                <button
+                  onClick={() => setSelectedQuotation(null)}
+                  style={{ position: "absolute", top: 16, right: 16, width: 34, height: 34, borderRadius: "50%", background: "var(--light, #f1f5f9)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "var(--text)", transition: "all 0.2s" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "rgba(0,0,0,0.08)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "var(--light, #f1f5f9)"; }}
+                >
+                  <X size={17} />
+                </button>
+
+                {/* Title row */}
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--mono)", color: "var(--text)", letterSpacing: "-0.3px" }}>{q.quotation_number}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: statusBg, color: statusColor, border: `1px solid ${statusColor}22` }}>{statusLabel}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20, background: q.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.08)" : "rgba(46,125,82,0.07)", color: q.payment_mode === "Kit Purchase" ? "#3b82f6" : "var(--green)", border: `1px solid ${q.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.15)" : "rgba(46,125,82,0.15)"}` }}>{q.payment_mode === "Kit Purchase" ? "Kit Purchase" : "Commission"}</span>
+                  {q.is_expired && q.status === "Pending" && (
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20, background: "rgba(220,38,38,0.08)", color: "#dc2626", border: "1px solid rgba(220,38,38,0.18)", display: "flex", alignItems: "center", gap: 3 }}>
+                      <AlertCircle size={10} /> Expired
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                  Submitted on {new Date(q.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}
+                  {q.reupload_count > 0 && <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 12, background: "rgba(99,102,241,0.08)", color: "#6366f1", border: "1px solid rgba(99,102,241,0.18)" }}>Re-uploaded ×{q.reupload_count}</span>}
+                </div>
+              </div>
+
+              {/* ── Modal Body (scrollable) ────────────────────────────────────────────── */}
+              <div style={{ overflowY: "auto", flex: 1, padding: "clamp(16px, 4vw, 24px)" }}>
+
+                {/* Alert Banners */}
+                {q.status === "Rejected" && q.rejection_reason && (
+                  <div style={{ background: "rgba(220,38,38,0.05)", border: "1px solid rgba(220,38,38,0.2)", borderLeft: "4px solid #dc2626", borderRadius: 12, padding: "12px 16px", marginBottom: 18, display: "flex", gap: 10, alignItems: "flex-start" }}>
+                    <AlertTriangle size={15} style={{ color: "#dc2626", flexShrink: 0, marginTop: 1 }} />
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#991b1b", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: 4 }}>Rejection Reason</div>
+                      <div style={{ fontSize: 13, color: "#7f1d1d", lineHeight: 1.5 }}>{q.rejection_reason}</div>
+                    </div>
+                  </div>
+                )}
+                {q.status === "ReuploadRequested" && (
+                  <div style={{ background: "rgba(180,83,9,0.05)", border: "1px solid rgba(245,158,11,0.25)", borderLeft: "4px solid #f59e0b", borderRadius: 12, padding: "12px 16px", marginBottom: 18, display: "flex", gap: 10, alignItems: "flex-start" }}>
+                    <RefreshCw size={15} style={{ color: "#b45309", flexShrink: 0, marginTop: 1 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: 4 }}>Document Re-upload Requested</div>
+                      {q.reupload_reason && <div style={{ fontSize: 13, color: "#78350f", lineHeight: 1.5, marginBottom: 6 }}>{q.reupload_reason}</div>}
+                      {q.reupload_required_docs && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                          {q.reupload_required_docs.split(",").filter(Boolean).map(d => (
+                            <span key={d} style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "rgba(180,83,9,0.1)", color: "#92400e", border: "1px solid rgba(180,83,9,0.2)" }}>{DOC_LABELS[d] || d}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {q.status === "Approved" && !!q.geotag_reupload_requested && (
+                  <div style={{ background: "rgba(234,88,12,0.05)", border: "1px solid rgba(234,88,12,0.2)", borderLeft: "4px solid #ea580c", borderRadius: 12, padding: "12px 16px", marginBottom: 18, display: "flex", gap: 10, alignItems: "flex-start" }}>
+                    <Camera size={15} style={{ color: "#ea580c", flexShrink: 0, marginTop: 1 }} />
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#7c2d12", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: 4 }}>Geo-tag Re-upload Requested</div>
+                      {q.geotag_reupload_reason && <div style={{ fontSize: 13, color: "#9a3412", lineHeight: 1.5, marginBottom: 6 }}>{q.geotag_reupload_reason}</div>}
+                      {q.geotag_reupload_slots && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                          {q.geotag_reupload_slots.split(",").filter(Boolean).map(s => (
+                            <span key={s} style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "rgba(234,88,12,0.1)", color: "#c2410c", border: "1px solid rgba(234,88,12,0.2)" }}>{SLOT_LABELS[s] || s}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Two-column grid: left = Customer + System, right = Pricing + Status */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+
+                  {/* LEFT COLUMN */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+                    {/* Customer Section */}
+                    <div style={{ background: "var(--light, #f8fafc)", borderRadius: 14, padding: "14px 16px", border: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}>
+                        <FileText size={10} /> Customer
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", marginBottom: 10 }}>{q.customer_name || "—"}</div>
+                      {q.customer_phone && (
+                        <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
+                          <span style={{ width: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <Phone size={12} style={{ color: "var(--muted)" }} />
+                          </span>
+                          <span style={{ fontSize: 13, color: "var(--text)", fontFamily: "var(--mono)", fontWeight: 500 }}>{q.customer_phone}</span>
+                        </div>
+                      )}
+                      {q.customer_email && (
+                        <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
+                          <span style={{ width: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <Mail size={12} style={{ color: "var(--muted)" }} />
+                          </span>
+                          <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 500, wordBreak: "break-all" }}>{q.customer_email}</span>
+                        </div>
+                      )}
+                      {(q.customer_city || q.customer_address) && (
+                        <div style={{ display: "flex", alignItems: "flex-start" }}>
+                          <span style={{ width: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", paddingTop: 2 }}>
+                            <MapPin size={12} style={{ color: "var(--muted)" }} />
+                          </span>
+                          <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 500, lineHeight: 1.5 }}>
+                            {[q.customer_address, q.customer_city].filter(Boolean).join(", ")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* System Specifications */}
+                    <div style={{ background: "var(--light, #f8fafc)", borderRadius: 14, padding: "14px 16px", border: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}>
+                        <Package size={10} /> System Specifications
+                      </div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 12 }}>
+                        <span style={{ fontSize: 22, fontWeight: 800, color: "var(--green)", fontFamily: "var(--mono)" }}>{Number(q.system_kw).toFixed(2)}</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)" }}>kW System</span>
+                      </div>
+                      {[
+                        { icon: <Zap size={12} />,       label: "Panels",    value: `${q.panel_brand} ${q.panel_watt}W × ${q.panel_count} — ${q.panel_type || ""}` },
+                        { icon: <Cpu size={12} />,        label: "Inverter",  value: `${q.inverter_brand} ${Number(q.inverter_kw)}kW — ${q.inverter_type || ""}` },
+                        { icon: <Home size={12} />,       label: "Structure", value: q.structure_height || "—" },
+                        { icon: <CreditCard size={12} />, label: "Payment",   value: q.payment_mode || "—" },
+                      ].map(({ icon, label, value }) => (
+                        <div key={label} style={{ display: "flex", alignItems: "flex-start", marginBottom: 7 }}>
+                          <span style={{ width: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", paddingTop: 2, color: "var(--muted)" }}>{icon}</span>
+                          <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 500, lineHeight: 1.5 }}>{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* RIGHT COLUMN */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+                    {/* Pricing Breakdown */}
+                    <div style={{ background: "var(--light, #f8fafc)", borderRadius: 14, padding: "14px 16px", border: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}>
+                        <Info size={10} /> Pricing Breakdown
+                      </div>
+                      <PriceLine label="Subtotal"    value={fmt(q.subtotal)} />
+                      <PriceLine label={`GST (${q.gst_rate}%)`} value={fmt(q.gst_amount)} />
+                      <PriceLine label="Total"       value={fmt(q.total)} />
+                      {Number(q.subsidy_amount) > 0 && (
+                        <PriceLine label="Govt Subsidy" value={`−${fmt(q.subsidy_amount)}`} negative muted />
+                      )}
+                      <PriceLine label="Effective Price" value={fmt(q.effective_price)} highlight />
+                      <PriceLine label="Price / kW"  value={`${fmt(q.price_per_kw)}/kW`} muted />
+                    </div>
+
+                    {/* Status & Delivery */}
+                    <div style={{ background: "var(--light, #f8fafc)", borderRadius: 14, padding: "14px 16px", border: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}>
+                        <Clock size={10} /> Status & Delivery
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 20, background: statusBg, color: statusColor, border: `1px solid ${statusColor}22` }}>{statusLabel}</span>
+                        {q.status === "Approved" && q.delivery_status && (
+                          <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 20, background: q.delivery_status === "Delivered" ? "rgba(16,185,129,0.08)" : q.delivery_status === "Dispatched" ? "rgba(217,119,6,0.08)" : "rgba(107,114,128,0.06)", color: q.delivery_status === "Delivered" ? "#047857" : q.delivery_status === "Dispatched" ? "#b45309" : "#374151", border: "1px solid rgba(0,0,0,0.08)", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                            {q.delivery_status === "Delivered" ? <Check size={11} /> : q.delivery_status === "Dispatched" ? <Truck size={11} /> : <Clock size={11} />}
+                            {q.delivery_status || "Material Pending"}
+                          </span>
+                        )}
+                      </div>
+                      {q.status === "Approved" && (
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", minWidth: 58, paddingTop: 1 }}>Geo-tags</span>
+                          <span style={{ fontSize: 12.5, fontWeight: 600, color: geoCount === 3 && !!q.geotag_submitted ? "var(--green)" : !!q.geotag_reupload_requested ? "#ea580c" : "var(--text)" }}>
+                            {q.geotag_submitted ? `${geoCount}/3 Submitted ✓` : `${geoCount}/3 Uploaded${geoCount < 3 ? " — pending" : ""}`}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Modal Footer — Actions ─────────────────────────────────────────────── */}
+              <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)", background: "var(--light, #f8fafc)", borderRadius: "0 0 20px 20px" }}>
+
+                {/* Row 1 — Share buttons, equally filling the full width */}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => shareWhatsApp(q)}
+                    disabled={sharingWaId === q.id}
+                    title="Share via WhatsApp"
+                    style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 0", borderRadius: 9, fontSize: 12, fontWeight: 700, background: "rgba(37,211,102,0.08)", color: "#25D366", border: "1px solid rgba(37,211,102,0.2)", cursor: sharingWaId === q.id ? "not-allowed" : "pointer", opacity: sharingWaId === q.id ? 0.6 : 1, transition: "all 0.15s" }}
+                    onMouseEnter={e => { if (sharingWaId !== q.id) { e.currentTarget.style.background = "#25D366"; e.currentTarget.style.color = "white"; } }}
+                    onMouseLeave={e => { if (sharingWaId !== q.id) { e.currentTarget.style.background = "rgba(37,211,102,0.08)"; e.currentTarget.style.color = "#25D366"; } }}
+                  >
+                    {sharingWaId === q.id ? <Loader2 size={13} className="animate-spin" /> : <MessageCircle size={13} />} WhatsApp
+                  </button>
+                  <button
+                    onClick={() => shareEmail(q)}
+                    disabled={sharingEmailId === q.id}
+                    title="Share via Email"
+                    style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 0", borderRadius: 9, fontSize: 12, fontWeight: 700, background: "rgba(46,125,82,0.08)", color: "var(--green)", border: "1px solid rgba(46,125,82,0.2)", cursor: sharingEmailId === q.id ? "not-allowed" : "pointer", opacity: sharingEmailId === q.id ? 0.6 : 1, transition: "all 0.15s" }}
+                    onMouseEnter={e => { if (sharingEmailId !== q.id) { e.currentTarget.style.background = "var(--green)"; e.currentTarget.style.color = "white"; } }}
+                    onMouseLeave={e => { if (sharingEmailId !== q.id) { e.currentTarget.style.background = "rgba(46,125,82,0.08)"; e.currentTarget.style.color = "var(--green)"; } }}
+                  >
+                    {sharingEmailId === q.id ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />} Email
+                  </button>
+                  <button
+                    onClick={() => copyToClipboard(q)}
+                    disabled={sharingCopyId === q.id}
+                    title="Copy to Clipboard"
+                    style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 0", borderRadius: 9, fontSize: 12, fontWeight: 700, background: copiedId === q.id ? "rgba(46,125,82,0.1)" : "rgba(107,101,96,0.06)", color: copiedId === q.id ? "var(--green)" : "var(--muted)", border: copiedId === q.id ? "1px solid var(--green)" : "1px solid rgba(107,101,96,0.12)", cursor: sharingCopyId === q.id ? "not-allowed" : "pointer", opacity: sharingCopyId === q.id ? 0.6 : 1, transition: "all 0.15s" }}
+                  >
+                    {sharingCopyId === q.id ? <Loader2 size={13} className="animate-spin" /> : copiedId === q.id ? <Check size={13} /> : <Copy size={13} />} {copiedId === q.id ? "Copied!" : "Copy"}
+                  </button>
+                  <button
+                    onClick={() => handleDownloadPdfDetail(q)}
+                    disabled={detailPdfDownloading}
+                    title="Download PDF Proposal"
+                    style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 0", borderRadius: 9, fontSize: 12, fontWeight: 700, background: "rgba(99,102,241,0.07)", color: "#6366f1", border: "1px solid rgba(99,102,241,0.18)", cursor: detailPdfDownloading ? "not-allowed" : "pointer", opacity: detailPdfDownloading ? 0.6 : 1, transition: "all 0.15s" }}
+                    onMouseEnter={e => { if (!detailPdfDownloading) { e.currentTarget.style.background = "#6366f1"; e.currentTarget.style.color = "white"; } }}
+                    onMouseLeave={e => { if (!detailPdfDownloading) { e.currentTarget.style.background = "rgba(99,102,241,0.07)"; e.currentTarget.style.color = "#6366f1"; } }}
+                  >
+                    {detailPdfDownloading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} PDF
+                  </button>
+                </div>
+
+                {/* Row 2 — Action CTA (only when applicable), full width */}
+                {q.status === "ReuploadRequested" && (
+                  <button
+                    onClick={() => { setSelectedQuotation(null); openPortalReuploadModal(q); }}
+                    style={{ marginTop: 8, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "10px 0", borderRadius: 10, fontSize: 13, fontWeight: 700, background: "linear-gradient(135deg, #b45309, #d97706)", color: "white", border: "none", cursor: "pointer", boxShadow: "0 3px 10px rgba(180,83,9,0.25)", transition: "opacity 0.15s" }}
+                    onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; }}
+                    onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
+                  >
+                    <RefreshCw size={14} /> Re-upload Documents
+                  </button>
+                )}
+                {q.status === "Approved" && (!q.geotag_submitted || !!q.geotag_reupload_requested) && (
+                  <button
+                    onClick={() => { setSelectedQuotation(null); openGeotagModal(q); }}
+                    style={{ marginTop: 8, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "10px 0", borderRadius: 10, fontSize: 13, fontWeight: 700, background: q.geotag_reupload_requested ? "linear-gradient(135deg, #c2410c, #ea580c)" : "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)", color: "white", border: "none", cursor: "pointer", boxShadow: q.geotag_reupload_requested ? "0 3px 10px rgba(234,88,12,0.25)" : "0 3px 10px rgba(46,125,82,0.25)", transition: "opacity 0.15s" }}
+                    onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; }}
+                    onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
+                  >
+                    <Camera size={14} /> {q.geotag_reupload_requested ? "Re-upload Geo-tags" : "Upload Geo-tags"}
+                  </button>
+                )}
+
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
     </div>
   );
 }

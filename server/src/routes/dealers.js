@@ -450,9 +450,11 @@ router.post("/registrations/:id/request-reupload", async (req, res, next) => {
       [regId, tokenHash, reason.trim(), requiredDocsStr]
     );
 
-    // Update registration status to ReuploadRequested
+    // Update registration status to ReuploadRequested and clear the review flag.
+    // Admin has seen the re-uploaded docs and decided they're insufficient —
+    // needs_review_after_reupload should be cleared so banners don't show stale state.
     await db.query(
-      "UPDATE dealer_registrations SET status = 'ReuploadRequested', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
+      "UPDATE dealer_registrations SET status = 'ReuploadRequested', needs_review_after_reupload = 0, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
       [req.user.id, regId]
     );
 

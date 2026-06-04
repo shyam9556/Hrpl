@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { quotations as quotationsApi, uploads as uploadsApi } from "../utils/api";
 import { fmt, generatePdfQuotation, generateBOM } from "../utils/helpers";
-import { Loader2, Inbox, CheckCircle, XCircle, Paperclip, Download, Eye, X, User, Phone, MapPin, Zap, FileText, Camera, Truck, Package, Check, FolderOpen, ChevronLeft, ChevronRight, AlertTriangle, Copy, Search, RefreshCw } from "lucide-react";
+import { Loader2, Inbox, CheckCircle, XCircle, Paperclip, Download, Eye, X, User, Phone, MapPin, Zap, FileText, Camera, Truck, Package, Check, FolderOpen, ChevronLeft, ChevronRight, AlertTriangle, Copy, Search, RefreshCw, Send, Clock } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ErrorState from "./ErrorState";
 
@@ -639,6 +639,29 @@ export default function DealerRequestsAdmin() {
     }
   };
 
+  // ── Responded re-upload tracking ──────────────────────────────────────
+  // respondedIds: quotation IDs where dealer already re-submitted docs and
+  // admin hasn't reviewed yet (needs_review_after_reupload = 1).
+  // Used to split the Re-upload tab into two visual sections.
+  const respondedIds = new Set(
+    reviewItems.filter(r => r.needs_review_after_reupload).map(r => r.id)
+  );
+  // Count for the Re-upload tab badge (shown only when dealer has responded)
+  const docReviewCount = reviewItems.filter(r => r.needs_review_after_reupload).length;
+
+  // Tab badge counts — derived from reviewItems (status-aware, always up to date)
+  // pendingReviewCount: how many Pending quotations have re-uploaded docs awaiting review
+  // approvedGeotagCount: how many Approved quotations have geo-tag photos awaiting review
+  const pendingReviewCount  = reviewItems.filter(r => r.needs_review_after_reupload && r.status === "Pending").length;
+  const approvedGeotagCount = reviewItems.filter(r => r.geotag_needs_review           && r.status === "Approved").length;
+
+  // ── Column visibility per active tab ──────────────────────────────────────────
+  const showStatus   = filter === "";                             // Only All tab has mixed statuses
+  const showDelivery = filter === "" || filter === "Approved";    // Only meaningful post-approval
+  const showGeoTags  = filter === "" || filter === "Approved";    // Only meaningful post-approval
+  const showActions  = filter !== "Rejected";                     // No actions exist for Rejected
+  // Dynamic colSpan for section header rows (matches visible column count)
+  const colSpan = 5 + (showStatus ? 1 : 0) + (showDelivery ? 1 : 0) + (showGeoTags ? 1 : 0) + (showActions ? 1 : 0);
 
   return (
     <div>
@@ -704,11 +727,31 @@ export default function DealerRequestsAdmin() {
       <div className="admin-filter-bar">
         {/* Scrollable Tabs */}
         <div className="hide-scrollbar" style={{ display: "flex", overflowX: "auto", gap: 8, WebkitOverflowScrolling: "touch", paddingBottom: 4, flex: 1, minWidth: 0 }}>
-          {["", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => (
-            <button key={s} className={`btn-sm ${filter === s ? "primary" : ""}`} onClick={() => setFilter(s)} style={{ flexShrink: 0 }}>
-              {s === "ReuploadRequested" ? "Re-upload" : s || "All"}
-            </button>
-          ))}
+          {["", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => {
+            // Badge config per tab: only show when there are items needing attention
+            const badgeCount =
+              s === "ReuploadRequested" ? docReviewCount :
+              s === "Pending"           ? pendingReviewCount :
+              s === "Approved"          ? approvedGeotagCount : 0;
+            const badgeBg =
+              s === "Approved" ? "#3b82f6" : "#f97316"; // blue for geo-tag, orange for docs
+            return (
+              <button key={s} className={`btn-sm ${filter === s ? "primary" : ""}`} onClick={() => setFilter(s)} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                {s === "ReuploadRequested" ? "Re-upload" : (s || "All")}
+                {badgeCount > 0 && (
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    minWidth: 16, height: 16, borderRadius: 9999,
+                    background: filter === s ? "rgba(255,255,255,0.3)" : badgeBg,
+                    color: "white",
+                    fontSize: 10, fontWeight: 800, padding: "0 4px",
+                  }}>
+                    {badgeCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Divider — hidden on small mobile where everything wraps */}
@@ -858,37 +901,163 @@ export default function DealerRequestsAdmin() {
             );
           })}
 
+          <div className="q-table-wrap">
           <div className="table-scroll-wrap">
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1000px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", minWidth: filter === "" ? "900px" : filter === "Approved" ? "820px" : "640px" }}>
             <thead>
               <tr>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>Quotation #</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>Date</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>Dealer</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>Customer</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>Capacity</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>Total Cost</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>Status</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>Delivery</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>Geo-Tags</th>
-                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>Actions</th>
+                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left", width: "170px", whiteSpace: "nowrap" }}>Quotation #</th>
+                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left", width: "80px" }}>Date</th>
+                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left", width: "110px" }}>Dealer</th>
+                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left", width: "130px" }}>Customer</th>
+                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left", width: "120px" }}>Capacity / Cost</th>
+                {showStatus   && <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left",  width: "100px" }}>Status</th>}
+                {showDelivery && <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center", width: "110px" }}>Delivery</th>}
+                {showGeoTags  && <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center", width: "120px" }}>Geo-Tags</th>}
+                {showActions  && <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center", width: "88px"  }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {(search
-                ? list.filter(q => {
-                    const s = search.toLowerCase();
-                    return q.quotation_number?.toLowerCase().includes(s) ||
-                           q.dealer_name?.toLowerCase().includes(s) ||
-                           q.customer_name?.toLowerCase().includes(s) ||
-                           q.customer_city?.toLowerCase().includes(s);
-                  })
-                : list
-              ).map(q => (
-                <tr key={q.id} style={{ borderBottom: "1px solid rgba(0,0,0,0.04)", transition: "background 0.2s" }} className="table-row-hover">
+              {(() => {
+                const baseList = search
+                  ? list.filter(q => {
+                      const s = search.toLowerCase();
+                      return q.quotation_number?.toLowerCase().includes(s) ||
+                             q.dealer_name?.toLowerCase().includes(s) ||
+                             q.customer_name?.toLowerCase().includes(s) ||
+                             q.customer_city?.toLowerCase().includes(s);
+                    })
+                  : list;
+
+                // ── Sort by urgency section, then build displayList ────────
+                // Re-upload tab : responded (flag=1) first, waiting second
+                // Pending tab   : re-uploaded docs (flag=1) first, new quotations second
+                // Approved tab  : geo-tag review (flag=1) first, normal approved second
+                const displayList =
+                  filter === "ReuploadRequested"
+                    ? [
+                        ...baseList.filter(q =>  respondedIds.has(q.id)),
+                        ...baseList.filter(q => !respondedIds.has(q.id)),
+                      ]
+                  : filter === "Pending"
+                    ? [
+                        ...baseList.filter(q =>  q.needs_review_after_reupload),
+                        ...baseList.filter(q => !q.needs_review_after_reupload),
+                      ]
+                  : filter === "Approved"
+                    ? [
+                        ...baseList.filter(q =>  q.geotag_needs_review),
+                        ...baseList.filter(q => !q.geotag_needs_review),
+                      ]
+                  : baseList;
+
+                // Counts used to position section headers correctly
+                const respondedCount = filter === "ReuploadRequested"
+                  ? baseList.filter(q => respondedIds.has(q.id)).length : 0;
+                const pendingDocsCount = filter === "Pending"
+                  ? baseList.filter(q => q.needs_review_after_reupload).length : 0;
+                const pendingNewCount  = filter === "Pending"
+                  ? baseList.filter(q => !q.needs_review_after_reupload).length : 0;
+                const geotagCount = filter === "Approved"
+                  ? baseList.filter(q => q.geotag_needs_review).length : 0;
+                const approvedNormalCount = filter === "Approved"
+                  ? baseList.filter(q => !q.geotag_needs_review).length : 0;
+
+                return displayList.flatMap((q, idx) => {
+                  const isResponded   = respondedIds.has(q.id);
+                  const isDocsReview  = !!q.needs_review_after_reupload;
+                  const isGeotagReview = !!q.geotag_needs_review;
+                  const rows = [];
+
+                  // ── Section headers ────────────────────────────────────────
+
+                  // Re-upload tab: "Dealer Responded" / "Awaiting Dealer Response"
+                  if (filter === "ReuploadRequested") {
+                    if (idx === 0 && respondedCount > 0) {
+                      rows.push(
+                        <tr key="hdr-responded" style={{ background: "rgba(245,158,11,0.06)", pointerEvents: "none" }}>
+                          <td colSpan={colSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "#b45309", borderBottom: "1px solid rgba(245,158,11,0.18)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
+                            <CheckCircle size={12} /> Dealer Responded — Review Required ({respondedCount})
+                          </td>
+                        </tr>
+                      );
+                    }
+                    if (!isResponded && idx === respondedCount && respondedCount > 0) {
+                      rows.push(
+                        <tr key="hdr-waiting" style={{ background: "var(--bg, #f8fafc)", pointerEvents: "none" }}>
+                          <td colSpan={colSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "var(--muted)", borderBottom: "1px solid var(--border)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
+                            <Clock size={12} /> Awaiting Dealer Response
+                          </td>
+                        </tr>
+                      );
+                    }
+                  }
+
+                  // Pending tab: "Documents Re-uploaded" / "New Quotations"
+                  if (filter === "Pending") {
+                    if (idx === 0 && pendingDocsCount > 0) {
+                      rows.push(
+                        <tr key="hdr-docs-review" style={{ background: "rgba(245,158,11,0.06)", pointerEvents: "none" }}>
+                          <td colSpan={colSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "#b45309", borderBottom: "1px solid rgba(245,158,11,0.18)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
+                            <CheckCircle size={12} /> Documents Re-uploaded — Review Required ({pendingDocsCount})
+                          </td>
+                        </tr>
+                      );
+                    }
+                    if (!isDocsReview && idx === pendingDocsCount && pendingNewCount > 0 && pendingDocsCount > 0) {
+                      rows.push(
+                        <tr key="hdr-new-quotations" style={{ background: "var(--bg, #f8fafc)", pointerEvents: "none" }}>
+                          <td colSpan={colSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "var(--muted)", borderBottom: "1px solid var(--border)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
+                            <FileText size={12} /> New Quotations ({pendingNewCount})
+                          </td>
+                        </tr>
+                      );
+                    }
+                  }
+
+                  // Approved tab: "Geo-tag Review Required" / "All Approved"
+                  if (filter === "Approved") {
+                    if (idx === 0 && geotagCount > 0) {
+                      rows.push(
+                        <tr key="hdr-geotag-review" style={{ background: "rgba(245,158,11,0.06)", pointerEvents: "none" }}>
+                          <td colSpan={colSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "#b45309", borderBottom: "1px solid rgba(245,158,11,0.18)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
+                            <AlertTriangle size={12} /> Geo-tag Review Required ({geotagCount})
+                          </td>
+                        </tr>
+                      );
+                    }
+                    if (!isGeotagReview && idx === geotagCount && approvedNormalCount > 0 && geotagCount > 0) {
+                      rows.push(
+                        <tr key="hdr-all-approved" style={{ background: "var(--bg, #f8fafc)", pointerEvents: "none" }}>
+                          <td colSpan={colSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "var(--muted)", borderBottom: "1px solid var(--border)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
+                            <CheckCircle size={12} /> All Approved ({approvedNormalCount})
+                          </td>
+                        </tr>
+                      );
+                    }
+                  }
+
+                  // Row background tint: amber for urgent items (re-uploaded docs, geo-tag review, responded re-upload)
+                  const rowNeedsAmberTint =
+                    (filter === "ReuploadRequested" && isResponded) ||
+                    (filter === "Pending"           && isDocsReview) ||
+                    (filter === "Approved"          && isGeotagReview);
+
+                  rows.push((
+                <tr
+                  key={q.id}
+                  className="table-row-hover"
+                  style={{
+                    borderBottom: "1px solid rgba(0,0,0,0.04)",
+                    transition: "background 0.2s",
+                    cursor: "pointer",
+                    ...(rowNeedsAmberTint ? { background: "rgba(245,158,11,0.025)" } : {}),
+                  }}
+                  onClick={() => setSelectedQuotation(q)}
+                >
                   <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <div style={{ fontWeight: 600, fontFamily: "var(--mono)", color: "var(--text)", fontSize: "13px" }}>{q.quotation_number}</div>
+                      <div style={{ fontWeight: 600, fontFamily: "var(--mono)", color: "var(--text)", fontSize: "13px", whiteSpace: "nowrap" }}>{q.quotation_number}</div>
                       {q.reupload_count > 0 && (
                         <span style={{
                           display: "inline-block",
@@ -896,11 +1065,11 @@ export default function DealerRequestsAdmin() {
                           fontWeight: 700,
                           padding: "1px 6px",
                           borderRadius: 4,
-                          background: "#E8F5EE",
-                          color: "#2E7D52",
-                          border: "1px solid rgba(46, 125, 82, 0.2)",
+                          background: isResponded ? "rgba(245,158,11,0.15)" : "#E8F5EE",
+                          color: isResponded ? "#b45309" : "#2E7D52",
+                          border: isResponded ? "1px solid rgba(245,158,11,0.3)" : "1px solid rgba(46, 125, 82, 0.2)",
                         }}>
-                          Re-uploaded {q.reupload_count > 1 ? `×${q.reupload_count}` : ""}
+                          {isResponded ? `✓ Docs Submitted${q.reupload_count > 1 ? ` ×${q.reupload_count}` : ""}` : `Re-uploaded${q.reupload_count > 1 ? ` ×${q.reupload_count}` : ""}`}
                         </span>
                       )}
                     </div>
@@ -921,24 +1090,32 @@ export default function DealerRequestsAdmin() {
                   <td style={{ padding: "14px 16px", verticalAlign: "middle", color: "var(--muted)", fontSize: "13px" }}>
                     {new Date(q.created_at).toLocaleDateString("en-IN")}
                   </td>
-                  <td style={{ padding: "14px 16px", verticalAlign: "middle", fontWeight: 600, color: "var(--text)", fontSize: "13px" }}>
-                    {q.dealer_name || "—"}
+                  <td style={{ padding: "14px 16px", verticalAlign: "middle", overflow: "hidden" }}>
+                    <div style={{ fontWeight: 600, color: "var(--text)", fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={q.dealer_name || "—"}>
+                      {q.dealer_name || "—"}
+                    </div>
                   </td>
-                  <td style={{ padding: "14px 16px", verticalAlign: "middle", fontWeight: 500, color: "var(--text)", fontSize: "13px" }}>
-                    {q.customer_name || "—"}
+                  <td style={{ padding: "14px 16px", verticalAlign: "middle", overflow: "hidden" }}>
+                    <div style={{ fontWeight: 500, color: "var(--text)", fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={q.customer_name || "—"}>
+                      {q.customer_name || "—"}
+                    </div>
                   </td>
-                  <td style={{ padding: "14px 16px", verticalAlign: "middle", color: "var(--text)", fontSize: "13px" }}>
-                    {Number(q.system_kw).toFixed(2)} kW
+                  <td style={{ padding: "12px 16px", verticalAlign: "middle" }}>
+                    <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 500, lineHeight: 1.3 }}>
+                      {Number(q.system_kw).toFixed(2)} kW
+                    </div>
+                    <div style={{ fontFamily: "var(--mono)", color: "var(--green)", fontWeight: 700, fontSize: 13, marginTop: 2, lineHeight: 1.3 }}>
+                      {fmt(q.total)}
+                    </div>
                   </td>
-                  <td style={{ padding: "14px 16px", verticalAlign: "middle", fontFamily: "var(--mono)", color: "var(--green)", fontWeight: 700, fontSize: "14px" }}>
-                    {fmt(q.total)}
-                  </td>
+                  {showStatus && (
                   <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
                     <span className={`badge ${q.status === "Approved" ? "badge-green" : q.status === "Rejected" ? "badge-red" : "badge-sun"}`} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px" }}>
-                      {q.status}
+                      {q.status === "ReuploadRequested" ? "Re-upload" : q.status}
                     </span>
                   </td>
-                  <td style={{ padding: "14px 16px", verticalAlign: "middle", textAlign: "center" }}>
+                  )}
+                  {showDelivery && (<td style={{ padding: "14px 16px", verticalAlign: "middle", textAlign: "center" }}>
                     {q.status === "Approved" ? (
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
                         {q.delivery_status === "Pending" && (
@@ -958,7 +1135,7 @@ export default function DealerRequestsAdmin() {
                               gap: 6,
                               transition: "all 0.2s ease"
                             }}
-                            onClick={() => handleUpdateDelivery(q.id, "Dispatched")}
+                            onClick={(e) => { e.stopPropagation(); handleUpdateDelivery(q.id, "Dispatched"); }}
                             disabled={actionLoading === q.id}
                           >
                             <Truck size={12} strokeWidth={2.5} /> Ship
@@ -981,7 +1158,7 @@ export default function DealerRequestsAdmin() {
                               gap: 6,
                               transition: "all 0.2s ease"
                             }}
-                            onClick={() => handleUpdateDelivery(q.id, "Delivered")}
+                            onClick={(e) => { e.stopPropagation(); handleUpdateDelivery(q.id, "Delivered"); }}
                             disabled={actionLoading === q.id}
                           >
                             <Package size={12} strokeWidth={2.5} /> Deliver
@@ -1007,13 +1184,28 @@ export default function DealerRequestsAdmin() {
                     ) : (
                       <span style={{ color: "var(--muted)", fontSize: "12px" }}>—</span>
                     )}
-                  </td>
-                  <td style={{ padding: "14px 16px", verticalAlign: "middle", textAlign: "center" }}>
+                  </td>)}
+                  {showGeoTags && (<td style={{ padding: "14px 16px", verticalAlign: "middle", textAlign: "center" }}>
                     {q.status === "Approved" ? (
                       (() => {
+                        // Geo-tag re-review takes priority — show urgent badge
+                        if (q.geotag_needs_review === 1) {
+                          return (
+                            <span style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              fontSize: 10, fontWeight: 700, padding: "4px 8px", borderRadius: 6,
+                              background: "rgba(245,158,11,0.12)", color: "#b45309",
+                              border: "1px solid rgba(245,158,11,0.28)",
+                              animation: "pulse 2s infinite",
+                            }}>
+                              <AlertTriangle size={11} /> Review Photos
+                            </span>
+                          );
+                        }
+
                         const geotags = q.documents?.filter(d => d.doc_type?.startsWith("geotag_")) || [];
                         const count = geotags.length;
-                        
+
                         let bg = "rgba(107, 114, 128, 0.08)";
                         let color = "var(--muted)";
                         let border = "1px solid rgba(107, 114, 128, 0.15)";
@@ -1032,20 +1224,11 @@ export default function DealerRequestsAdmin() {
                         }
 
                         return (
-                          <span 
-                            style={{ 
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
-                              fontSize: 10,
-                              fontWeight: 700,
-                              padding: "4px 8px",
-                              borderRadius: 6,
-                              background: bg,
-                              color: color,
-                              border: border
-                            }}
-                          >
+                          <span style={{
+                            display: "inline-flex", alignItems: "center", gap: 4,
+                            fontSize: 10, fontWeight: 700, padding: "4px 8px", borderRadius: 6,
+                            background: bg, color: color, border: border
+                          }}>
                             <Camera size={11} /> {text}
                           </span>
                         );
@@ -1053,88 +1236,64 @@ export default function DealerRequestsAdmin() {
                     ) : (
                       <span style={{ color: "var(--muted)", fontSize: "12px" }}>—</span>
                     )}
-                  </td>
-                  <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
+                  </td>)}
+                  {showActions && (<td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
                     <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>
-                      <button
-                        className="btn-sm"
-                        style={{ 
-                          padding: "6px", 
-                          borderRadius: 8, 
-                          background: "rgba(59, 130, 246, 0.08)", 
-                          color: "var(--primary, #3b82f6)", 
-                          border: "1px solid rgba(59, 130, 246, 0.15)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          cursor: "pointer",
-                          transition: "all 0.2s"
-                        }}
-                        onClick={() => setSelectedQuotation(q)}
-                        title="View Details"
-                      >
-                        <Eye size={13} />
-                      </button>
 
-                      {q.status === "Pending" && (
+                      {/* Pending OR ReuploadRequested where dealer already responded → Approve + Reject */}
+                      {(q.status === "Pending" || (q.status === "ReuploadRequested" && isResponded)) && (
                         <>
                           <button
                             className="btn-sm"
-                            style={{ 
-                              padding: "6px", 
-                              borderRadius: 8, 
-                              background: "rgba(46, 125, 82, 0.08)", 
-                              color: "var(--green)", 
-                              border: "1px solid rgba(46, 125, 82, 0.15)",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              cursor: "pointer",
-                              transition: "all 0.2s"
-                            }}
+                            style={{ padding: "6px", borderRadius: 8, background: "rgba(46, 125, 82, 0.08)", color: "var(--green)", border: "1px solid rgba(46, 125, 82, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s" }}
                             disabled={actionLoading === q.id}
-                            onClick={() => setStatusConfirm({ id: q.id, status: "Approved", number: q.quotation_number })}
+                            onClick={(e) => { e.stopPropagation(); setStatusConfirm({ id: q.id, status: "Approved", number: q.quotation_number }); }}
                             title="Approve"
                           >
                             <CheckCircle size={13} />
                           </button>
                           <button
                             className="btn-sm danger"
-                            style={{ 
-                              padding: "6px", 
-                              borderRadius: 8, 
-                              display: "flex", 
-                              alignItems: "center", 
-                              justifyContent: "center",
-                              cursor: "pointer",
-                              transition: "all 0.2s"
-                            }}
+                            style={{ padding: "6px", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s" }}
                             disabled={actionLoading === q.id}
-                            onClick={() => setStatusConfirm({ id: q.id, status: "Rejected", number: q.quotation_number })}
+                            onClick={(e) => { e.stopPropagation(); setStatusConfirm({ id: q.id, status: "Rejected", number: q.quotation_number }); }}
                             title="Reject"
                           >
                             <XCircle size={13} />
                           </button>
                         </>
                       )}
-                      {q.status === "Approved" && (
+
+                      {/* ReuploadRequested waiting for dealer → Send Link Again + Reject */}
+                      {q.status === "ReuploadRequested" && !isResponded && (
                         <>
-                          {/* GAP-5: PDF download for admin — all approved quotations regardless of mode */}
                           <button
                             className="btn-sm"
-                            style={{ 
-                              padding: "6px", 
-                              borderRadius: 8, 
-                              background: "rgba(107, 114, 128, 0.06)", 
-                              color: "var(--muted)", 
-                              border: "1px solid rgba(107, 114, 128, 0.12)",
-                              display: "flex", 
-                              alignItems: "center", 
-                              justifyContent: "center",
-                              cursor: "pointer",
-                              transition: "all 0.2s"
-                            }}
-                            onClick={() => handleDownloadPdf(q)}
+                            style={{ padding: "6px", borderRadius: 8, background: "rgba(249,115,22,0.08)", color: "#f97316", border: "1px solid rgba(249,115,22,0.2)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s" }}
+                            onClick={(e) => { e.stopPropagation(); openReuploadModal(q); }}
+                            title="Send Re-upload Link Again"
+                          >
+                            <Send size={13} />
+                          </button>
+                          <button
+                            className="btn-sm danger"
+                            style={{ padding: "6px", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s" }}
+                            disabled={actionLoading === q.id}
+                            onClick={(e) => { e.stopPropagation(); setStatusConfirm({ id: q.id, status: "Rejected", number: q.quotation_number }); }}
+                            title="Reject"
+                          >
+                            <XCircle size={13} />
+                          </button>
+                        </>
+                      )}
+
+                      {/* Approved → PDF + BOM downloads */}
+                      {q.status === "Approved" && (
+                        <>
+                          <button
+                            className="btn-sm"
+                            style={{ padding: "6px", borderRadius: 8, background: "rgba(107, 114, 128, 0.06)", color: "var(--muted)", border: "1px solid rgba(107, 114, 128, 0.12)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s" }}
+                            onClick={(e) => { e.stopPropagation(); handleDownloadPdf(q); }}
                             title="Download PDF Quotation"
                             onMouseOver={e => { e.currentTarget.style.background = "#334155"; e.currentTarget.style.color = "white"; }}
                             onMouseOut={e => { e.currentTarget.style.background = "rgba(107, 114, 128, 0.06)"; e.currentTarget.style.color = "var(--muted)"; }}
@@ -1143,19 +1302,8 @@ export default function DealerRequestsAdmin() {
                           </button>
                           <button
                             className="btn-sm"
-                            style={{ 
-                              padding: "6px", 
-                              borderRadius: 8, 
-                              background: "rgba(46, 125, 82, 0.08)", 
-                              color: "var(--green)", 
-                              border: "1px solid rgba(46, 125, 82, 0.15)",
-                              display: "flex", 
-                              alignItems: "center", 
-                              justifyContent: "center",
-                              cursor: "pointer",
-                              transition: "all 0.2s"
-                            }}
-                            onClick={() => handleDownloadBOM(q)}
+                            style={{ padding: "6px", borderRadius: 8, background: "rgba(46, 125, 82, 0.08)", color: "var(--green)", border: "1px solid rgba(46, 125, 82, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s" }}
+                            onClick={(e) => { e.stopPropagation(); handleDownloadBOM(q); }}
                             title="Download BOM"
                           >
                             <Download size={13} />
@@ -1163,12 +1311,143 @@ export default function DealerRequestsAdmin() {
                         </>
                       )}
                     </div>
-                  </td>
-                </tr>
-              ))}
+                  </td>)}
+                    </tr>
+                  ));
+
+                  return rows;
+                });
+              })()}
             </tbody>
           </table>
           </div>
+          </div>{/* end q-table-wrap */}
+
+          {/* ── Mobile Card List (< 768px) ────────────────────────────────────── */}
+          <div className="q-card-list">
+            {(search
+              ? list.filter(q => {
+                  const s = search.toLowerCase();
+                  return q.quotation_number?.toLowerCase().includes(s) ||
+                         q.dealer_name?.toLowerCase().includes(s) ||
+                         q.customer_name?.toLowerCase().includes(s) ||
+                         q.customer_city?.toLowerCase().includes(s);
+                })
+              : list
+            ).map(q => {
+              const isResponded = respondedIds.has(q.id);
+              const statusLabel = q.status === "ReuploadRequested" ? "Re-upload" : q.status;
+              const statusClass = q.status === "Approved" ? "badge-green" : q.status === "Rejected" ? "badge-red" : "badge-sun";
+
+              return (
+                <div key={q.id} className="q-card" onClick={() => setSelectedQuotation(q)}
+                  style={isResponded ? { borderLeft: "3px solid #f59e0b" } : {}}>
+
+                  {/* Header row: quotation number + status badge */}
+                  <div className="q-card-header">
+                    <div>
+                      <div className="q-card-number">{q.quotation_number}</div>
+                      <div className="q-card-badges">
+                        <span style={{ display: "inline-block", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: q.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.08)" : "rgba(46,125,82,0.08)", color: q.payment_mode === "Kit Purchase" ? "#3b82f6" : "var(--green)", border: `1px solid ${q.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.15)" : "rgba(46,125,82,0.15)"}` }}>
+                          {q.payment_mode === "Kit Purchase" ? "Kit" : "Commission"}
+                        </span>
+                        {q.reupload_count > 0 && (
+                          <span style={{ display: "inline-block", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: isResponded ? "rgba(245,158,11,0.15)" : "#E8F5EE", color: isResponded ? "#b45309" : "#2E7D52", border: isResponded ? "1px solid rgba(245,158,11,0.3)" : "1px solid rgba(46,125,82,0.2)" }}>
+                            {isResponded ? `✓ Docs Submitted` : `Re-uploaded ×${q.reupload_count}`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className={`badge ${statusClass}`} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", flexShrink: 0 }}>
+                      {statusLabel}
+                    </span>
+                  </div>
+
+                  {/* Body: 2-column grid of fields */}
+                  <div className="q-card-body">
+                    <div className="q-card-field">
+                      <span className="q-card-field-label">Date</span>
+                      <span className="q-card-field-value muted">{new Date(q.created_at).toLocaleDateString("en-IN")}</span>
+                    </div>
+                    <div className="q-card-field">
+                      <span className="q-card-field-label">Capacity</span>
+                      <span className="q-card-field-value">{Number(q.system_kw).toFixed(2)} kW</span>
+                    </div>
+                    <div className="q-card-field">
+                      <span className="q-card-field-label">Dealer</span>
+                      <span className="q-card-field-value">{q.dealer_name || "—"}</span>
+                    </div>
+                    <div className="q-card-field">
+                      <span className="q-card-field-label">Total Cost</span>
+                      <span className="q-card-field-value mono">{fmt(q.total)}</span>
+                    </div>
+                    <div className="q-card-field" style={{ gridColumn: "1 / -1" }}>
+                      <span className="q-card-field-label">Customer</span>
+                      <span className="q-card-field-value">{q.customer_name || "—"}{q.customer_city ? ` · ${q.customer_city}` : ""}</span>
+                    </div>
+                    {q.status === "Approved" && q.delivery_status && (
+                      <div className="q-card-field">
+                        <span className="q-card-field-label">Delivery</span>
+                        <span className="q-card-field-value muted">{q.delivery_status}</span>
+                      </div>
+                    )}
+                    {q.status === "Approved" && (
+                      <div className="q-card-field">
+                        <span className="q-card-field-label">Geo-Tags</span>
+                        <span className="q-card-field-value muted">
+                          {q.geotag_needs_review === 1 ? "Review Required" : `${(q.documents?.filter(d => d.doc_type?.startsWith("geotag_")) || []).length}/3 Uploaded`}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer: action buttons */}
+                  <div className="q-card-footer">
+                    <span style={{ fontSize: 11, color: "var(--muted)" }}>Tap to view details</span>
+                    <div className="q-card-actions">
+                      {(q.status === "Pending" || (q.status === "ReuploadRequested" && isResponded)) && (
+                        <>
+                          <button className="btn-sm" style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(46,125,82,0.08)", color: "var(--green)", border: "1px solid rgba(46,125,82,0.15)", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+                            onClick={(e) => { e.stopPropagation(); setStatusConfirm({ id: q.id, status: "Approved", number: q.quotation_number }); }}>
+                            <CheckCircle size={13} /> Approve
+                          </button>
+                          <button className="btn-sm danger" style={{ padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+                            onClick={(e) => { e.stopPropagation(); setStatusConfirm({ id: q.id, status: "Rejected", number: q.quotation_number }); }}>
+                            <XCircle size={13} /> Reject
+                          </button>
+                        </>
+                      )}
+                      {q.status === "ReuploadRequested" && !isResponded && (
+                        <>
+                          <button className="btn-sm" style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(249,115,22,0.08)", color: "#f97316", border: "1px solid rgba(249,115,22,0.2)", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+                            onClick={(e) => { e.stopPropagation(); openReuploadModal(q); }}>
+                            <Send size={13} /> Resend
+                          </button>
+                          <button className="btn-sm danger" style={{ padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+                            onClick={(e) => { e.stopPropagation(); setStatusConfirm({ id: q.id, status: "Rejected", number: q.quotation_number }); }}>
+                            <XCircle size={13} /> Reject
+                          </button>
+                        </>
+                      )}
+                      {q.status === "Approved" && (
+                        <>
+                          <button className="btn-sm" style={{ padding: "7px", borderRadius: 8, background: "rgba(107,114,128,0.06)", color: "var(--muted)", border: "1px solid rgba(107,114,128,0.12)", cursor: "pointer", display: "flex", alignItems: "center" }}
+                            onClick={(e) => { e.stopPropagation(); handleDownloadPdf(q); }} title="Download PDF">
+                            <FileText size={14} />
+                          </button>
+                          <button className="btn-sm" style={{ padding: "7px", borderRadius: 8, background: "rgba(46,125,82,0.08)", color: "var(--green)", border: "1px solid rgba(46,125,82,0.15)", cursor: "pointer", display: "flex", alignItems: "center" }}
+                            onClick={(e) => { e.stopPropagation(); handleDownloadBOM(q); }} title="Download BOM">
+                            <Download size={14} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+              );
+            })}
+          </div>{/* end q-card-list */}
 
           {/* Pagination Controls */}
           {pagination.totalPages > 1 && (
