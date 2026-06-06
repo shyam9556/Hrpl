@@ -23,6 +23,7 @@ export default function CustomerManager() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorDialog, setErrorDialog] = useState({ open: false, message: "" });
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
@@ -37,6 +38,7 @@ export default function CustomerManager() {
 
   const fetchCustomers = useCallback(async () => {
     try {
+      setLoading(true);
       setFetchError(false);
       const params = { page, limit: 20 };
       if (search) params.search = search;
@@ -45,7 +47,6 @@ export default function CustomerManager() {
       setList(res.customers || []);
       if (res.pagination) setPagination(res.pagination);
     } catch (err) {
-      console.error("Fetch customers error:", err);
       setFetchError(true);
     } finally {
       setLoading(false);
@@ -97,6 +98,8 @@ export default function CustomerManager() {
       }
       resetForm();
       fetchCustomers();
+      setSaveSuccess(editingId ? "Customer updated successfully." : "Customer added successfully.");
+      setTimeout(() => setSaveSuccess(false), 3500);
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to save customer." });
     } finally {
@@ -158,14 +161,23 @@ export default function CustomerManager() {
             <div className="field">
               <label>Full Name *</label>
               <input placeholder="Ramesh Patel" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+              {form.name.length > 0 && form.name.trim().length < 2 && (
+                <span style={{ fontSize: 11, color: "#e05c0a", marginTop: 4, display: "block" }}>Name must be at least 2 characters</span>
+              )}
             </div>
             <div className="field">
               <label>Phone</label>
               <input placeholder="9876543210" maxLength={10} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value.replace(/\D/g, "") })} />
+              {form.phone.length > 0 && form.phone.length < 10 && (
+                <span style={{ fontSize: 11, color: "#e05c0a", marginTop: 4, display: "block" }}>{form.phone.length}/10 digits — must be exactly 10</span>
+              )}
             </div>
             <div className="field">
               <label>Email</label>
               <input placeholder="email@example.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+              {form.email.length > 0 && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email) && (
+                <span style={{ fontSize: 11, color: "#e05c0a", marginTop: 4, display: "block" }}>Enter a valid email (e.g. name@example.com)</span>
+              )}
             </div>
             <div className="field">
               <label>City</label>
@@ -191,6 +203,14 @@ export default function CustomerManager() {
           <button className="btn-primary" style={{ width: "auto", padding: "10px 24px", marginTop: 12 }} onClick={handleSave} disabled={saving}>
             {saving ? <><Loader2 size={16} className="animate-spin" /> Saving...</> : (editingId ? "Update Customer" : "Add Customer")}
           </button>
+        </div>
+      )}
+
+      {/* Save success banner */}
+      {saveSuccess && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, background: "#f0fdf4", border: "1px solid #86efac", marginBottom: 12, fontSize: 13, color: "#166534" }}>
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          {saveSuccess}
         </div>
       )}
 

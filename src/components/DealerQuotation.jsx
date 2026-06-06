@@ -45,6 +45,7 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
   const [loadingPrices, setLoadingPrices] = useState(true);
   const [priceError, setPriceError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [settingsLoadFailed, setSettingsLoadFailed] = useState(false);
   const creatingRef = useRef(false);
   // Mirror of submittedQuotation in a ref so async closures always read the
   // latest value without stale-closure issues (fixes concurrent share bug).
@@ -163,7 +164,9 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
         setPricingSettings(parsed);
         setGstRate(parsed.gst_rate / 100);
       })
-      .catch(err => console.error("Fetch pricing settings error:", err));
+      .catch(() => {
+        setSettingsLoadFailed(true);
+      });
   }, []);
 
   // Map DB accessories array to the flat object calcQuotation expects.
@@ -608,7 +611,15 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
         proposalDocId = uploadRes.document.public_token;
       }
     } catch (pdfErr) {
-      console.error("Failed to upload proposal PDF:", pdfErr);
+      // Non-fatal: quotation is already saved. Warn the dealer so they know
+      // the shareable PDF link may be unavailable but the submission succeeded.
+      console.warn("PDF upload failed (non-fatal):", pdfErr);
+      setDialogState({
+        open: true,
+        title: "Quotation Saved",
+        message: "Your quotation was saved successfully, but the shareable PDF link could not be generated at this time. You can still download the PDF manually from the proposal screen.",
+        variant: "info",
+      });
     }
 
     // FIX BUG 8: Reset creatingRef on success so future calls aren't blocked.
@@ -1199,6 +1210,28 @@ ${pdfLine}`;
         </div>
       </div>
 
+      {/* Settings load failure — soft amber warning, non-blocking */}
+      {settingsLoadFailed && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          background: "#fffbeb", border: "1px solid #fde68a",
+          borderLeft: "4px solid #f59e0b",
+          borderRadius: 8, padding: "10px 14px",
+          marginBottom: 14, fontSize: 12, color: "#78350f",
+        }}>
+          <AlertTriangle size={14} style={{ flexShrink: 0, color: "#d97706" }} />
+          <span><strong>Pricing may be using defaults</strong> — live pricing settings could not be loaded. Calculated prices are based on standard defaults and may not reflect the latest admin configuration.</span>
+          <button
+            type="button"
+            onClick={() => setSettingsLoadFailed(false)}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "#d97706", marginLeft: "auto", flexShrink: 0 }}
+            aria-label="Dismiss warning"
+          >
+            <Info size={14} />
+          </button>
+        </div>
+      )}
+
       {step === 1 && (
         <>
           <div className="card">
@@ -1489,6 +1522,12 @@ ${pdfLine}`;
                     ? <>Leave blank to use the PDF kit price of <strong>{fmt(stdTotal)}</strong>. Custom price must be &ge; standard total.</>  
                     : <>Leave blank to use the standard system-calculated total of <strong>{fmt(stdTotal)}</strong>. Custom price must be &ge; standard total.</>}
                 </span>
+                {customPrice && !isCustomPriceValid && (
+                  <span style={{ fontSize: 11, color: "#dc2626", marginTop: 6, display: "flex", alignItems: "center", gap: 5, fontWeight: 600 }}>
+                    <AlertTriangle size={12} />
+                    Price must be at least {fmt(stdTotal)} — currently {fmt(numericCustomPrice)} which is {fmt(stdTotal - numericCustomPrice)} below the minimum.
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -1654,17 +1693,27 @@ ${pdfLine}`;
                 </div>
               </div>
 
-              {!canStep2 && (
-                <div className="alert alert-red" style={{ marginTop: "1rem" }}>
-                  {!form.customerName.trim()
-                    ? "Fill customer name to proceed"
-                    : !form.customerPhone || form.customerPhone.length !== 10
-                    ? "Enter a valid 10-digit customer mobile number to proceed"
-                    : !form.customerAddress.trim()
-                    ? "Enter a site / delivery address to proceed (shown on PDF proposal)"
-                    : !isCustomPriceValid
-                    ? `Custom price must be greater than or equal to standard calculated price (${fmt(stdTotal)})`
-                    : "Please complete the required system configuration fields to proceed"}
+              {/* Step 1 incomplete hint — amber (softer than red, not an error) */}
+              {!canStep2 && (form.customerName.trim() || form.panelCount || form.customerPhone) && (
+                <div style={{
+                  display: "flex", alignItems: "flex-start", gap: 8,
+                  background: "#fffbeb", border: "1px solid #fde68a",
+                  borderRadius: 8, padding: "10px 14px",
+                  marginTop: "1rem", fontSize: 12, color: "#78350f",
+                }}>
+                  <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1, color: "#d97706" }} />
+                  <div>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>A few things are needed before proceeding:</div>
+                    <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.8 }}>
+                      {!form.customerName.trim()      && <li>Customer name is required</li>}
+                      {(!form.customerPhone || form.customerPhone.length !== 10) && <li>A valid 10-digit phone number is required</li>}
+                      {!form.customerAddress.trim()   && <li>Site / delivery address is required (shown on the PDF proposal)</li>}
+                      {!form.panelId                  && <li>Select a solar panel model</li>}
+                      {!form.inverterId               && <li>Select an inverter model</li>}
+                      {!form.panelCount               && <li>Enter number of panels</li>}
+                      {customPrice && !isCustomPriceValid && <li>Custom price must be at least {fmt(stdTotal)}</li>}
+                    </ul>
+                  </div>
                 </div>
               )}
               <div style={{ display: "flex", gap: 12, marginTop: "1rem" }}>
@@ -1866,10 +1915,44 @@ ${pdfLine}`;
             )}
           </div>
           {mode === "commission" && !canSubmit && (
-            <div className="alert alert-red" style={{ marginTop: "1rem", marginBottom: "1rem" }}>
-              {form.paymentMode === "Bank Loan"
-                ? "All 8 customer documents (Aadhaar Card, PAN Card, Bank Passbook, Latest Light Bill, Vera Bill, and House Photos 1, 2, 3) are mandatory for Bank Loans. Please upload all files to submit your request."
-                : "All 4 customer documents (Aadhaar Card, PAN Card, Bank Passbook, and Latest Light Bill) are mandatory. Please upload all files to submit your request."}
+            <div style={{
+              background: "#fffbeb", border: "1px solid #fde68a",
+              borderLeft: "4px solid #f59e0b",
+              borderRadius: 10, padding: "14px 16px",
+              marginTop: "1rem", marginBottom: "1rem",
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 12, color: "#92400e", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                <AlertTriangle size={14} />
+                Required documents before submission:
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {[
+                  { label: form.aadhaarMode === "photos" ? "Aadhaar Card (Front + Back)": "Aadhaar Card (PDF/Scan)", done: !!aadhaarReady },
+                  { label: "PAN Card",         done: !!form.pan },
+                  { label: "Bank Passbook",    done: !!form.passbook },
+                  { label: "Latest Light Bill (Site Photo)", done: !!form.sitePhoto },
+                  ...(form.paymentMode === "Bank Loan" ? [
+                    { label: "Vera Bill",       done: !!form.veraBill },
+                    { label: "House Photo 1",   done: !!form.housePhoto1 },
+                    { label: "House Photo 2",   done: !!form.housePhoto2 },
+                    { label: "House Photo 3",   done: !!form.housePhoto3 },
+                  ] : []),
+                ].map(({ label, done }) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                    <span style={{
+                      width: 18, height: 18, borderRadius: "50%", flexShrink: 0,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: done ? "#dcfce7" : "#f3f4f6",
+                      border: `1.5px solid ${done ? "#86efac" : "#d1d5db"}`,
+                      color: done ? "#16a34a" : "#9ca3af",
+                      fontSize: 10, fontWeight: 800,
+                    }}>
+                      {done ? "✓" : "○"}
+                    </span>
+                    <span style={{ color: done ? "#166534" : "#374151", fontWeight: done ? 600 : 400 }}>{label}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           <div style={{ display: "flex", gap: 12 }}>

@@ -5,11 +5,14 @@ import {
   Layers, Info, AlertCircle, FileSpreadsheet, ShieldAlert, LockKeyhole, Delete, ArrowRight
 } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
+import ErrorState from "./ErrorState";
 
 export default function StockManager() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [edited, setEdited] = useState({}); // Stores { [id]: { quantity, unitPrice } }
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [errorDialog, setErrorDialog] = useState({ open: false, message: "" });
@@ -20,7 +23,9 @@ export default function StockManager() {
   const [shake, setShake] = useState(false);
   const [pinError, setPinError] = useState(false);
 
-  useEffect(() => {
+  const fetchStock = () => {
+    setLoading(true);
+    setFetchError(false);
     Promise.all([
       stockApi.getAll().then(res => setItems(res.stock || [])),
       settingsApi.getPublic().then(res => {
@@ -37,9 +42,13 @@ export default function StockManager() {
         }
       }).catch(() => {}),
     ])
-      .catch(err => console.error("Fetch stock error:", err))
+      .catch(err => {
+        setFetchError(true);
+      })
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { fetchStock(); }, []);
 
   const handleKeyPress = (num) => {
     if (enteredPin.length < pin.length) {
@@ -184,6 +193,8 @@ export default function StockManager() {
       );
       setEdited({});
       setDrawerOpen(false);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3500);
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to save stock changes." });
     } finally {
@@ -249,6 +260,16 @@ export default function StockManager() {
       <div style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
         <div style={{ marginBottom: 8 }}><Loader2 size={32} className="animate-spin" /></div>Loading stock...
       </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <ErrorState
+        title="Failed to load stock data."
+        message="Could not connect to the server. Please check your connection and try again."
+        onRetry={fetchStock}
+      />
     );
   }
 
@@ -362,7 +383,26 @@ export default function StockManager() {
         </button>
       </div>
 
-      {/* Grid of Categories */}
+      {/* Save success banner */}
+      {saveSuccess && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 10, background: "#f0fdf4", border: "1px solid #86efac", marginBottom: 16, fontSize: 13, color: "#166534", animation: "fadeIn 0.2s ease" }}>
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          Stock updated successfully. All changes have been saved.
+        </div>
+      )}
+
+      {/* Empty state when no stock items exist */}
+      {items.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "3rem 2rem", color: "var(--muted)" }}>
+          <div style={{ marginBottom: 12 }}><Package size={48} strokeWidth={1} /></div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text)" }}>No Stock Items Found</div>
+          <div style={{ fontSize: 13, marginTop: 6, maxWidth: 380, margin: "6px auto 0 auto", lineHeight: 1.6 }}>
+            Stock items are automatically created when you add panels and inverters in the <strong>Price Manager</strong>. Go to Price Manager to add your first panel or inverter.
+          </div>
+        </div>
+      ) : (
+
+      <>{/* Grid of Categories */}
       {categories.map(cat => {
         const config = categoryConfig[cat] || categoryConfig.Default;
         const Icon = config.icon;
@@ -605,6 +645,9 @@ export default function StockManager() {
           </div>
         </div>
       </div>
+
+      </> 
+      )} 
 
       {/* Review Changes Drawer */}
       {drawerOpen && (

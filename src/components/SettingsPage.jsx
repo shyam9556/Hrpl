@@ -22,7 +22,6 @@ export default function SettingsPage() {
       const res = await settingsApi.getAll();
       setData(res.details || []);
     } catch (err) {
-      console.error("Fetch settings error:", err);
       setFetchError(true);
     } finally {
       setLoading(false);
@@ -59,6 +58,42 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     if (Object.keys(edited).length === 0) return;
+
+    // ── Client-side validation before hitting the API ─────────────────────────
+    const gst = edited["gst_rate"] !== undefined ? Number(edited["gst_rate"]) : null;
+    if (gst !== null && (isNaN(gst) || gst < 0 || gst > 28)) {
+      setErrorDialog({ open: true, message: "GST Rate must be between 0% and 28%." });
+      return;
+    }
+    const profit = edited["profit_percentage"] !== undefined ? Number(edited["profit_percentage"]) : null;
+    if (profit !== null && (isNaN(profit) || profit < 0 || profit > 100)) {
+      setErrorDialog({ open: true, message: "Profit Margin must be between 0% and 100%." });
+      return;
+    }
+    const transport = edited["transport_percentage"] !== undefined ? Number(edited["transport_percentage"]) : null;
+    if (transport !== null && (isNaN(transport) || transport < 0 || transport > 100)) {
+      setErrorDialog({ open: true, message: "Transport Charge must be between 0% and 100%." });
+      return;
+    }
+    const getVal = (key) => edited[key] !== undefined ? Number(edited[key]) : Number(getValue(key));
+    const high = getVal("stock_threshold_high");
+    const low = getVal("stock_threshold_low");
+    if (!isNaN(high) && !isNaN(low) && low >= high) {
+      setErrorDialog({ open: true, message: "Low Stock Threshold must be less than In Stock Threshold (High)." });
+      return;
+    }
+    const pin = edited["stock_manager_pin"];
+    if (pin !== undefined && pin.length > 0 && (pin.length < 4 || pin.length > 8)) {
+      setErrorDialog({ open: true, message: "Stock Manager PIN must be between 4 and 8 digits." });
+      return;
+    }
+    const maxUpload = edited["max_upload_size_mb"] !== undefined ? Number(edited["max_upload_size_mb"]) : null;
+    if (maxUpload !== null && (isNaN(maxUpload) || maxUpload < 1 || maxUpload > 100)) {
+      setErrorDialog({ open: true, message: "Max Upload Size must be between 1 MB and 100 MB." });
+      return;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     setSaving(true);
     try {
       await settingsApi.update(edited);

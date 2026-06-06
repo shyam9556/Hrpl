@@ -20,6 +20,7 @@ export default function InquiryManager({ onConvertToQuote }) {
   const [followupNotes, setFollowupNotes] = useState("");
   const [followupHistory, setFollowupHistory] = useState([]);
   const [loadingFollowups, setLoadingFollowups] = useState(false);
+  const [followupError, setFollowupError] = useState(false);
   
   const [saving, setSaving] = useState(false);
   const [dialogState, setDialogState] = useState({ open: false, title: "", message: "", variant: "info", callback: null });
@@ -42,7 +43,6 @@ export default function InquiryManager({ onConvertToQuote }) {
       const res = await inquiriesApi.list(params);
       setList(res.inquiries || []);
     } catch (err) {
-      console.error("Fetch inquiries error:", err);
       showError("Error", err.message || "Failed to load inquiries.");
     } finally {
       setLoading(false);
@@ -141,11 +141,12 @@ export default function InquiryManager({ onConvertToQuote }) {
 
   const fetchFollowups = async (inquiryId) => {
     setLoadingFollowups(true);
+    setFollowupError(false);
     try {
       const res = await inquiriesApi.getFollowups(inquiryId);
       setFollowupHistory(res.followups || []);
     } catch (err) {
-      console.error("Fetch followups error:", err);
+      setFollowupError(true);
     } finally {
       setLoadingFollowups(false);
     }
@@ -185,8 +186,11 @@ export default function InquiryManager({ onConvertToQuote }) {
       message: `Do you want to create a new quotation proposal for ${inq.name}? Location details and name will be pre-filled automatically.`,
       variant: "info",
       callback: () => {
-        // Switch status to Quoted on the backend
-        inquiriesApi.updateStatus(inq.id, "Quoted").catch(console.error);
+        // Switch status to Quoted on the backend (best-effort — navigation proceeds regardless)
+        inquiriesApi.updateStatus(inq.id, "Quoted").catch(err => {
+          console.error("Failed to update inquiry status:", err);
+          showError("Status Update Failed", "The inquiry status could not be updated to 'Quoted'. Please update it manually.");
+        });
         onConvertToQuote({
           customerName: inq.name,
           customerAddress: inq.location,
@@ -670,20 +674,25 @@ export default function InquiryManager({ onConvertToQuote }) {
                         height: 80, 
                         padding: "8px 12px", 
                         borderRadius: 8, 
-                        border: "1.5px solid var(--border)", 
+                        border: followupNotes.trim() === "" && saving ? "1.5px solid #ef4444" : "1.5px solid var(--border)",
                         fontSize: 12, 
                         color: "var(--text)",
                         fontFamily: "inherit",
                         resize: "none",
-                        marginBottom: 10
+                        marginBottom: followupNotes.length > 0 ? 10 : 4
                       }}
                     />
+                    {followupNotes.trim() === "" && (
+                      <div style={{ fontSize: 11, color: "#e05c0a", marginBottom: 10, display: "flex", alignItems: "center", gap: 4 }}>
+                        <AlertTriangle size={11} /> Notes cannot be empty — describe what was discussed.
+                      </div>
+                    )}
                     <div style={{ display: "flex", gap: 8 }}>
                       <button 
                         type="submit" 
                         className="btn-primary" 
-                        style={{ width: "auto", padding: "6px 14px", fontSize: 12, borderRadius: 8 }}
-                        disabled={saving}
+                        style={{ width: "auto", padding: "6px 14px", fontSize: 12, borderRadius: 8, opacity: followupNotes.trim() === "" || saving ? 0.55 : 1 }}
+                        disabled={saving || followupNotes.trim() === ""}
                       >
                         {saving ? "Saving..." : "Save Log"}
                       </button>
@@ -704,6 +713,23 @@ export default function InquiryManager({ onConvertToQuote }) {
                   <div style={{ padding: 24, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>
                     <Loader2 size={24} className="animate-spin" style={{ margin: "0 auto 8px auto" }} />
                     Loading logs...
+                  </div>
+                ) : followupError ? (
+                  <div style={{
+                    textAlign: "center", padding: "24px 10px",
+                    border: "1px dashed #fca5a5", borderRadius: 12,
+                    background: "#fef2f2",
+                  }}>
+                    <div style={{ fontSize: 12, color: "#991b1b", fontWeight: 600, marginBottom: 8 }}>
+                      Could not load follow-up history.
+                    </div>
+                    <button
+                      className="btn-sm"
+                      style={{ fontSize: 11, padding: "4px 12px", border: "1.5px solid #ef4444", color: "#ef4444", background: "none" }}
+                      onClick={() => fetchFollowups(selectedInquiry.id)}
+                    >
+                      Retry
+                    </button>
                   </div>
                 ) : followupHistory.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "30px 10px", color: "var(--muted)", fontSize: 12, border: "1px dashed var(--border)", borderRadius: 12 }}>

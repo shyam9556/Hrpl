@@ -14,6 +14,7 @@ export default function PriceManager() {
   const [errorDialog, setErrorDialog] = useState({ open: false, message: "" });
   const [fetchError, setFetchError] = useState(false);
   const [accessorySaved, setAccessorySaved] = useState(false);
+  const [savedRowId, setSavedRowId] = useState(null); // flashes green on recently saved row
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { type: 'panel'|'inverter'|'kit', id, name }
 
   // Add Product Form Toggles
@@ -41,6 +42,8 @@ export default function PriceManager() {
   const [editingKitPrice, setEditingKitPrice] = useState("");
 
   const fetchPrices = async () => {
+    setFetchError(false);
+    setLoading(true);
     try {
       const res = await pricesApi.getAll();
       setPanels(res.panels || []);
@@ -58,8 +61,12 @@ export default function PriceManager() {
   useEffect(() => { fetchPrices(); }, []);
 
   const handleAddPanel = async () => {
-    if (!newPanel.brand || !newPanel.watt || !newPanel.pricePerPanel) {
-      setErrorDialog({ open: true, message: "Please fill in all panel fields" });
+    const missing = [];
+    if (!newPanel.brand.trim()) missing.push("Brand");
+    if (!newPanel.watt) missing.push("Watt");
+    if (!newPanel.pricePerPanel) missing.push("Price");
+    if (missing.length > 0) {
+      setErrorDialog({ open: true, message: `Please fill in: ${missing.join(", ")}.` });
       return;
     }
     try {
@@ -78,8 +85,12 @@ export default function PriceManager() {
   };
 
   const handleAddInv = async () => {
-    if (!newInv.brand || !newInv.kw || !newInv.pricePerUnit) {
-      setErrorDialog({ open: true, message: "Please fill in all inverter fields" });
+    const missing = [];
+    if (!newInv.brand.trim()) missing.push("Brand");
+    if (!newInv.kw) missing.push("Capacity (kW)");
+    if (!newInv.pricePerUnit) missing.push("Price");
+    if (missing.length > 0) {
+      setErrorDialog({ open: true, message: `Please fill in: ${missing.join(", ")}.` });
       return;
     }
     try {
@@ -98,8 +109,12 @@ export default function PriceManager() {
   };
 
   const handleSavePanel = async (id) => {
-    if (!editingPanel.brand || !editingPanel.watt || !editingPanel.pricePerPanel) {
-      setErrorDialog({ open: true, message: "Please fill in all panel fields" });
+    const missing = [];
+    if (!editingPanel.brand.trim()) missing.push("Brand");
+    if (!editingPanel.watt) missing.push("Watt");
+    if (!editingPanel.pricePerPanel) missing.push("Price");
+    if (missing.length > 0) {
+      setErrorDialog({ open: true, message: `Please fill in: ${missing.join(", ")}.` });
       return;
     }
     try {
@@ -110,6 +125,8 @@ export default function PriceManager() {
         pricePerPanel: parseFloat(editingPanel.pricePerPanel),
       });
       setEditingPanelId(null);
+      setSavedRowId(`panel-${id}`);
+      setTimeout(() => setSavedRowId(null), 2000);
       fetchPrices();
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to update panel." });
@@ -117,8 +134,12 @@ export default function PriceManager() {
   };
 
   const handleSaveInverter = async (id) => {
-    if (!editingInverter.brand || !editingInverter.kw || !editingInverter.pricePerUnit) {
-      setErrorDialog({ open: true, message: "Please fill in all inverter fields" });
+    const missing = [];
+    if (!editingInverter.brand.trim()) missing.push("Brand");
+    if (!editingInverter.kw) missing.push("Capacity (kW)");
+    if (!editingInverter.pricePerUnit) missing.push("Price");
+    if (missing.length > 0) {
+      setErrorDialog({ open: true, message: `Please fill in: ${missing.join(", ")}.` });
       return;
     }
     try {
@@ -129,6 +150,8 @@ export default function PriceManager() {
         pricePerUnit: parseFloat(editingInverter.pricePerUnit),
       });
       setEditingInverterId(null);
+      setSavedRowId(`inverter-${id}`);
+      setTimeout(() => setSavedRowId(null), 2000);
       fetchPrices();
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to update inverter." });
@@ -136,9 +159,16 @@ export default function PriceManager() {
   };
 
   const handleSaveKitPrice = async (id) => {
+    const parsedPrice = parseFloat(editingKitPrice);
+    if (!editingKitPrice || isNaN(parsedPrice) || parsedPrice <= 0) {
+      setErrorDialog({ open: true, message: "Please enter a valid kit price greater than zero." });
+      return;
+    }
     try {
-      await pricesApi.updateKit(id, parseFloat(editingKitPrice));
+      await pricesApi.updateKit(id, parsedPrice);
       setEditingKitId(null);
+      setSavedRowId(`kit-${id}`);
+      setTimeout(() => setSavedRowId(null), 2000);
       fetchPrices();
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to update kit price." });
@@ -227,7 +257,7 @@ export default function PriceManager() {
       <ErrorState
         title="Failed to load prices."
         message="Could not connect to the server. Please check your connection and try again."
-        onRetry={() => { setFetchError(false); setLoading(true); fetchPrices(); }}
+        onRetry={fetchPrices}
       />
     );
   }
@@ -306,8 +336,9 @@ export default function PriceManager() {
           <tbody>
             {panels.map(p => {
               const isEditing = editingPanelId === p.id;
+              const isSaved = savedRowId === `panel-${p.id}`;
               return (
-                <tr key={p.id}>
+                <tr key={p.id} style={isSaved ? { background: "rgba(34,197,94,0.07)", transition: "background 0.3s" } : {}}>
                   <td>
                     {isEditing ? (
                       <input
@@ -396,7 +427,7 @@ export default function PriceManager() {
                         >
                           Edit
                         </button>
-                        <button className="btn-sm danger" style={{ padding: "4px 10px" }} onClick={() => setDeleteConfirm({ type: "panel", id: p.id })} title="Delete Product">
+                        <button className="btn-sm danger" style={{ padding: "4px 10px" }} onClick={() => setDeleteConfirm({ type: "panel", id: p.id, name: `${p.brand} ${p.watt}W` })} title="Remove from catalog">
                           <Trash2 size={12} /> Delete
                         </button>
                       </div>
@@ -471,8 +502,9 @@ export default function PriceManager() {
           <tbody>
             {inverters.map(i => {
               const isEditing = editingInverterId === i.id;
+              const isSaved = savedRowId === `inverter-${i.id}`;
               return (
-                <tr key={i.id}>
+                <tr key={i.id} style={isSaved ? { background: "rgba(34,197,94,0.07)", transition: "background 0.3s" } : {}}>
                   <td>
                     {isEditing ? (
                       <input
@@ -560,7 +592,7 @@ export default function PriceManager() {
                         >
                           Edit
                         </button>
-                        <button className="btn-sm danger" style={{ padding: "4px 10px" }} onClick={() => setDeleteConfirm({ type: "inverter", id: i.id })} title="Delete Product">
+                        <button className="btn-sm danger" style={{ padding: "4px 10px" }} onClick={() => setDeleteConfirm({ type: "inverter", id: i.id, name: `${i.brand} ${i.kw}kW` })} title="Remove from catalog">
                           <Trash2 size={12} /> Delete
                         </button>
                       </div>
@@ -722,8 +754,9 @@ export default function PriceManager() {
                       <tbody>
                         {groupKits.map(k => {
                           const isEditing = editingKitId === k.id;
+                          const isSaved = savedRowId === `kit-${k.id}`;
                           return (
-                            <tr key={k.id}>
+                            <tr key={k.id} style={isSaved ? { background: "rgba(34,197,94,0.07)", transition: "background 0.3s" } : {}}>
                               <td style={{ fontWeight: 700, color: "var(--text)" }}>{Number(k.kw).toFixed(2)} kW</td>
                               <td>{k.panels} pcs</td>
                               <td style={{ fontSize: 11, color: "var(--muted)" }}>{k.inv_brand} {Number(k.inv_kw)}kW</td>
@@ -796,23 +829,21 @@ export default function PriceManager() {
           ))}
         </div>
       </div>
-      {deleteConfirm && (
-        <ConfirmDialog
-          open={true}
-          title="Delete Item?"
-          message={`Are you sure you want to delete this ${deleteConfirm.type}? This action cannot be undone.`}
-          variant="danger"
-          confirmText="Delete"
-          onConfirm={() => {
-            const { type, id } = deleteConfirm;
-            setDeleteConfirm(null);
-            if (type === "panel") handleDeletePanel(id);
-            else if (type === "inverter") handleDeleteInv(id);
-            else if (type === "kit") handleDeleteKit(id);
-          }}
-          onCancel={() => setDeleteConfirm(null)}
-        />
-      )}
+      <ConfirmDialog
+        open={!!deleteConfirm}
+        title={`Remove ${deleteConfirm?.type ? deleteConfirm.type.charAt(0).toUpperCase() + deleteConfirm.type.slice(1) : "Item"}?`}
+        message={`Are you sure you want to remove "${deleteConfirm?.name || "this item"}" from the catalog? Quotations already created will keep their data, but it won't be available for new orders. This cannot be undone.`}
+        variant="danger"
+        confirmText="Yes, Remove"
+        onConfirm={() => {
+          const { type, id } = deleteConfirm;
+          setDeleteConfirm(null);
+          if (type === "panel") handleDeletePanel(id);
+          else if (type === "inverter") handleDeleteInv(id);
+          else if (type === "kit") handleDeleteKit(id);
+        }}
+        onCancel={() => setDeleteConfirm(null)}
+      />
       <ConfirmDialog
         open={errorDialog.open}
         title="Error"

@@ -1842,7 +1842,10 @@ export default function DealerRequestsAdmin() {
                                 e.stopPropagation();
                                 try {
                                   await uploadsApi.downloadSecure(doc.id, doc.original_name);
-                                } catch(err) { console.error('Download failed:', err); }
+                                } catch(err) {
+                                  console.error('Download failed:', err);
+                                  setErrorDialog({ open: true, message: err.message || "Could not download the document. Please try again." });
+                                }
                               }}
                             >
                               <Download size={14} />
@@ -2008,7 +2011,10 @@ export default function DealerRequestsAdmin() {
                                         e.stopPropagation();
                                         try {
                                           await uploadsApi.downloadSecure(doc.id, doc.original_name);
-                                        } catch(err) { console.error('Download failed:', err); }
+                                        } catch(err) {
+                                          console.error('Download failed:', err);
+                                          setErrorDialog({ open: true, message: err.message || "Could not download the document. Please try again." });
+                                        }
                                       }}
                                     >
                                       <Download size={12} />

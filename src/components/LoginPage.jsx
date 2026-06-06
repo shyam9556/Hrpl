@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { auth as authApi } from "../utils/api";
 import { Store, Shield, Eye, EyeOff, Loader2, CheckCircle, IdCard, CreditCard, User, XCircle, Download, FileText } from "lucide-react";
 import UploadZone from "./UploadZone";
@@ -235,14 +235,14 @@ export default function LoginPage({ onLogin }) {
           <div className="role-btns">
             <div
               className={`role-btn ${role === "dealer" ? "active" : ""}`}
-              onClick={() => !isLoading && setRole("dealer")}
+              onClick={() => !isLoading && (setRole("dealer"), setErr(""))}
             >
               <div className="role-btn-icon"><Store size={24} /></div>
               <div className="role-btn-label">Dealer Portal</div>
             </div>
             <div
               className={`role-btn ${role === "admin" ? "active" : ""}`}
-              onClick={() => !isLoading && setRole("admin")}
+              onClick={() => !isLoading && (setRole("admin"), setErr(""))}
             >
               <div className="role-btn-icon"><Shield size={24} /></div>
               <div className="role-btn-label">Admin Control</div>
@@ -265,7 +265,19 @@ export default function LoginPage({ onLogin }) {
           </p>
         </div>
 
-        {err && <div className="alert alert-red">{err}</div>}
+        {err && (
+          <div className="alert alert-red" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ flex: 1 }}>{err}</span>
+            <button
+              type="button"
+              onClick={() => setErr("")}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "inherit", display: "flex", alignItems: "center", flexShrink: 0 }}
+              aria-label="Dismiss error"
+            >
+              <XCircle size={16} />
+            </button>
+          </div>
+        )}
         {success && <div className="alert alert-green">{success}</div>}
 
         {mode === "register" ? (

@@ -1154,6 +1154,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                                   await uploadsApi.downloadSecure(doc.id, doc.original_name);
                                 } catch (err) {
                                   console.error("Download failed:", err.message);
+                                  setErrorDialog({ open: true, message: err.message || "Could not download the document. Please try again." });
                                 }
                               }}
                               title="Download"

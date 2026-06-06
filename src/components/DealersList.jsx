@@ -42,6 +42,8 @@ export default function DealersList() {
     try {
       await dealersApi.adminResetPassword(resetModal.id, rpNew);
       setRpSuccess(true);
+      // Auto-close the modal after 2.5s so the admin sees success then it dismisses naturally
+      setTimeout(() => setResetModal(null), 2500);
     } catch (err) {
       setRpError(err.message || "Failed to reset password. Please try again.");
     } finally {
@@ -56,7 +58,6 @@ export default function DealersList() {
       const res = await dealersApi.list();
       setList(res.dealers || []);
     } catch (err) {
-      console.error("Fetch dealers error:", err);
       setFetchError(true);
     } finally {
       setLoading(false);
