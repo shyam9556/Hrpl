@@ -55,6 +55,8 @@ export default function DealerRequests() {
   // Detail modal — opened when dealer clicks a row in the My Requests table
   const [selectedQuotation, setSelectedQuotation] = useState(null);
   const [detailPdfDownloading, setDetailPdfDownloading] = useState(false);
+  // Per-row PDF download state (in the Actions column)
+  const [pdfDownloadingId, setPdfDownloadingId] = useState(null);
 
   // Compute stable blob URLs for portal reupload image previews.
   // useMemo ensures we create a URL exactly once per file reference, not on every render.
@@ -761,6 +763,41 @@ ${pdfLine}`;
     }
   };
 
+  // Download PDF directly from the table row — same logic as modal footer download
+  const handleDownloadPdfRow = async (q) => {
+    if (pdfDownloadingId === q.id) return; // prevent double-click
+    setPdfDownloadingId(q.id);
+    try {
+      const customerData = {
+        id: q.quotation_number,
+        date: new Date(q.created_at).toLocaleDateString("en-IN"),
+        customerName: q.customer_name,
+        customerAddress: q.customer_address || q.customer_city || "",
+        customerCity: q.customer_city,
+        customerPhone: q.customer_phone,
+        structureHeight: q.structure_height,
+        paymentMode: q.payment_mode,
+      };
+      const quoteData = {
+        panelCount: q.panel_count,
+        subtotal: Number(q.subtotal),
+        pricePerKw: Number(q.price_per_kw),
+        gst: Number(q.gst_amount),
+        total: Number(q.total),
+        subsidy: Number(q.subsidy_amount),
+        effectivePrice: Number(q.effective_price),
+      };
+      const panelData    = { brand: q.panel_brand, watt: q.panel_watt, type: q.panel_type };
+      const inverterData = { brand: q.inverter_brand, kw: q.inverter_kw, type: q.inverter_type };
+      await generatePdfQuotation(customerData, quoteData, panelData, inverterData, { download: true });
+    } catch (err) {
+      console.error("Row PDF download failed:", err);
+      setDialogState({ open: true, title: "Download Failed", message: "Could not generate the PDF. Please try again.", variant: "danger" });
+    } finally {
+      setPdfDownloadingId(null);
+    }
+  };
+
   // Download PDF from the detail modal footer — uses same generatePdfQuotation helper
   const handleDownloadPdfDetail = async (q) => {
     if (detailPdfDownloading) return;
@@ -811,7 +848,8 @@ ${pdfLine}`;
   const showStatus   = filter === "";                              // redundant on single-status tabs
   const showDelivery = filter === "" || filter === "Approved";    // only meaningful post-approval
   const showGeoTags  = filter === "" || filter === "Approved";    // only meaningful post-approval
-  const showActions  = filter !== "Rejected";                     // no actions exist for Rejected
+  const showActions  = filter !== "Rejected";                     // share buttons hidden for Rejected
+  const showDownload = true;                                       // Download always available on all tabs
 
   // ── Derived from globalList (all dealer quotations, filter-independent) ──
   // Action-required items for the alert banners (shown on every tab)
@@ -1031,7 +1069,7 @@ ${pdfLine}`;
                 {showStatus   && <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{t("Status")}</th>}
                 {showDelivery && <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Delivery")}</th>}
                 {showGeoTags  && <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Geo-Tags")}</th>}
-                {showActions  && <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Actions")}</th>}
+                <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "center" }}>{t("Actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -1141,9 +1179,23 @@ ${pdfLine}`;
                     )}
                   </td>
                   )}
-                  {showActions && (
+                  {/* Actions column: Download always shown; share buttons only when showActions */}
                   <td style={{ padding: "14px 16px", verticalAlign: "middle" }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center", flexWrap: "wrap" }}>
+                      {/* ── Download PDF ── */}
+                      <button
+                        onClick={() => handleDownloadPdfRow(q)}
+                        disabled={pdfDownloadingId === q.id}
+                        title="Download PDF Quotation"
+                        style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "6px", borderRadius: 8, background: "rgba(99, 102, 241, 0.08)", color: "#6366f1", border: "1px solid rgba(99, 102, 241, 0.18)", cursor: pdfDownloadingId === q.id ? "not-allowed" : "pointer", opacity: pdfDownloadingId === q.id ? 0.6 : 1, transition: "all 0.2s" }}
+                        onMouseOver={e => { if (pdfDownloadingId !== q.id) { e.currentTarget.style.background = "#6366f1"; e.currentTarget.style.color = "white"; } }}
+                        onMouseOut={e => { if (pdfDownloadingId !== q.id) { e.currentTarget.style.background = "rgba(99, 102, 241, 0.08)"; e.currentTarget.style.color = "#6366f1"; } }}
+                      >
+                        {pdfDownloadingId === q.id ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                      </button>
+                      {/* ── Share buttons: hidden for Rejected tab ── */}
+                      {showActions && (<>
+                      {/* ── WhatsApp ── */}
                       <button
                         onClick={() => shareWhatsApp(q)}
                         disabled={sharingWaId === q.id}
@@ -1154,6 +1206,7 @@ ${pdfLine}`;
                       >
                         {sharingWaId === q.id ? <Loader2 size={13} className="animate-spin" /> : <MessageCircle size={13} />}
                       </button>
+                      {/* ── Email ── */}
                       <button
                         onClick={() => shareEmail(q)}
                         disabled={sharingEmailId === q.id}
@@ -1164,6 +1217,7 @@ ${pdfLine}`;
                       >
                         {sharingEmailId === q.id ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
                       </button>
+                      {/* ── Copy ── */}
                       <button
                         onClick={() => copyToClipboard(q)}
                         disabled={sharingCopyId === q.id}
@@ -1172,9 +1226,9 @@ ${pdfLine}`;
                       >
                         {sharingCopyId === q.id ? <Loader2 size={13} className="animate-spin" /> : copiedId === q.id ? <Check size={13} /> : <Copy size={13} />}
                       </button>
+                      </>)}
                     </div>
                   </td>
-                  )}
                 </tr>
               ))}
             </tbody>
@@ -1266,6 +1320,15 @@ ${pdfLine}`;
                           <Camera size={12} /> Re-upload Geo
                         </button>
                       )}
+                      {/* ── Download PDF (mobile card) ── */}
+                      <button
+                        onClick={e => { e.stopPropagation(); handleDownloadPdfRow(q); }}
+                        disabled={pdfDownloadingId === q.id}
+                        title="Download PDF"
+                        style={{ padding: "7px", borderRadius: 8, background: "rgba(99,102,241,0.08)", color: "#6366f1", border: "1px solid rgba(99,102,241,0.18)", cursor: pdfDownloadingId === q.id ? "not-allowed" : "pointer", display: "flex", alignItems: "center", opacity: pdfDownloadingId === q.id ? 0.6 : 1 }}
+                      >
+                        {pdfDownloadingId === q.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                      </button>
                       <button onClick={e => { e.stopPropagation(); shareWhatsApp(q); }} disabled={sharingWaId === q.id} title="Share via WhatsApp"
                         style={{ padding: "7px", borderRadius: 8, background: "rgba(37,211,102,0.08)", color: "#25D366", border: "1px solid rgba(37,211,102,0.15)", cursor: "pointer", display: "flex", alignItems: "center" }}>
                         {sharingWaId === q.id ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />}
