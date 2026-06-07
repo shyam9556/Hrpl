@@ -13,7 +13,7 @@ const DOC_LABELS = {
   aadhaar_back:  "Aadhaar Card — Back Side (QR Code)",
   pan:           "PAN Card",
   passbook:      "Bank Passbook",
-  site_photo:    "Latest Light Bill/Site Photo",
+  light_bill:    "Latest Light Bill",
   vera_bill:     "Vera Bill",
   house_photo_1: "House Photo 1",
   house_photo_2: "House Photo 2",

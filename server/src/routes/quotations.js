@@ -658,7 +658,7 @@ const requestReuploadSchema = Joi.object({
   reason: Joi.string().required(),
   documents: Joi.array().items(
     Joi.string().valid(
-      "aadhaar", "pan", "passbook", "site_photo", "vera_bill",
+      "aadhaar", "pan", "passbook", "light_bill", "vera_bill",
       "house_photo_1", "house_photo_2", "house_photo_3"
       // Note: geotag_1/2/3 are handled by /request-geotag-reupload below
     )
@@ -799,7 +799,7 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
           : "Aadhaar Card",
         pan:           "PAN Card",
         passbook:      "Bank Passbook",
-        site_photo:    "Latest Light Bill / Site Photo",
+        light_bill:    "Latest Light Bill",
         vera_bill:     "Vera Bill",
         house_photo_1: "House Photo 1",
         house_photo_2: "House Photo 2",
@@ -822,7 +822,7 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
       aadhaar_back:  ["image/jpeg", "image/png", "image/webp", "application/pdf"],
       pan:           ["image/jpeg", "image/png", "image/webp", "application/pdf"],
       passbook:      ["image/jpeg", "image/png", "image/webp", "application/pdf"],
-      site_photo:    ["image/jpeg", "image/png", "image/webp"],
+      light_bill:    ["image/jpeg", "image/png", "image/webp", "application/pdf"],
       vera_bill:     ["image/jpeg", "image/png", "image/webp", "application/pdf"],
       house_photo_1: ["image/jpeg", "image/png", "image/webp"],
       house_photo_2: ["image/jpeg", "image/png", "image/webp"],

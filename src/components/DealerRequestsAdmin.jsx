@@ -40,7 +40,7 @@ export default function DealerRequestsAdmin() {
     aadhaar: false,
     pan: false,
     passbook: false,
-    site_photo: false,
+    light_bill: false,
     vera_bill: false,
     house_photo_1: false,
     house_photo_2: false,
@@ -65,7 +65,7 @@ export default function DealerRequestsAdmin() {
         aadhaar:       prevDocs.includes("aadhaar"),
         pan:           prevDocs.includes("pan"),
         passbook:      prevDocs.includes("passbook"),
-        site_photo:    prevDocs.includes("site_photo"),
+        light_bill:    prevDocs.includes("light_bill"),
         vera_bill:     prevDocs.includes("vera_bill"),
         house_photo_1: prevDocs.includes("house_photo_1"),
         house_photo_2: prevDocs.includes("house_photo_2"),
@@ -74,7 +74,7 @@ export default function DealerRequestsAdmin() {
     } else {
       setReuploadDocs({
         aadhaar: false,
-        pan: false, passbook: false, site_photo: false,
+        pan: false, passbook: false, light_bill: false,
         vera_bill: false, house_photo_1: false, house_photo_2: false, house_photo_3: false,
       });
     }
@@ -1073,19 +1073,7 @@ export default function DealerRequestsAdmin() {
                         </span>
                       )}
                     </div>
-                    <span style={{ 
-                      display: "inline-block",
-                      marginTop: 4,
-                      fontSize: 9, 
-                      fontWeight: 700, 
-                      padding: "1px 5px", 
-                      borderRadius: 4,
-                      background: q.payment_mode === 'Kit Purchase' ? "rgba(59,130,246,0.08)" : "rgba(46,125,82,0.08)", 
-                      color: q.payment_mode === 'Kit Purchase' ? "#3b82f6" : "var(--green)", 
-                      border: `1px solid ${q.payment_mode === 'Kit Purchase' ? "rgba(59,130,246,0.15)" : "rgba(46,125,82,0.15)"}` 
-                    }}>
-                      {q.payment_mode === 'Kit Purchase' ? "Kit" : "Commission"}
-                    </span>
+
                   </td>
                   <td style={{ padding: "14px 16px", verticalAlign: "middle", color: "var(--muted)", fontSize: "13px" }}>
                     {new Date(q.created_at).toLocaleDateString("en-IN")}
@@ -1348,9 +1336,7 @@ export default function DealerRequestsAdmin() {
                     <div>
                       <div className="q-card-number">{q.quotation_number}</div>
                       <div className="q-card-badges">
-                        <span style={{ display: "inline-block", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: q.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.08)" : "rgba(46,125,82,0.08)", color: q.payment_mode === "Kit Purchase" ? "#3b82f6" : "var(--green)", border: `1px solid ${q.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.15)" : "rgba(46,125,82,0.15)"}` }}>
-                          {q.payment_mode === "Kit Purchase" ? "Kit" : "Commission"}
-                        </span>
+
                         {q.reupload_count > 0 && (
                           <span style={{ display: "inline-block", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: isResponded ? "rgba(245,158,11,0.15)" : "#E8F5EE", color: isResponded ? "#b45309" : "#2E7D52", border: isResponded ? "1px solid rgba(245,158,11,0.3)" : "1px solid rgba(46,125,82,0.2)" }}>
                             {isResponded ? `✓ Docs Submitted` : `Re-uploaded ×${q.reupload_count}`}
@@ -1551,18 +1537,6 @@ export default function DealerRequestsAdmin() {
                   <span className={`badge ${selectedQuotation.status === "Approved" ? "badge-green" : selectedQuotation.status === "Rejected" ? "badge-red" : "badge-sun"}`}>
                     {selectedQuotation.status}
                   </span>
-                  <span style={{ 
-                    fontSize: 11, 
-                    fontWeight: 600, 
-                    padding: "2px 8px", 
-                    borderRadius: 12, 
-                    background: selectedQuotation.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.1)" : "rgba(46,125,82,0.1)", 
-                    color: selectedQuotation.payment_mode === "Kit Purchase" ? "#3b82f6" : "var(--green)", 
-                    border: `1px solid ${selectedQuotation.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.2)" : "rgba(46,125,82,0.2)"}`,
-                    whiteSpace: "nowrap",
-                  }}>
-                    {selectedQuotation.payment_mode === "Kit Purchase" ? "Kit Purchase Mode" : "Commission Mode"}
-                  </span>
                 </div>
                 <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
                   Submitted on {new Date(selectedQuotation.created_at).toLocaleDateString("en-IN")}
@@ -1639,7 +1613,7 @@ export default function DealerRequestsAdmin() {
                               aadhaar_back:  "Aadhaar Card (Back)",
                               pan:           "PAN Card",
                               passbook:      "Bank Passbook",
-                              site_photo:    "Latest Light Bill/Site Photo",
+                              light_bill:    "Latest Light Bill",
                               vera_bill:     "Vera Bill",
                               house_photo_1: "House Photo 1",
                               house_photo_2: "House Photo 2",
@@ -1706,7 +1680,7 @@ export default function DealerRequestsAdmin() {
               {/* Row 2: Technical Configuration */}
               <div style={{ background: "var(--light, #f8fafc)", padding: 16, borderRadius: 16, border: "1px solid rgba(0,0,0,0.03)", marginBottom: 24 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  {selectedQuotation.payment_mode === "Kit Purchase" ? "BOM / Kit Specifications" : "System Specifications"}
+                  {"System Specifications"}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16 }}>
                   <div>
@@ -1729,7 +1703,7 @@ export default function DealerRequestsAdmin() {
                   </div>
                   <div>
                     <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                      {selectedQuotation.payment_mode === "Kit Purchase" ? "Selected Kit" : "Structure & Height"}
+                      {"Structure & Height"}
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>
                       {selectedQuotation.structure_height || "—"}
@@ -1740,7 +1714,7 @@ export default function DealerRequestsAdmin() {
 
               <div style={{ marginBottom: 24 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  {selectedQuotation.payment_mode === "Kit Purchase" ? "Uploaded Site Photo" : "Uploaded Customer Documents"}
+                  {"Uploaded Customer Documents"}
                 </div>
                 {(() => {
                   const customerDocs = (selectedQuotation.documents || []).filter(doc => doc.doc_type !== "other" && !doc.doc_type.startsWith("geotag_"));
@@ -1802,8 +1776,8 @@ export default function DealerRequestsAdmin() {
                                     ? "PAN Card"
                                     : doc.doc_type === "passbook"
                                     ? "Bank Passbook"
-                                    : doc.doc_type === "site_photo"
-                                    ? (selectedQuotation?.payment_mode === "Kit Purchase" ? "Site / Roof Photo" : "Latest Light Bill")
+                                    : doc.doc_type === "light_bill"
+                                    ? "Latest Light Bill"
                                     : doc.doc_type === "vera_bill"
                                     ? "Vera Bill"
                                     : doc.doc_type === "house_photo_1"
@@ -1856,9 +1830,7 @@ export default function DealerRequestsAdmin() {
                     </div>
                   ) : (
                     <div style={{ padding: "16px 20px", background: "var(--light, #f8fafc)", borderRadius: 12, border: "1px dashed rgba(0,0,0,0.08)", textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
-                      {selectedQuotation.payment_mode === "Kit Purchase" 
-                        ? "No site photo uploaded for this kit order (optional)." 
-                        : "No verification documents uploaded for this quotation."}
+                      {"No verification documents uploaded for this quotation."}
                     </div>
                   );
                 })()}
@@ -2318,7 +2290,7 @@ export default function DealerRequestsAdmin() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
                     <span style={{ color: "var(--muted)" }}>
-                      {selectedQuotation.payment_mode === "Kit Purchase" ? "Kit Subtotal (Panels + Inverter + Acc)" : "System Subtotal (Panels + Inverters + Acc)"}
+                      {"System Subtotal (Panels + Inverters + Acc)"}
                     </span>
                     <span style={{ fontWeight: 500, fontFamily: "var(--mono)" }}>{fmt(selectedQuotation.subtotal)}</span>
                   </div>
@@ -2327,7 +2299,7 @@ export default function DealerRequestsAdmin() {
                     <span style={{ fontWeight: 500, fontFamily: "var(--mono)" }}>{fmt(selectedQuotation.gst_amount)}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, borderTop: "1px solid rgba(0,0,0,0.06)", paddingTop: 8, marginTop: 4 }}>
-                    <strong>{selectedQuotation.payment_mode === "Kit Purchase" ? "Total Kit Price" : "Total System Price"}</strong>
+                    <strong>{"Total System Price"}</strong>
                     <strong style={{ fontFamily: "var(--mono)" }}>{fmt(selectedQuotation.total)}</strong>
                   </div>
                   {Number(selectedQuotation.subsidy_amount) > 0 && (
@@ -2608,22 +2580,18 @@ export default function DealerRequestsAdmin() {
                 <div>
                   {/* Customer Documents */}
                   <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>
-                    {reuploadModal?.paymentMode === "Kit Purchase" ? "Kit Documents" : "Customer Documents"}
+                    Customer Documents
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 24 }}>
                     {[
-                      ...(reuploadModal?.paymentMode !== "Kit Purchase" ? [
-                        { key: "aadhaar",       label: "Aadhaar Card" },
-                        { key: "pan",           label: "PAN Card" },
-                        { key: "passbook",      label: "Bank Passbook" },
-                      ] : []),
-                      { key: "site_photo", label: reuploadModal?.paymentMode === "Kit Purchase" ? "Site / Roof Photo" : "Latest Light Bill / Site Photo" },
-                      ...(reuploadModal?.paymentMode !== "Kit Purchase" ? [
-                        { key: "vera_bill",     label: "Vera Bill" },
-                        { key: "house_photo_1", label: "House Photo 1" },
-                        { key: "house_photo_2", label: "House Photo 2" },
-                        { key: "house_photo_3", label: "House Photo 3" },
-                      ] : []),
+                      { key: "aadhaar",       label: "Aadhaar Card" },
+                      { key: "pan",           label: "PAN Card" },
+                      { key: "passbook",      label: "Bank Passbook" },
+                      { key: "light_bill",    label: "Latest Light Bill" },
+                      { key: "vera_bill",     label: "Vera Bill" },
+                      { key: "house_photo_1", label: "House Photo 1" },
+                      { key: "house_photo_2", label: "House Photo 2" },
+                      { key: "house_photo_3", label: "House Photo 3" },
                     ].map(({ key, label }) => (
                       <label
                         key={key}

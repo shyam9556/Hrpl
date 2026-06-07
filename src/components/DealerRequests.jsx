@@ -92,7 +92,7 @@ export default function DealerRequests() {
     passport_photo: "Passport Photo",
     other:         "Dealership Agreement",
     passbook:      "Bank Passbook",
-    site_photo:    "Latest Light Bill / Site Photo",
+    light_bill:    "Latest Light Bill",
     vera_bill:     "Vera Bill",
     house_photo_1: "House Photo 1",
     house_photo_2: "House Photo 2",
@@ -107,7 +107,7 @@ export default function DealerRequests() {
     passport_photo: "image/jpeg,image/png,image/webp,application/pdf",
     other:          "image/jpeg,image/png,image/webp,application/pdf",
     passbook:       "image/jpeg,image/png,image/webp,application/pdf",
-    site_photo:     "image/jpeg,image/png,image/webp,application/pdf",
+    light_bill:     "image/jpeg,image/png,image/webp,application/pdf",
     vera_bill:      "image/jpeg,image/png,image/webp,application/pdf",
     house_photo_1:  "image/jpeg,image/png,image/webp,application/pdf",
     house_photo_2:  "image/jpeg,image/png,image/webp,application/pdf",
@@ -503,20 +503,6 @@ export default function DealerRequests() {
       ? `View/Download your Official PDF Proposal:\n${pdfLink}`
       : `Your detailed PDF quotation proposal is attached.`;
 
-    if (q.payment_mode === "Kit Purchase") {
-      return `Hello ${customerName},
-
-Thank you for choosing Highlight Pro. We are pleased to present the official dealer pricing proposal for your ${systemSize} kW Solar Rooftop Kit:
-
-- System Size: ${systemSize} kW
-- Panels: ${q.panel_count} pcs (${panelBrand} ${panelWatt}W)
-- Inverter: ${inverterBrand} ${Number(inverterKw)}kW
-- Kit Price: ${fmt(Number(q.total))}
-
-Let us help power your home with clean, renewable energy.
-
-${pdfLine}`;
-    }
 
     if (Number(q.subsidy_amount || 0) > 0) {
       return `Hello ${customerName},
@@ -1059,18 +1045,7 @@ ${pdfLine}`;
                   <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
                     <div style={{ fontWeight: 600, fontFamily: "var(--mono)", color: "var(--text)", fontSize: "13px" }}>{q.quotation_number}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
-                      <span style={{ 
-                        display: "inline-block",
-                        fontSize: 9, 
-                        fontWeight: 700, 
-                        padding: "1px 5px", 
-                        borderRadius: 4,
-                        background: q.payment_mode === 'Kit Purchase' ? "rgba(59,130,246,0.08)" : "rgba(46,125,82,0.08)", 
-                        color: q.payment_mode === 'Kit Purchase' ? "#3b82f6" : "var(--green)", 
-                        border: `1px solid ${q.payment_mode === 'Kit Purchase' ? "rgba(59,130,246,0.15)" : "rgba(46,125,82,0.15)"}` 
-                      }}>
-                        {q.payment_mode === 'Kit Purchase' ? "Kit" : "Commission"}
-                      </span>
+
                       {/* GAP-1: Show Expired badge for quotations past their validity date */}
                       {q.is_expired && q.status === "Pending" && (
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: "rgba(239,68,68,0.08)", color: "#dc2626", border: "1px solid rgba(239,68,68,0.2)" }}>
@@ -1225,9 +1200,7 @@ ${pdfLine}`;
                     <div>
                       <div className="q-card-number">{q.quotation_number}</div>
                       <div className="q-card-badges">
-                        <span style={{ display: "inline-block", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: q.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.08)" : "rgba(46,125,82,0.08)", color: q.payment_mode === "Kit Purchase" ? "#3b82f6" : "var(--green)", border: `1px solid ${q.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.15)" : "rgba(46,125,82,0.15)"}` }}>
-                          {q.payment_mode === "Kit Purchase" ? "Kit" : "Commission"}
-                        </span>
+
                         {needsDocReupload && (
                           <span style={{ display: "inline-block", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: "rgba(220,38,38,0.1)", color: "#dc2626", border: "1px solid rgba(220,38,38,0.2)" }}>Re-upload Required</span>
                         )}
@@ -2114,7 +2087,7 @@ ${pdfLine}`;
                 <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
                   <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--mono)", color: "var(--text)", letterSpacing: "-0.3px" }}>{q.quotation_number}</span>
                   <span style={{ fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: statusBg, color: statusColor, border: `1px solid ${statusColor}22` }}>{statusLabel}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20, background: q.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.08)" : "rgba(46,125,82,0.07)", color: q.payment_mode === "Kit Purchase" ? "#3b82f6" : "var(--green)", border: `1px solid ${q.payment_mode === "Kit Purchase" ? "rgba(59,130,246,0.15)" : "rgba(46,125,82,0.15)"}` }}>{q.payment_mode === "Kit Purchase" ? "Kit Purchase" : "Commission"}</span>
+
                   {q.is_expired && q.status === "Pending" && (
                     <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20, background: "rgba(220,38,38,0.08)", color: "#dc2626", border: "1px solid rgba(220,38,38,0.18)", display: "flex", alignItems: "center", gap: 3 }}>
                       <AlertCircle size={10} /> Expired
