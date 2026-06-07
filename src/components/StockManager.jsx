@@ -402,7 +402,106 @@ export default function StockManager() {
         </div>
       ) : (
 
-      <>{/* Grid of Categories */}
+      <>
+      {/* Stock Valuation Summary Dashboard Section */}
+      <div className="card" style={{ 
+        marginBottom: 32, 
+        border: "1.5px solid #e2e8f0", 
+        borderRadius: 20, 
+        background: "linear-gradient(135deg, #ffffff 0%, #fafaf9 100%)",
+        boxShadow: "0 10px 30px rgba(0,0,0,0.03)"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid #f1f5f9", paddingBottom: 16, marginBottom: 20 }}>
+          <span style={{ 
+            background: "rgba(46,125,82,0.1)", 
+            color: "var(--green)", 
+            width: 38, 
+            height: 38, 
+            borderRadius: 10, 
+            display: "flex", 
+            justifyContent: "center", 
+            alignItems: "center" 
+          }}>
+            <Coins size={22} />
+          </span>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>Stock Asset Valuation Summary</div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>Live financial assets valuation aggregated across categories</div>
+          </div>
+        </div>
+
+        {/* Valuation Grid Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
+          {categories.map(cat => {
+            const config = categoryConfig[cat] || categoryConfig.Default;
+            const Icon = config.icon;
+            const val = valuationMetrics.categoryValuations[cat] || 0;
+            const qty = valuationMetrics.categoryQuantities[cat] || 0;
+
+            return (
+              <div 
+                key={cat}
+                style={{
+                  background: "white",
+                  border: "1px solid #f1f5f9",
+                  borderRadius: 12,
+                  padding: 18,
+                  boxShadow: "0 4px 10px rgba(0,0,0,0.01)"
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <span style={{ 
+                    background: config.bg, 
+                    color: config.color, 
+                    width: 28, 
+                    height: 28, 
+                    borderRadius: 6, 
+                    display: "flex", 
+                    justifyContent: "center", 
+                    alignItems: "center" 
+                  }}>
+                    <Icon size={14} />
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>{cat}s Valuation</span>
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>
+                  {fmtCurrency(val)}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                  Asset count: {qty} units
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Grand Total Valuation Card */}
+          <div 
+            style={{
+              background: "linear-gradient(135deg, var(--green) 0%, #15803d 100%)",
+              color: "white",
+              borderRadius: 12,
+              padding: 18,
+              boxShadow: "0 8px 20px rgba(46,125,82,0.15)",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center"
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, opacity: 0.9 }}>
+              <TrendingUp size={16} />
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Grand Total Asset Valuation</span>
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>
+              {fmtCurrency(valuationMetrics.grandTotalValuation)}
+            </div>
+            <div style={{ fontSize: 10, marginTop: 4, opacity: 0.8 }}>
+              All 4 stock categories combined
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Grid of Categories */}
       {categories.map(cat => {
         const config = categoryConfig[cat] || categoryConfig.Default;
         const Icon = config.icon;
@@ -548,103 +647,7 @@ export default function StockManager() {
         </div>
       )}
 
-      {/* Stock Valuation Summary Dashboard Section */}
-      <div className="card" style={{ 
-        marginTop: 32, 
-        border: "1.5px solid #e2e8f0", 
-        borderRadius: 20, 
-        background: "linear-gradient(135deg, #ffffff 0%, #fafaf9 100%)",
-        boxShadow: "0 10px 30px rgba(0,0,0,0.03)"
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid #f1f5f9", paddingBottom: 16, marginBottom: 20 }}>
-          <span style={{ 
-            background: "rgba(46,125,82,0.1)", 
-            color: "var(--green)", 
-            width: 38, 
-            height: 38, 
-            borderRadius: 10, 
-            display: "flex", 
-            justifyContent: "center", 
-            alignItems: "center" 
-          }}>
-            <Coins size={22} />
-          </span>
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>Stock Asset Valuation Summary</div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>Live financial assets valuation aggregated across categories</div>
-          </div>
-        </div>
 
-        {/* Valuation Grid Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
-          {categories.map(cat => {
-            const config = categoryConfig[cat] || categoryConfig.Default;
-            const Icon = config.icon;
-            const val = valuationMetrics.categoryValuations[cat] || 0;
-            const qty = valuationMetrics.categoryQuantities[cat] || 0;
-
-            return (
-              <div 
-                key={cat}
-                style={{
-                  background: "white",
-                  border: "1px solid #f1f5f9",
-                  borderRadius: 12,
-                  padding: 18,
-                  boxShadow: "0 4px 10px rgba(0,0,0,0.01)"
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                  <span style={{ 
-                    background: config.bg, 
-                    color: config.color, 
-                    width: 28, 
-                    height: 28, 
-                    borderRadius: 6, 
-                    display: "flex", 
-                    justifyContent: "center", 
-                    alignItems: "center" 
-                  }}>
-                    <Icon size={14} />
-                  </span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>{cat}s Valuation</span>
-                </div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>
-                  {fmtCurrency(val)}
-                </div>
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-                  Asset count: {qty} units
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Grand Total Valuation Card */}
-          <div 
-            style={{
-              background: "linear-gradient(135deg, var(--green) 0%, #15803d 100%)",
-              color: "white",
-              borderRadius: 12,
-              padding: 18,
-              boxShadow: "0 8px 20px rgba(46,125,82,0.15)",
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center"
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, opacity: 0.9 }}>
-              <TrendingUp size={16} />
-              <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Grand Total Asset Valuation</span>
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 800 }}>
-              {fmtCurrency(valuationMetrics.grandTotalValuation)}
-            </div>
-            <div style={{ fontSize: 10, marginTop: 4, opacity: 0.8 }}>
-              All 4 stock categories combined
-            </div>
-          </div>
-        </div>
-      </div>
 
       </> 
       )} 
