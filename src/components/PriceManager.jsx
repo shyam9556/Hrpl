@@ -724,12 +724,30 @@ export default function PriceManager() {
             </button>
           </div>
         )}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))", gap: "24px", width: "100%" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "24px", width: "100%" }}>
         {/* GAP-05 fix: derive brands dynamically from DB data — any new kit brand
             added to kit_prices will appear automatically without code changes. */}
-        {[...new Set(kits.map(k => k.brand))].map(brand => (
+        {(() => {
+          const brandOrder = ["Adani", "Waaree", "Rayzon"];
+          const sortedBrands = [...new Set(kits.map(k => k.brand))].sort((a, b) => {
+            const indexA = brandOrder.indexOf(a);
+            const indexB = brandOrder.indexOf(b);
+            const valA = indexA === -1 ? 99 : indexA;
+            const valB = indexB === -1 ? 99 : indexB;
+            return valA - valB;
+          });
+          
+          return sortedBrands.map(brand => (
             <div key={brand} style={{ display: "flex", flexDirection: "column", gap: "16px", background: "white", padding: "16px", borderRadius: "16px", border: "1px solid var(--border)", boxShadow: "0 4px 12px rgba(0,0,0,0.01)" }}>
-              <div style={{ fontWeight: 800, fontSize: 16, borderBottom: "2.5px solid var(--border)", paddingBottom: "8px", color: brand === "Adani" ? "#d97706" : "#059669", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              <div style={{
+                fontWeight: 800,
+                fontSize: 16,
+                borderBottom: "2.5px solid var(--border)",
+                paddingBottom: "8px",
+                color: brand === "Adani" ? "#ea580c" : brand === "Waaree" ? "#047857" : "#0284c7",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em"
+              }}>
                 {brand} Solar Kits
               </div>
               {["Bifacial", "TOPCon"].map(type => {
@@ -826,7 +844,8 @@ export default function PriceManager() {
                 );
               })}
             </div>
-          ))}
+          ));
+        })()}
         </div>
       </div>
       <ConfirmDialog
