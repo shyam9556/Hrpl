@@ -110,13 +110,20 @@ async function updateKits() {
     console.log("🔨 Seeding real Raysolar kit prices...");
     let count = 0;
     for (const item of kitsData) {
-      // Calculate standard inverter size rule:
-      // kw <= 3.85 kW -> 3.6kW Inverter
-      // kw > 3.85 and <= 6 kW -> 5.0kW Inverter
-      // kw > 6 kW -> 10.0kW Inverter
+      // Calculate standard inverter size rule (nearest to kw):
       let invKw = 3.6;
-      if (item.kw > 3.85 && item.kw <= 6.0) invKw = 5.0;
-      else if (item.kw > 6.0) invKw = 10.0;
+      if (item.kw <= 2.5) invKw = 2.3;
+      else if (item.kw <= 3.8) invKw = 3.6;
+      else if (item.kw <= 4.4) invKw = 4.2;
+      else if (item.kw <= 4.85) invKw = 4.7;
+      else if (item.kw <= 5.2) invKw = 5.0;
+      else if (item.kw <= 5.7) invKw = 5.4;
+      else if (item.kw <= 6.5) invKw = 6.0;
+      else if (item.kw <= 7.5) invKw = 7.0;
+      else if (item.kw <= 8.5) invKw = 8.0;
+      else if (item.kw <= 9.5) invKw = 9.0;
+      else invKw = 10.0;
+
 
       await connection.query(
         `INSERT INTO kit_prices (brand, type, watt, panels, kw, price, inv_brand, inv_kw)

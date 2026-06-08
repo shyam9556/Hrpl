@@ -252,14 +252,19 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
       }
     }
 
-    // 2. Auto-select Inverter Brand and Model
-    const matchingInv = prices.inverters.find(i =>
-      i.brand.toLowerCase().includes(kit.invBrand.toLowerCase().split('/')[0]) &&
-      Math.abs(Number(i.kw) - Number(kit.invKw)) < 0.5
+    // 2. Auto-select Inverter Brand and Model (select the nearest kW to the kit capacity)
+    const kitInvBrand = kit.invBrand.toLowerCase().split('/')[0];
+    const brandInverters = prices.inverters.filter(i =>
+      i.brand.toLowerCase().includes(kitInvBrand)
     );
-    if (matchingInv) {
-      setSelectedInverterBrand(matchingInv.brand);
-      setForm(f => ({ ...f, inverterId: matchingInv.id }));
+    if (brandInverters.length > 0) {
+      const matchingInv = brandInverters.reduce((prev, curr) =>
+        Math.abs(Number(curr.kw) - Number(kit.kw)) < Math.abs(Number(prev.kw) - Number(kit.kw)) ? curr : prev
+      );
+      if (matchingInv) {
+        setSelectedInverterBrand(matchingInv.brand);
+        setForm(f => ({ ...f, inverterId: matchingInv.id }));
+      }
     }
   };
 
@@ -1162,7 +1167,7 @@ ${pdfLine}`;
                     if (newBrandInverters.length > 0) {
                       const best = kitObj2
                         ? newBrandInverters.reduce((prev, cur) =>
-                            Math.abs(cur.kw - kitObj2.invKw) < Math.abs(prev.kw - kitObj2.invKw) ? cur : prev
+                            Math.abs(Number(cur.kw) - Number(kitObj2.kw)) < Math.abs(Number(prev.kw) - Number(kitObj2.kw)) ? cur : prev
                           )
                         : newBrandInverters[0];
                       set("inverterId", best.id);
