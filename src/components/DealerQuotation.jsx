@@ -1205,10 +1205,10 @@ ${pdfLine}`;
             {panel && inverter && (
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
                 <span className="panel-chip">
-                  <Sun size={13} /> {panel.brand} {panel.watt}W — {fmt(panel.pricePerPanel)}/panel
+                  <Sun size={13} /> {panel.brand} {panel.watt}W
                 </span>
                 <span className="panel-chip">
-                  <Zap size={13} /> {inverter.brand} {inverter.kw}kW — {fmt(inverter.pricePerUnit)}
+                  <Zap size={13} /> {inverter.brand} {inverter.kw}kW
                 </span>
                 {quote && <span className="panel-chip"><Hash size={13} /> {quote.panelCount} panels required</span>}
               </div>
