@@ -126,7 +126,7 @@ export default function SettingsPage() {
       title: "Quotation Pricing Manager",
       icon: Percent,
       desc: "Formula: Base = Panels + Inverter + (kW × DC Wire) + (kW × AC Wire) + (kW × Structure). Then add Profit %, Transport %, and GST.",
-      keys: ["bom_price_per_kw", "labour_price_per_kw", "commission_price_per_kw", "profit_percentage", "transport_percentage"],
+      keys: ["bom_price_per_kw", "labour_price_per_kw", "commission_price_per_kw", "profit_percentage", "transport_percentage", "installation_price_per_kw"],
     },
     {
       title: "Environmental Impact Estimates",
@@ -169,6 +169,7 @@ export default function SettingsPage() {
     labour_price_per_kw: "AC Wire Cost per kW — ₹ (used as Labour in formula)",
     commission_price_per_kw: "Mounting Structure Cost per kW — ₹ (used as Commission in formula)",
     profit_percentage: "Profit Margin (%)",
+    installation_price_per_kw: "Approx Installation Price per kW — ₹",
     transport_percentage: "Transport Charge (%)",
     smtp_from_email: "Sender Email",
     smtp_from_name: "Sender Name",
@@ -275,7 +276,7 @@ export default function SettingsPage() {
                   "stock_threshold_high", "stock_threshold_low",
                   "bom_price_per_kw", "labour_price_per_kw", "commission_price_per_kw",
                   "profit_percentage", "transport_percentage",
-                  "solar_yield_per_kw", "co2_per_kw"
+                  "solar_yield_per_kw", "co2_per_kw", "installation_price_per_kw"
                 ];
                 const isNumeric = numericKeys.includes(key);
                 const isPin = key === "stock_manager_pin";

@@ -34,6 +34,7 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
     profit_percentage: 10,
     transport_percentage: 1.2,
     gst_rate: 8.9,
+    installation_price_per_kw: 2000,
   });
   const [gstRate, setGstRate] = useState(0.089);
   const [loadingPrices, setLoadingPrices] = useState(true);
@@ -153,6 +154,7 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
           profit_percentage: parseFloat(s.profit_percentage) || 10,
           transport_percentage: parseFloat(s.transport_percentage) || 1.2,
           gst_rate: parseFloat(s.gst_rate) || 8.9,
+          installation_price_per_kw: parseFloat(s.installation_price_per_kw) || 2000,
         };
         setPricingSettings(parsed);
         setGstRate(parsed.gst_rate / 100);
@@ -283,6 +285,7 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
     const commissionPricePerKw = Number(s.commission_price_per_kw) || 3000;
     const profitPercentage    = Number(s.profit_percentage)        || 10;
     const transportPercentage = Number(s.transport_percentage)     || 1.2;
+    const installationPricePerKw = Number(s.installation_price_per_kw) || 2000;
 
     const panel   = prices.panels.find(p => p.id === form.panelId);
     const inverter = prices.inverters.find(i => i.id === form.inverterId);
@@ -341,6 +344,8 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
 
         const subsidy        = form.subsidy === "yes" ? calculateSubsidy(systemKw) : 0;
         const effectivePrice = Math.max(0, total - subsidy);
+        const installationCost = installationPricePerKw * systemKw;
+        const approxTotalCost = total + installationCost;
 
         q = {
           systemKw,
@@ -360,6 +365,9 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
           effectivePrice,
           pricePerKw: Math.round(total / systemKw),
           isCustomPrice: customPrice && parseFloat(customPrice) > 0,
+          installationPricePerKw,
+          installationCost,
+          approxTotalCost,
         };
       }
     }
@@ -1270,6 +1278,11 @@ ${pdfLine}`;
                   <div style={{ fontSize: "40px", fontWeight: 800, color: "#fff", fontFamily: "var(--mono)", textShadow: "0 2px 10px rgba(0,0,0,0.1)" }}>
                     {fmt(quote.total)}
                   </div>
+                  {quote.approxTotalCost && (
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#ff4d4d", marginTop: "12px", background: "rgba(255, 77, 77, 0.15)", border: "1px solid rgba(255, 77, 77, 0.3)", padding: "6px 14px", borderRadius: "10px", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <Zap size={13} /> Approx. Total Cost after Installation: {fmt(quote.approxTotalCost)}
+                    </div>
+                  )}
                 </div>
 
                 {/* Key Metrics Grid */}
@@ -1592,6 +1605,18 @@ ${pdfLine}`;
                     </div>
                   </div>
                 )}
+                <div>
+                  <div style={{ fontSize: 13, color: "var(--muted)" }}>{"Approx. Installation"}</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: "#dc2626", fontFamily: "var(--mono)" }}>
+                    {fmt(quote.installationCost)}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, color: "var(--muted)" }}>{"Approx. Total Cost (incl. Installation)"}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#dc2626", fontFamily: "var(--mono)" }}>
+                    {fmt(quote.approxTotalCost)}
+                  </div>
+                </div>
               </div>
             )}
           </div>

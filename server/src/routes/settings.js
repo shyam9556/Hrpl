@@ -27,9 +27,9 @@ router.get("/public", async (req, res, next) => {
       "commission_price_per_kw",
       "profit_percentage",
       "transport_percentage",
-      // MINOR-05: environmental stats used in quotation builder
       "solar_yield_per_kw",
       "co2_per_kw",
+      "installation_price_per_kw",
     ];
 
     // MySQL equivalent of ANY($1::text[]) — use IN with dynamic placeholders
@@ -107,6 +107,7 @@ router.put("/", authorize("admin"), validate(updateSettingsSchema), async (req, 
           "profit_percentage", "transport_percentage",
           // MINOR-05: environmental stats
           "solar_yield_per_kw", "co2_per_kw",
+          "installation_price_per_kw",
         ];
         if (!ALLOWED_SETTING_KEYS.includes(key)) {
           await client.query("ROLLBACK");
@@ -129,7 +130,7 @@ router.put("/", authorize("admin"), validate(updateSettingsSchema), async (req, 
         }
 
         // Validate known numeric settings
-        if (["gst_rate", "quotation_validity_days", "max_upload_size_mb", "stock_threshold_high", "stock_threshold_low", "bom_price_per_kw", "labour_price_per_kw", "commission_price_per_kw", "profit_percentage", "transport_percentage", "solar_yield_per_kw", "co2_per_kw"].includes(key)) {
+        if (["gst_rate", "quotation_validity_days", "max_upload_size_mb", "stock_threshold_high", "stock_threshold_low", "bom_price_per_kw", "labour_price_per_kw", "commission_price_per_kw", "profit_percentage", "transport_percentage", "solar_yield_per_kw", "co2_per_kw", "installation_price_per_kw"].includes(key)) {
           const num = Number(value);
           if (isNaN(num) || num < 0) {
             await client.query("ROLLBACK");
