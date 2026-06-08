@@ -657,12 +657,18 @@ export default function PriceManager() {
       </div>
 
       {/* ── Pre-packaged Kits ── */}
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: 8 }}>
-          <div className="card-title" style={{ margin: 0 }}>Pre-packaged Kit Prices</div>
+      {/* ── Pre-packaged Kits ── */}
+      <div style={{ width: "100%", marginBottom: "2rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: 8 }}>
+          <div>
+            <div className="page-title" style={{ fontSize: "20px", fontWeight: 700, margin: 0 }}>Pre-packaged Kit Prices</div>
+            <div className="page-sub" style={{ fontSize: "13px", color: "var(--muted)", marginTop: "2px" }}>
+              Standard kit pricing catalogs for quotation generation
+            </div>
+          </div>
           <button
-            className="btn-sm"
-            style={{ padding: "6px 14px", display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}
+            className="btn-sm primary"
+            style={{ padding: "6px 14px", display: "flex", alignItems: "center", gap: 5, fontSize: 12, minHeight: 32 }}
             onClick={() => setShowAddKit(v => !v)}
           >
             {showAddKit ? <><X size={13} /> Cancel</> : <><Plus size={13} /> Add Kit</>}
@@ -724,6 +730,7 @@ export default function PriceManager() {
             </button>
           </div>
         )}
+
         <div style={{ display: "flex", flexDirection: "column", gap: "24px", width: "100%" }}>
         {/* GAP-05 fix: derive brands dynamically from DB data — any new kit brand
             added to kit_prices will appear automatically without code changes. */}
@@ -737,114 +744,193 @@ export default function PriceManager() {
             return valA - valB;
           });
           
-          return sortedBrands.map(brand => (
-            <div key={brand} style={{ display: "flex", flexDirection: "column", gap: "16px", background: "white", padding: "16px", borderRadius: "16px", border: "1px solid var(--border)", boxShadow: "0 4px 12px rgba(0,0,0,0.01)" }}>
-              <div style={{
-                fontWeight: 800,
-                fontSize: 16,
-                borderBottom: "2.5px solid var(--border)",
-                paddingBottom: "8px",
-                color: brand === "Adani" ? "#ea580c" : brand === "Waaree" ? "#047857" : "#0284c7",
-                textTransform: "uppercase",
-                letterSpacing: "0.05em"
-              }}>
-                {brand} Solar Kits
-              </div>
-              {["Bifacial", "TOPCon"].map(type => {
-                const groupKits = kits.filter(k => k.brand === brand && k.type === type);
-                if (groupKits.length === 0) return null;
-                return (
-                  <div key={type} style={{ background: "#FAFAF9", padding: "14px", borderRadius: "12px", border: "1px solid var(--border)" }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text)", marginBottom: "10px", borderBottom: "1px dashed var(--border)", paddingBottom: "6px" }}>
-                      {type} ({groupKits[0].watt}W)
-                    </div>
-                    <div className="table-scroll-wrap">
-                    <table style={{ margin: 0, width: "100%", fontSize: "12px", minWidth: "360px" }}>
-                      <thead>
-                        <tr>
-                          <th>kW</th>
-                          <th>Panels</th>
-                          <th>Inverter</th>
-                          <th>Price (Rs.)</th>
-                          <th style={{ textAlign: "right" }}>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {groupKits.map(k => {
-                          const isEditing = editingKitId === k.id;
-                          const isSaved = savedRowId === `kit-${k.id}`;
-                          return (
-                            <tr key={k.id} style={isSaved ? { background: "rgba(34,197,94,0.07)", transition: "background 0.3s" } : {}}>
-                              <td style={{ fontWeight: 700, color: "var(--text)" }}>{Number(k.kw).toFixed(2)} kW</td>
-                              <td>{k.panels} pcs</td>
-                              <td style={{ fontSize: 11, color: "var(--muted)" }}>{k.inv_brand} {Number(k.inv_kw)}kW</td>
-                              <td>
-                                {isEditing ? (
-                                  <input
-                                    type="number"
-                                    className="input-inline"
-                                    value={editingKitPrice}
-                                    onChange={e => setEditingKitPrice(e.target.value)}
-                                    style={{ width: "90px", padding: "4px 8px" }}
-                                  />
-                                ) : (
-                                  <span style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>
-                                    ₹{Number(k.price).toLocaleString("en-IN")}
-                                  </span>
-                                )}
-                              </td>
-                              <td style={{ textAlign: "right" }}>
-                                {isEditing ? (
-                                  <div style={{ display: "inline-flex", gap: "4px" }}>
-                                    <button
-                                      className="btn-sm"
-                                      style={{ background: "var(--green)", color: "white", borderColor: "var(--green)", padding: "2px 6px", fontSize: "10px" }}
-                                      onClick={() => handleSaveKitPrice(k.id)}
-                                    >
-                                      Save
-                                    </button>
-                                    <button
-                                      className="btn-sm"
-                                      style={{ padding: "2px 6px", fontSize: "10px" }}
-                                      onClick={() => setEditingKitId(null)}
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <div style={{ display: "inline-flex", gap: 4 }}>
-                                    <button
-                                      className="btn-sm"
-                                      style={{ padding: "2px 8px", fontSize: "10px" }}
-                                      onClick={() => {
-                                        setEditingKitId(k.id);
-                                        setEditingKitPrice(k.price);
-                                      }}
-                                    >
-                                      Edit
-                                    </button>
-                                    <button
-                                      className="btn-sm danger"
-                                      style={{ padding: "2px 6px", fontSize: "10px" }}
-                                      onClick={() => setDeleteConfirm({ type: "kit", id: k.id, name: `${k.brand} ${k.type} ${Number(k.kw).toFixed(2)}kW` })}
-                                      title="Delete Kit"
-                                    >
-                                      <Trash2 size={11} />
-                                    </button>
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                    </div>
+          return sortedBrands.map(brand => {
+            const brandColor = brand === "Adani" ? "#ea580c" : brand === "Waaree" ? "#047857" : "#0284c7";
+            const brandBgLight = brand === "Adani" ? "rgba(234,88,12,0.06)" : brand === "Waaree" ? "rgba(4,120,87,0.06)" : "rgba(2,132,199,0.06)";
+            const brandBorderColor = brand === "Adani" ? "rgba(234,88,12,0.2)" : brand === "Waaree" ? "rgba(4,120,87,0.2)" : "rgba(2,132,199,0.2)";
+            const brandKitsCount = kits.filter(k => k.brand === brand).length;
+
+            return (
+              <div 
+                key={brand} 
+                className="card"
+                style={{ 
+                  display: "flex", 
+                  flexDirection: "column", 
+                  gap: "20px", 
+                  padding: "1.5rem", 
+                  borderLeft: `6px solid ${brandColor}`,
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.02)",
+                  margin: 0
+                }}
+              >
+                <div style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  borderBottom: "2px solid var(--border)",
+                  paddingBottom: "10px",
+                }}>
+                  <div style={{
+                    fontWeight: 800,
+                    fontSize: 16,
+                    color: brandColor,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8
+                  }}>
+                    {brand} Solar Kits
                   </div>
-                );
-              })}
-            </div>
-          ));
+                  <span style={{ 
+                    fontSize: 11, 
+                    fontWeight: 700, 
+                    color: brandColor, 
+                    background: brandBgLight, 
+                    border: `1px solid ${brandBorderColor}`, 
+                    padding: "3px 10px", 
+                    borderRadius: "12px" 
+                  }}>
+                    {brandKitsCount} Configurations
+                  </span>
+                </div>
+
+                {["Bifacial", "TOPCon"].map(type => {
+                  const groupKits = kits.filter(k => k.brand === brand && k.type === type);
+                  if (groupKits.length === 0) return null;
+                  return (
+                    <div key={type} style={{ background: "#FAFAF9", padding: "16px", borderRadius: "12px", border: "1px solid var(--border)" }}>
+                      <div style={{ 
+                        fontWeight: 700, 
+                        fontSize: 13, 
+                        color: "var(--text)", 
+                        marginBottom: "12px", 
+                        borderBottom: "1px dashed var(--border)", 
+                        paddingBottom: "8px",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center"
+                      }}>
+                        <span>{type} Panel Range</span>
+                        <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 500 }}>
+                          Rating: {groupKits[0].watt}W
+                        </span>
+                      </div>
+                      
+                      <div className="table-scroll-wrap" style={{ borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)" }}>
+                      <table style={{ margin: 0, width: "100%", fontSize: "12px" }}>
+                        <thead>
+                          <tr style={{ background: "#F1F5F9" }}>
+                            <th style={{ padding: "10px 14px", fontWeight: 700 }}>System kW</th>
+                            <th style={{ padding: "10px 14px", fontWeight: 700 }}>Panels Count</th>
+                            <th style={{ padding: "10px 14px", fontWeight: 700 }}>Inverter Specs</th>
+                            <th style={{ padding: "10px 14px", fontWeight: 700 }}>Kit Price (Rs.)</th>
+                            <th style={{ padding: "10px 14px", fontWeight: 700, textAlign: "right" }}>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {groupKits.map(k => {
+                            const isEditing = editingKitId === k.id;
+                            const isSaved = savedRowId === `kit-${k.id}`;
+                            return (
+                              <tr 
+                                key={k.id} 
+                                style={{ 
+                                  transition: "background 0.2s",
+                                  backgroundColor: isSaved ? "rgba(34,197,94,0.07)" : "white"
+                                }}
+                              >
+                                <td style={{ padding: "10px 14px", fontWeight: 700, color: "var(--text)" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                    <span style={{ fontSize: 13 }}>{Number(k.kw).toFixed(2)}</span>
+                                    <span style={{ fontSize: 10, fontWeight: 500, color: "var(--muted)" }}>kW</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "10px 14px" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                    <span style={{ fontWeight: 600 }}>{k.panels}</span>
+                                    <span style={{ fontSize: 11, color: "var(--muted)" }}>modules</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "10px 14px" }}>
+                                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.03)", padding: "2px 8px", borderRadius: "6px" }}>
+                                    <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: "var(--muted)", letterSpacing: "0.5px" }}>{k.inv_brand}</span>
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text)" }}>{Number(k.inv_kw)} kW</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "10px 14px" }}>
+                                  {isEditing ? (
+                                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)" }}>₹</span>
+                                      <input
+                                        type="number"
+                                        className="input-inline"
+                                        value={editingKitPrice}
+                                        onChange={e => setEditingKitPrice(e.target.value)}
+                                        style={{ width: "95px", padding: "4px 8px" }}
+                                        autoFocus
+                                      />
+                                    </div>
+                                  ) : (
+                                    <span style={{ fontFamily: "var(--mono)", fontWeight: 700, color: "var(--green)", fontSize: "13px" }}>
+                                      ₹{Number(k.price).toLocaleString("en-IN")}
+                                    </span>
+                                  )}
+                                </td>
+                                <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                                  {isEditing ? (
+                                    <div style={{ display: "inline-flex", gap: "6px" }}>
+                                      <button
+                                        className="btn-sm"
+                                        style={{ background: "var(--green)", color: "white", borderColor: "var(--green)", padding: "2px 8px", fontSize: "10px", minHeight: "24px" }}
+                                        onClick={() => handleSaveKitPrice(k.id)}
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        className="btn-sm"
+                                        style={{ padding: "2px 8px", fontSize: "10px", minHeight: "24px" }}
+                                        onClick={() => setEditingKitId(null)}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div style={{ display: "inline-flex", gap: 6 }}>
+                                      <button
+                                        className="btn-sm"
+                                        style={{ padding: "2px 8px", fontSize: "10px", minHeight: "24px", borderColor: brandColor, color: brandColor }}
+                                        onClick={() => {
+                                          setEditingKitId(k.id);
+                                          setEditingKitPrice(k.price);
+                                        }}
+                                      >
+                                        Edit Price
+                                      </button>
+                                      <button
+                                        className="btn-sm danger"
+                                        style={{ padding: "2px 6px", fontSize: "10px", minHeight: "24px" }}
+                                        onClick={() => setDeleteConfirm({ type: "kit", id: k.id, name: `${k.brand} ${k.type} ${Number(k.kw).toFixed(2)}kW` })}
+                                        title="Delete Kit"
+                                      >
+                                        <Trash2 size={11} />
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          });
         })()}
         </div>
       </div>
