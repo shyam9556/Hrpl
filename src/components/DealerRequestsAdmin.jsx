@@ -311,7 +311,7 @@ export default function DealerRequestsAdmin() {
       }, 1500);
       setBlobUrls(new Map());
     };
-  }, [selectedQuotation?.id]); // Only re-run when the selected quotation ID changes
+  }, [selectedQuotation?.id, (selectedQuotation?.documents || []).map(d => d.id).join(",")]); // Re-run when ID or documents list changes
 
   // BUG A4: Lock body scroll when modal is open
   useEffect(() => {

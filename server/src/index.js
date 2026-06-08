@@ -22,6 +22,7 @@ import dashboardRoutes from "./routes/dashboard.js";
 import reportRoutes from "./routes/reports.js";
 import inquiryRoutes from "./routes/inquiries.js";
 import { verifySMTPConnection } from "./services/emailService.js";
+import { cleanupOrphanedDocuments } from "./utils/cleanup.js";
 
 
 // ─── Resolve __dirname for ES Modules ────────────────────
@@ -276,6 +277,9 @@ const startServer = async () => {
   } catch (err) {
     console.warn("[Startup] Could not clean expired re-upload tokens:", err.message);
   }
+
+  // Cleanup database records for files missing on disk (orphaned files cleanup)
+  await cleanupOrphanedDocuments();
 
   app.listen(env.port, () => {
     console.log("");
