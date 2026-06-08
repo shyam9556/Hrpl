@@ -303,7 +303,14 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
       const calcTotal    = calcSubtotal + calcGst;
 
       if (calcTotal > 0) {
-        const ratio = targetTotal / calcTotal;
+        // Standard (non-customized) values
+        const stdSubsidy = form.subsidy === "yes" ? calculateSubsidy(systemKw) : 0;
+        st = targetTotal;
+        sep = Math.max(0, targetTotal - stdSubsidy);
+
+        // Active target price
+        const activeTarget = (customPrice && parseFloat(customPrice) > 0) ? parseFloat(customPrice) : targetTotal;
+        const ratio = activeTarget / calcTotal;
 
         const panelCost    = Math.round(calcPanelCost * ratio);
         const inverterCost = Math.round(calcInverterCost * ratio);
@@ -314,66 +321,41 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
         const earthing     = Math.round(calcTransportCost * ratio);
         const misc         = 0;
 
-        const subtotal = panelCost + inverterCost + dcWire + acWire + structure + elec + earthing + misc;
-        const gst      = Math.round(subtotal * (Number(s.gst_rate) / 100));
-        const total    = subtotal + gst;
+        // Subtotal target is activeTarget backed out of GST
+        const targetSubtotal = Math.round(activeTarget / (1 + gstRate));
+        const targetGst      = activeTarget - targetSubtotal;
 
-        // Subsidy calculation
-        const subsidy       = form.subsidy === "yes" ? calculateSubsidy(systemKw) : 0;
+        const subtotalSum = panelCost + inverterCost + dcWire + acWire + structure + elec + earthing + misc;
+        const drift       = targetSubtotal - subtotalSum;
+        // Absorb rounding drift into panelCost to ensure exact match of the target subtotal
+        const adjPanelCost = panelCost + drift;
+
+        const subtotal = adjPanelCost + inverterCost + dcWire + acWire + structure + elec + earthing + misc;
+        const gst      = targetGst;
+        const total    = activeTarget;
+
+        const subsidy        = form.subsidy === "yes" ? calculateSubsidy(systemKw) : 0;
         const effectivePrice = Math.max(0, total - subsidy);
 
-        let stdQuote = {
+        q = {
           systemKw,
           panelCount: parseInt(form.panelCount),
-          panelCost, inverterCost, dcWire, acWire,
-          structure, elec, earthing, misc, subtotal, gst, total,
-          subsidy, effectivePrice,
+          panelCost: adjPanelCost,
+          inverterCost,
+          dcWire,
+          acWire,
+          structure,
+          elec,
+          earthing,
+          misc,
+          subtotal,
+          gst,
+          total,
+          subsidy,
+          effectivePrice,
           pricePerKw: Math.round(total / systemKw),
+          isCustomPrice: customPrice && parseFloat(customPrice) > 0,
         };
-
-        sep = stdQuote.effectivePrice;
-        st  = stdQuote.total;
-
-        // Custom price override
-        if (customPrice && parseFloat(customPrice) > 0 && st > 0) {
-          const custTarget = parseFloat(customPrice);
-          const custRatio  = custTarget / st;
-
-          const cPanelCost    = Math.round(stdQuote.panelCost * custRatio);
-          const cInverterCost = Math.round(stdQuote.inverterCost * custRatio);
-          const cDcWire       = Math.round(stdQuote.dcWire * custRatio);
-          const cAcWire       = Math.round(stdQuote.acWire * custRatio);
-          const cStructure    = Math.round(stdQuote.structure * custRatio);
-          const cElec         = Math.round(stdQuote.elec * custRatio);
-          const cEarthing     = Math.round(stdQuote.earthing * custRatio);
-          const cMisc         = Math.round(stdQuote.misc * custRatio);
-
-          const cSubtotal = cPanelCost + cInverterCost + cDcWire + cAcWire + cStructure + cElec + cEarthing + cMisc;
-
-          // Absorb rounding drift into panelCost to ensure total matches target
-          const cTargetSubtotal = Math.round(custTarget / (1 + gstRate));
-          const cDrift          = cTargetSubtotal - cSubtotal;
-          const cAdjPanelCost   = Math.abs(cDrift) < 10 ? cPanelCost + cDrift : cPanelCost;
-          const cAdjSubtotal    = cAdjPanelCost + cInverterCost + cDcWire + cAcWire + cStructure + cElec + cEarthing + cMisc;
-
-          const cGst          = Math.round(cAdjSubtotal * gstRate);
-          const cTotal        = cAdjSubtotal + cGst;
-          const cEffectivePrice = Math.max(0, cTotal - subsidy);
-
-          q = {
-            systemKw: stdQuote.systemKw,
-            panelCount: stdQuote.panelCount,
-            panelCost: cAdjPanelCost, inverterCost: cInverterCost,
-            dcWire: cDcWire, acWire: cAcWire,
-            structure: cStructure, elec: cElec, earthing: cEarthing, misc: cMisc,
-            subtotal: cAdjSubtotal, gst: cGst, total: cTotal,
-            subsidy, effectivePrice: cEffectivePrice,
-            pricePerKw: Math.round(cTotal / stdQuote.systemKw),
-            isCustomPrice: true,
-          };
-        } else {
-          q = stdQuote;
-        }
       }
     }
     return { quote: q, stdEffectivePrice: sep, stdTotal: st };
