@@ -32,7 +32,7 @@ const panelRanges = [
   // 2. Waaree
   { brand: "Waaree", type: "Bifacial", watt: "535-540", price: 14575 },
   { brand: "Waaree", type: "TOPCon", watt: "605-620", price: 16430 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-580", price: 15370 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", price: 15370 },
 
   // 3. Goldi
   { brand: "Goldi", type: "Bifacial", watt: "540-555", price: 13475 },
@@ -40,7 +40,10 @@ const panelRanges = [
 
   // 4. Vikram
   { brand: "Vikram", type: "Bifacial", watt: "540-555", price: 12925 },
-  { brand: "Vikram", type: "TOPCon", watt: "580-600", price: 13630 }
+  { brand: "Vikram", type: "TOPCon", watt: "580-600", price: 13630 },
+
+  // 5. Rayzon
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", price: 13500 }
 ];
 
 async function updatePanels() {
