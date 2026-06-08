@@ -23,24 +23,6 @@ CREATE TABLE IF NOT EXISTS email_otp_tokens (
 -- ─── email_verified on dealer_registrations ──────────────────
 -- Tracks whether the applicant verified their email via OTP before submitting.
 -- 0 = not verified (legacy registrations or skipped), 1 = OTP-verified.
--- Uses a stored procedure to safely ADD COLUMN only if it does not already exist.
-DROP PROCEDURE IF EXISTS add_email_verified_col;
-
-DELIMITER //
-CREATE PROCEDURE add_email_verified_col()
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME   = 'dealer_registrations'
-          AND COLUMN_NAME  = 'email_verified'
-    ) THEN
-        ALTER TABLE dealer_registrations
-            ADD COLUMN email_verified TINYINT(1) NOT NULL DEFAULT 0
-            AFTER company_name;
-    END IF;
-END//
-DELIMITER ;
-
-CALL add_email_verified_col();
-DROP PROCEDURE IF EXISTS add_email_verified_col;
+ALTER TABLE dealer_registrations
+    ADD COLUMN email_verified TINYINT(1) NOT NULL DEFAULT 0
+    AFTER company_name;
