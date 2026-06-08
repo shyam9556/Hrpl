@@ -640,11 +640,58 @@ router.delete("/:id", async (req, res, next) => {
       }
     }
 
-    await db.query("DELETE FROM quotations WHERE id = ?", [quotationId]);
+    // Start transaction to delete quotation, associated documents, re-upload tokens, and files on disk
+    const client = await db.getClient();
+    try {
+      await client.query("BEGIN");
+
+      // 1. Fetch associated documents to delete files on disk
+      const docsResult = await client.query(
+        "SELECT id, file_path FROM documents WHERE entity_type = 'quotation' AND entity_id = ?",
+        [quotationId]
+      );
+
+      // Resolve uploads directory
+      const UPLOADS_DIR = path.normalize(
+        path.isAbsolute(env.upload.dir)
+          ? env.upload.dir
+          : path.resolve(__dirname, "../..", env.upload.dir)
+      );
+
+      // 2. Delete physical files from disk
+      for (const doc of docsResult.rows) {
+        const absPath = path.normalize(path.join(UPLOADS_DIR, doc.file_path));
+        if (absPath.startsWith(UPLOADS_DIR + path.sep)) {
+          await fs.unlink(absPath).catch(() => {});
+        }
+      }
+
+      // 3. Delete document records from database
+      await client.query(
+        "DELETE FROM documents WHERE entity_type = 'quotation' AND entity_id = ?",
+        [quotationId]
+      );
+
+      // 4. Delete associated re-upload tokens
+      await client.query(
+        "DELETE FROM quotation_reupload_tokens WHERE quotation_id = ?",
+        [quotationId]
+      );
+
+      // 5. Delete the quotation itself
+      await client.query("DELETE FROM quotations WHERE id = ?", [quotationId]);
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
 
     res.json({
       success: true,
-      message: `Quotation ${quotation.quotation_number} deleted.`,
+      message: `Quotation ${quotation.quotation_number} and all associated files/documents deleted.`,
     });
   } catch (err) {
     next(err);
