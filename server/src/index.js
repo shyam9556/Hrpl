@@ -81,6 +81,7 @@ const generalLimiter = rateLimit({
 });
 
 // Strict rate limit for auth routes: 30 attempts per 15 minutes per IP
+// Used for endpoints like register, reset-password where legitimate use is rare.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
@@ -90,6 +91,23 @@ const authLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+// Dedicated rate limiter for forgot-password endpoint.
+// skipSuccessfulRequests: true ensures that legitimate password reset requests
+// (which respond 200 even if the email doesn't exist, for anti-enumeration)
+// do not burn through the quota. Only failed/error responses count.
+// 10 attempts per 15 minutes is sufficient — genuine users request a reset at most once.
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: {
+    success: false,
+    error: "Too many password reset requests. Please try again after 15 minutes.",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
 });
 
 // Strict login rate limit: 20 attempts per 15 minutes per IP
@@ -204,7 +222,7 @@ app.get("/api/health", (req, res) => {
 // Apply rate limiters to specific auth endpoints (both dev and production)
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth/register", authLimiter);
-app.use("/api/auth/forgot-password", authLimiter);
+app.use("/api/auth/forgot-password", forgotPasswordLimiter);
 app.use("/api/auth/reset-password", authLimiter);
 app.use("/api/auth/change-password", authLimiter);
 // OTP: strict per-IP limits to prevent automated OTP spam / brute-force
@@ -306,6 +324,24 @@ const startServer = async () => {
     }
   } catch (err) {
     console.warn("[Startup] Could not clean expired OTP tokens:", err.message);
+  }
+
+  // Cleanup old login_attempts records on startup.
+  // The lockout window is 30 minutes; records older than 2 days are useless.
+  // This keeps the table small without any scheduled cron job.
+  try {
+    const attemptCleanup = await db.query(
+      "DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 2 DAY)"
+    );
+    const attemptsDeleted = attemptCleanup.affectedRows ?? attemptCleanup.rowCount ?? 0;
+    if (attemptsDeleted > 0) {
+      console.log(`[Startup] Cleaned up ${attemptsDeleted} old login attempt record(s).`);
+    }
+  } catch (err) {
+    // Table may not exist yet if migration hasn't run — non-fatal
+    if (!err.message.includes("doesn't exist")) {
+      console.warn("[Startup] Could not clean old login attempts:", err.message);
+    }
   }
 
   // Cleanup database records for files missing on disk (orphaned files cleanup)

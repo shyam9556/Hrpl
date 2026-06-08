@@ -831,6 +831,8 @@ export default function LoginPage({ onLogin }) {
                   type="button"
                   className="pwd-toggle-btn"
                   onClick={() => setShowConfirmPass(!showConfirmPass)}
+                  title={showConfirmPass ? "Hide confirm password" : "Show confirm password"}
+                  aria-label={showConfirmPass ? "Hide confirm password" : "Show confirm password"}
                 >
                   {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -1031,6 +1033,7 @@ export default function LoginPage({ onLogin }) {
                 value={email}
                 disabled={isLoading}
                 autoComplete="email"
+                autoFocus
                 onChange={e => setEmail(e.target.value)}
               />
             </div>
@@ -1051,6 +1054,7 @@ export default function LoginPage({ onLogin }) {
                   className="pwd-toggle-btn"
                   onClick={() => setShowPassword(!showPassword)}
                   title={showPassword ? "Hide password" : "Show password"}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>

@@ -474,4 +474,50 @@ router.post("/registrations/:id/request-reupload", async (req, res, next) => {
   }
 });
 
+// ─── DELETE /api/dealers/:id/login-attempts ──────────────
+// Admin only — Unlock a dealer account locked by too many failed login attempts.
+// Clears all recent failed login_attempts for the given email so the next
+// login attempt is treated as fresh (bypassing the 30-minute lockout window).
+//
+// Use case: A legitimate dealer accidentally locks their account and contacts
+// support. The admin can unlock it immediately without waiting 30 minutes.
+router.delete("/:id/login-attempts", async (req, res, next) => {
+  try {
+    const dealerId = parseInt(req.params.id, 10);
+    if (isNaN(dealerId)) {
+      return res.status(400).json({ success: false, error: "Invalid dealer ID." });
+    }
+
+    // Fetch dealer email — needed to clear login_attempts (keyed by email)
+    const result = await db.query(
+      "SELECT id, name, email FROM users WHERE id = ? AND role = 'dealer'",
+      [dealerId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Dealer not found." });
+    }
+
+    const dealer = result.rows[0];
+
+    // Delete all failed login attempts for this email (clears the lockout)
+    const deleteResult = await db.query(
+      "DELETE FROM login_attempts WHERE email = ? AND succeeded = 0",
+      [dealer.email]
+    );
+
+    const cleared = deleteResult.affectedRows ?? 0;
+
+    console.log(`[AUDIT] Account unlocked: admin ID ${req.user.id} (${req.user.email}) cleared ${cleared} failed login attempt(s) for dealer ${dealer.email} at ${new Date().toISOString()}`);
+
+    res.json({
+      success: true,
+      message: `Account unlocked for ${dealer.name}. ${cleared} failed attempt(s) cleared.`,
+      cleared,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

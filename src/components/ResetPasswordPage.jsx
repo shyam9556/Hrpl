@@ -141,7 +141,7 @@ export default function ResetPasswordPage({ token, onDone }) {
 
         {err && <div className="alert alert-red">{err}</div>}
 
-        <form onSubmit={handleSubmit} autoComplete="off">
+        <form onSubmit={handleSubmit}>
           {/* New Password */}
           <div className="field">
             <label>New Password</label>
@@ -159,6 +159,7 @@ export default function ResetPasswordPage({ token, onDone }) {
                 className="pwd-toggle-btn"
                 onClick={() => setShowPassword(!showPassword)}
                 title={showPassword ? "Hide password" : "Show password"}
+                aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
@@ -208,7 +209,8 @@ export default function ResetPasswordPage({ token, onDone }) {
                 type="button"
                 className="pwd-toggle-btn"
                 onClick={() => setShowConfirm(!showConfirm)}
-                title={showConfirm ? "Hide password" : "Show password"}
+                title={showConfirm ? "Hide confirm password" : "Show confirm password"}
+                aria-label={showConfirm ? "Hide confirm password" : "Show confirm password"}
               >
                 {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>

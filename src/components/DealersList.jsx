@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { dealers as dealersApi } from "../utils/api";
-import { Loader2, Store, ChevronLeft, ChevronRight, Search, X, KeyRound, Eye, EyeOff, CheckCircle, XCircle } from "lucide-react";
+import { Loader2, Store, ChevronLeft, ChevronRight, Search, X, KeyRound, Eye, EyeOff, CheckCircle, XCircle, LockKeyholeOpen } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ErrorState from "./ErrorState";
 
@@ -10,6 +10,7 @@ export default function DealersList() {
   const [fetchError, setFetchError] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
   const [confirmToggle, setConfirmToggle] = useState(null);
+  const [confirmUnlock, setConfirmUnlock] = useState(null); // null | dealer object
   const [errorDialog, setErrorDialog] = useState({ open: false, message: "" });
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -48,6 +49,20 @@ export default function DealersList() {
       setRpError(err.message || "Failed to reset password. Please try again.");
     } finally {
       setRpLoading(false);
+    }
+  };
+
+  const handleUnlockAccount = async () => {
+    const dealer = confirmUnlock;
+    setConfirmUnlock(null);
+    setActionLoading(`unlock-${dealer.id}`);
+    try {
+      const res = await dealersApi.unlockAccount(dealer.id);
+      setErrorDialog({ open: true, message: res.message || `${dealer.name}'s account has been unlocked successfully.` });
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to unlock account. Please try again." });
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -233,6 +248,20 @@ export default function DealersList() {
                         >
                           <KeyRound size={12} /> Reset Pwd
                         </button>
+                        <button
+                          className="btn-sm"
+                          title="Unlock account (clear login lockout)"
+                          aria-label={`Unlock account for ${d.name}`}
+                          disabled={actionLoading === `unlock-${d.id}`}
+                          style={{ padding: "4px 10px", fontSize: 11, borderRadius: 6,
+                            display: "flex", alignItems: "center", gap: 4,
+                            background: "var(--yellow, #f59e0b)", color: "white", border: "none" }}
+                          onClick={() => setConfirmUnlock(d)}
+                        >
+                          {actionLoading === `unlock-${d.id}`
+                            ? <Loader2 size={12} className="animate-spin" />
+                            : <LockKeyholeOpen size={12} />}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -268,11 +297,22 @@ export default function DealersList() {
           onCancel={() => setConfirmToggle(null)}
         />
       )}
+      {confirmUnlock && (
+        <ConfirmDialog
+          open={true}
+          title="Unlock Account?"
+          message={`This will clear all failed login attempts for ${confirmUnlock.name} (${confirmUnlock.email}), allowing them to log in immediately. Use this when a legitimate dealer is locked out.`}
+          variant="info"
+          confirmText="Unlock Account"
+          onConfirm={handleUnlockAccount}
+          onCancel={() => setConfirmUnlock(null)}
+        />
+      )}
       <ConfirmDialog
         open={errorDialog.open}
-        title="Action Failed"
+        title={errorDialog.message?.toLowerCase().includes("unlock") ? "Account Unlocked" : "Action Failed"}
         message={errorDialog.message}
-        variant="danger"
+        variant={errorDialog.message?.toLowerCase().includes("unlock") ? "info" : "danger"}
         confirmText="OK"
         hideCancel
         onConfirm={() => setErrorDialog({ open: false, message: "" })}
@@ -321,7 +361,7 @@ export default function DealersList() {
                   </div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>Password Reset!</div>
                   <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 18 }}>
-                    {resetModal.name}'s password has been updated.
+                    A secure reset link has been sent to <strong>{resetModal.email}</strong>. {resetModal.name} must use that link to set their new password.
                   </div>
                   <button className="btn-primary" onClick={() => setResetModal(null)}>Done</button>
                 </div>

@@ -327,6 +327,9 @@ export const dealers = {
   adminResetPassword: (userId, newPassword) =>
     request(`/auth/admin-reset-password/${userId}`, { method: "POST", body: { newPassword } }),
 
+  unlockAccount: (userId) =>
+    request(`/dealers/${userId}/login-attempts`, { method: "DELETE" }),
+
   getStats: () =>
     request("/dealers/registrations/stats"),
 };

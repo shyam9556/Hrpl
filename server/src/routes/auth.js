@@ -41,11 +41,38 @@ const reuploadVerifyLimiter = rateLimit({
   skipSuccessfulRequests: true, // Only count failed attempts against the limit
 });
 
+// A bcrypt hash of a dummy password used for constant-time comparison
+// when a user is not found. This prevents timing-based email enumeration.
+// Pre-generated once at startup — never changes, never logged.
+const DUMMY_HASH = await bcrypt.hash("dummy_constant_time_prevention_do_not_use", 10);
+
 // ─── POST /api/auth/login ────────────────────────────────
 // Public — Authenticate user and return JWT token
 router.post("/login", validate(loginSchema), async (req, res, next) => {
   try {
     const { email, password, role } = req.body;
+    const clientIp = req.ip || req.socket?.remoteAddress || "unknown";
+
+    // ── Per-account lockout check ────────────────────────────────────────────
+    // Check if this account has too many recent failed attempts (last 30 min).
+    // Uses a 10-attempt threshold to stop targeted brute-force attacks that
+    // rotate IPs to bypass the IP-based rate limiter at the route level.
+    const lockoutWindow = new Date(Date.now() - 30 * 60 * 1000);
+    const attemptResult = await db.query(
+      `SELECT COUNT(*) AS fail_count
+       FROM login_attempts
+       WHERE email = ? AND succeeded = 0 AND attempted_at >= ?
+       ORDER BY attempted_at DESC`,
+      [email, lockoutWindow]
+    );
+    const failCount = attemptResult.rows[0]?.fail_count ?? 0;
+    if (failCount >= 10) {
+      console.warn(`[SECURITY] Account locked due to too many failed attempts: ${email} from IP ${clientIp}`);
+      return res.status(429).json({
+        success: false,
+        error: "Too many failed login attempts. Please try again in 30 minutes or reset your password.",
+      });
+    }
 
     // Find user by email
     const result = await db.query(
@@ -53,39 +80,52 @@ router.post("/login", validate(loginSchema), async (req, res, next) => {
       [email]
     );
 
-    if (result.rows.length === 0) {
+    const user = result.rows[0] || null;
+
+    // ── Constant-time password comparison ────────────────────────────────────
+    // ALWAYS run bcrypt.compare — even if the user was not found.
+    // This prevents timing-based email enumeration where a faster response
+    // (user not found, no bcrypt work) would reveal whether the email exists.
+    // When user is not found, we compare against DUMMY_HASH (always fails).
+    const hashToCompare = user ? user.password_hash : DUMMY_HASH;
+    const isPasswordValid = await bcrypt.compare(password, hashToCompare);
+
+    // ── Unified failure path ─────────────────────────────────────────────────
+    // Any failure (user not found, wrong role, inactive, wrong password) returns
+    // the SAME error message and is logged as a failed attempt. This prevents
+    // error-message enumeration ("user not found" vs "wrong password" etc.).
+    const isValidRole = user && user.role === role;
+    const isActive = user && user.is_active;
+
+    if (!user || !isPasswordValid || !isValidRole || !isActive) {
+      // Log the failed attempt for account lockout tracking.
+      // Fire-and-forget: never block the response on this insert.
+      db.query(
+        "INSERT INTO login_attempts (email, ip_address, succeeded) VALUES (?, ?, 0)",
+        [email, clientIp]
+      ).catch(err => console.error(`[LoginAttempts] Failed to log attempt for ${email}:`, err.message));
+
+      // Return a deactivated account message only after verifying the password
+      // is correct (prevents revealing account existence without authentication).
+      if (user && isPasswordValid && isValidRole && !isActive) {
+        return res.status(403).json({
+          success: false,
+          error: "Account has been deactivated. Contact admin.",
+        });
+      }
+
       return res.status(401).json({
         success: false,
         error: "Invalid email or password.",
       });
     }
 
-    const user = result.rows[0];
-
-    // Check if account is active (MySQL returns TINYINT as number)
-    if (!user.is_active) {
-      return res.status(403).json({
-        success: false,
-        error: "Account has been deactivated. Contact admin.",
-      });
-    }
-
-    // Check if the user has the correct role
-    if (user.role !== role) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid email or password.",
-      });
-    }
-
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
-    if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid email or password.",
-      });
-    }
+    // ── Successful login ─────────────────────────────────────────────────────
+    // Log success and generate JWT.
+    db.query(
+      "INSERT INTO login_attempts (email, ip_address, succeeded) VALUES (?, ?, 1)",
+      [email, clientIp]
+    ).catch(err => console.error(`[LoginAttempts] Failed to log success for ${email}:`, err.message));
 
     // Generate JWT token
     const token = jwt.sign(
@@ -218,23 +258,37 @@ router.post("/register", validate(registerSchema), async (req, res, next) => {
   try {
     const { name, email, password, mobile, location, companyName, aadhaarPhoto, aadhaarFront, aadhaarBack, panPhoto, passportPhoto, agreementPhoto, emailVerifiedToken } = req.body;
 
-    // ── Email verification token check ──────────────────────────────────────
-    // If an emailVerifiedToken JWT was provided (from the OTP flow), validate it.
+    // ── Email verification token — REQUIRED server-side ─────────────────────
+    // The emailVerifiedToken JWT must be present and valid.
+    // Previously this was only enforced in the UI; a direct API call could bypass
+    // email verification entirely. We now enforce it server-side:
     // - type must be "email_verified"
     // - email in token must match the registration email
     // - must not be expired
-    // If invalid/missing, email_verified saves as 0 (registration still succeeds).
+    // Registration is blocked if the token is missing or invalid.
     let emailVerified = 0;
-    if (emailVerifiedToken) {
-      try {
-        const decoded = jwt.verify(emailVerifiedToken, env.jwt.secret);
-        if (decoded.type === "email_verified" && decoded.email === email) {
-          emailVerified = 1;
-        }
-      } catch {
-        // Expired or malformed token — treat as unverified, do not block registration
-        emailVerified = 0;
+    if (!emailVerifiedToken) {
+      return res.status(400).json({
+        success: false,
+        error: "Email verification is required. Please verify your email address using the OTP before registering.",
+      });
+    }
+    try {
+      const decoded = jwt.verify(emailVerifiedToken, env.jwt.secret);
+      if (decoded.type === "email_verified" && decoded.email === email) {
+        emailVerified = 1;
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: "Email verification token is invalid or was issued for a different email address.",
+        });
       }
+    } catch {
+      // Expired or malformed token
+      return res.status(400).json({
+        success: false,
+        error: "Email verification has expired. Please verify your email again.",
+      });
     }
 
     // ── Aadhaar completeness check ──────────────────────────────────────────
@@ -711,6 +765,11 @@ router.post("/reset-password", validate(resetPasswordSchema), async (req, res, n
 
 // ─── POST /api/auth/admin-reset-password/:userId ─────────
 // Admin only — Force reset a dealer's password
+// SECURITY: This endpoint sets a new password directly (bypasses current-password check).
+// To prevent misuse:
+//   - Admins cannot reset other admins' passwords
+//   - Admins cannot reset their OWN password via this route (use /change-password instead)
+//   - The new password is NEVER sent in plaintext via email — a secure reset link is sent instead
 router.post(
   "/admin-reset-password/:userId",
   authenticate,
@@ -725,7 +784,7 @@ router.post(
         return res.status(400).json({ success: false, error: "Invalid user ID." });
       }
 
-      // Verify user exists and is a dealer
+      // Verify user exists
       const result = await db.query(
         "SELECT id, name, email, role FROM users WHERE id = ?",
         [userId]
@@ -740,11 +799,11 @@ router.post(
 
       const targetUser = result.rows[0];
 
-      // Prevent admin from resetting another admin's password
-      if (targetUser.role === "admin" && targetUser.id !== req.user.id) {
+      // SECURITY: Admins cannot reset another admin's password.
+      if (targetUser.role === "admin") {
         return res.status(403).json({
           success: false,
-          error: "Cannot reset another admin's password.",
+          error: "Cannot reset an admin account's password via this route. Use the standard Change Password option.",
         });
       }
 
@@ -756,18 +815,42 @@ router.post(
         [newHash, userId]
       );
 
-      console.log(`[AUDIT] Admin password reset: admin ID ${req.user.id} (${req.user.email}) reset password for user ID ${userId} (${targetUser.email}) at ${new Date().toISOString()}`);
+      console.log(`[AUDIT] Admin password reset: admin ID ${req.user.id} (${req.user.email}) reset password for dealer ID ${userId} (${targetUser.email}) at ${new Date().toISOString()}`);
 
       res.json({
         success: true,
         message: `Password reset for ${targetUser.name} (${targetUser.email}).`,
       });
 
-      // Fire-and-forget — notify the dealer their password was changed by admin.
-      // Includes the new plain-text password so they can log in immediately.
-      // Email failure must never block the reset response.
-      sendAdminPasswordResetEmail(targetUser.email, targetUser.name, newPassword)
-        .catch(err => console.error(`[EMAIL] Failed to send admin password reset email to ${targetUser.email}:`, err.message));
+      // SECURITY FIX: Send a secure reset link instead of the plaintext password.
+      // Sending a new password in plaintext email is a critical security vulnerability:
+      //   - Email is not encrypted in transit by default
+      //   - Email servers/clients/proxies may log content
+      //   - The dealer can set their own new password via the reset link
+      //
+      // We invalidate any old reset tokens, create a new one, and email the link.
+      // This is fire-and-forget: never block the admin response on email operations.
+      (async () => {
+        try {
+          // Invalidate any existing unused reset tokens for this user
+          await db.query(
+            "UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0",
+            [targetUser.id]
+          );
+          // Generate a new secure reset token (64 hex chars = 256 bits entropy)
+          const resetToken = crypto.randomBytes(32).toString("hex");
+          const tokenHash = crypto.createHash("sha256").update(resetToken).digest("hex");
+          await db.query(
+            `INSERT INTO password_reset_tokens (user_id, token, expires_at)
+             VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))`,
+            [targetUser.id, tokenHash]
+          );
+          // Send reset email — dealer sets their own new password
+          await sendAdminPasswordResetEmail(targetUser.email, targetUser.name, resetToken);
+        } catch (err) {
+          console.error(`[EMAIL] Failed to send admin password reset notification to ${targetUser.email}:`, err.message);
+        }
+      })();
     } catch (err) {
       next(err);
     }
@@ -1077,6 +1160,13 @@ router.post("/reupload/submit", async (req, res, next) => {
         [regId]
       );
 
+      // Mark that admin needs to review the newly uploaded documents.
+      // Inside the transaction so it's atomic with all other state changes above.
+      await client.query(
+        "UPDATE dealer_registrations SET needs_review_after_reupload = 1 WHERE id = ?",
+        [regId]
+      );
+
       await client.query("COMMIT");
     } catch (err) {
       await client.query("ROLLBACK");
@@ -1084,12 +1174,6 @@ router.post("/reupload/submit", async (req, res, next) => {
     } finally {
       client.release();
     }
-
-    // Notify admin that re-uploaded documents need review
-    await db.query(
-      "UPDATE dealer_registrations SET needs_review_after_reupload = 1 WHERE id = ?",
-      [regId]
-    );
 
 
     // Send confirmation email (fire-and-forget)

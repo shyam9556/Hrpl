@@ -42,9 +42,14 @@ export const registerSchema = Joi.object({
   location: Joi.string().required().trim().min(3).max(255)
     .messages({ "string.min": "Working location must be at least 3 characters" }),
   companyName: Joi.string().allow("", null).trim().max(255),
-  // Optional: short-lived JWT issued by /verify-email/confirm-otp.
-  // If provided and valid, the registration is saved with email_verified = 1.
-  emailVerifiedToken: Joi.string().allow("", null).optional(),
+  // Required: short-lived JWT issued by /verify-email/confirm-otp.
+  // The server verifies this token's signature, type, and email match
+  // before accepting the registration. Cannot be empty.
+  emailVerifiedToken: Joi.string().required().min(10)
+    .messages({
+      "string.empty": "Email verification is required. Please verify your email using the OTP.",
+      "any.required": "Email verification is required. Please verify your email using the OTP.",
+    }),
   // ── Aadhaar: either a single PDF/scan OR two photos (front + back) ──
   aadhaarPhoto: Joi.object({
     name: Joi.string().required().max(255),
