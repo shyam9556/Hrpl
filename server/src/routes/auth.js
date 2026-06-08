@@ -127,6 +127,13 @@ router.post("/login", validate(loginSchema), async (req, res, next) => {
       [email, clientIp]
     ).catch(err => console.error(`[LoginAttempts] Failed to log success for ${email}:`, err.message));
 
+    // Track last_login_at — used in admin Dealers list for support workflows (IMP-6).
+    // Fire-and-forget: never block the login response on this update.
+    db.query(
+      "UPDATE users SET last_login_at = NOW() WHERE id = ?",
+      [user.id]
+    ).catch(err => console.error(`[Login] Failed to update last_login_at for user ${user.id}:`, err.message));
+
     // Generate JWT token
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role },

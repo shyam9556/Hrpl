@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { dealers as dealersApi, uploads as uploadsApi } from "../utils/api";
 import { Loader2, UserPlus, CheckCircle, XCircle, Paperclip, X, User, Phone, MapPin, Store, Download, Eye, FileText, Calendar, RefreshCw, AlertTriangle, Clock, Send, Search } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
@@ -89,13 +89,31 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
   const [rejectReason, setRejectReason] = useState("");
   const [rejectLoading, setRejectLoading] = useState(false);
   const [rejectSuccess, setRejectSuccess] = useState(false);
+  // IMP-3: timer refs — cleared if admin manually clicks Done before auto-dismiss fires
+  const rejectTimerRef  = useRef(null);
+  const reuploadTimerRef = useRef(null);
 
   // Doc count badge tooltip — stores { id, docs, x, y } for fixed-position rendering
   // outside the overflow-clipped table-scroll-wrap
   const [docTooltip, setDocTooltip] = useState(null);
 
   // Clear the sidebar notification badge as soon as admin opens this page
-  useEffect(() => { onClearBadge?.(); }, []);
+  useEffect(() => { onClearBadge?.(); }, [onClearBadge]);
+
+  // Revoke docViewerUrl blob URL on unmount to prevent memory leaks.
+  // If the admin navigates away while the full-screen viewer is open,
+  // the blob URL must be explicitly released by the browser.
+  // Also clears any pending auto-dismiss timers (IMP-3) to prevent stale setState.
+  useEffect(() => {
+    return () => {
+      if (docViewerUrl) URL.revokeObjectURL(docViewerUrl);
+      clearTimeout(rejectTimerRef.current);
+      clearTimeout(reuploadTimerRef.current);
+    };
+  // We intentionally only run cleanup on unmount — the open/close handlers
+  // already revoke the URL on normal close. This is the safety net.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [search, setSearch] = useState("");
   // Reset search when switching tabs
@@ -112,13 +130,15 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
 
   const fetchReviewItems = useCallback(async () => {
     try {
-      const res = await dealersApi.registrations("All");
-      setReviewItems((res.registrations || []).filter(r => r.needs_review_after_reupload));
+      // IMP-4: Use the lightweight needs-review endpoint instead of fetching all
+      // registrations — avoids loading full document joins just for banners.
+      const res = await dealersApi.needsReview();
+      setReviewItems(res.registrations || []);
     } catch { /* non-critical — banners degrade gracefully */ }
   }, []);
 
-  const fetchRegistrations = useCallback(async () => {
-    setLoading(true);
+  const fetchRegistrations = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       setFetchError(false);
       const res = await dealersApi.registrations(tab);
@@ -131,7 +151,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
       console.error("Fetch registrations error:", err);
       setFetchError(true);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [tab, onClearBadge, fetchStats]);
 
@@ -156,8 +176,10 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
     setSelectedRegistration(null);
     try {
       await dealersApi.approve(id);
-      fetchRegistrations();
-      fetchReviewItems(); // refresh cross-tab banners
+      // Await both refreshes so actionLoading stays active until the
+      // updated list is in state — avoids a flash of stale data.
+      await fetchRegistrations(true);
+      await fetchReviewItems();
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to approve registration." });
     } finally {
@@ -181,8 +203,13 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
     try {
       await dealersApi.reject(rejectModal.id, rejectReason.trim());
       setRejectSuccess(true);
-      fetchRegistrations();
-      fetchReviewItems(); // refresh cross-tab banners
+      // IMP-3: store timer ID so manual "Done" can cancel it before it fires
+      rejectTimerRef.current = setTimeout(() => {
+        rejectTimerRef.current = null;
+        setRejectModal(null);
+      }, 2500);
+      await fetchRegistrations(true);
+      await fetchReviewItems();
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to reject registration." });
     } finally {
@@ -230,8 +257,13 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
     try {
       await dealersApi.requestReupload(reuploadModal.id, reuploadReason.trim(), selectedDocs);
       setReuploadSuccess(true);
-      fetchRegistrations();
-      fetchReviewItems(); // refresh cross-tab banners
+      // IMP-3: store timer ID so manual "Done" can cancel it before it fires
+      reuploadTimerRef.current = setTimeout(() => {
+        reuploadTimerRef.current = null;
+        setReuploadModal(null);
+      }, 2500);
+      await fetchRegistrations(true);
+      await fetchReviewItems();
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to send re-upload request." });
     } finally {
@@ -239,19 +271,39 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
     }
   };
 
+  // IMP-8: Download all documents as a single ZIP archive.
+  // Falls back to sequential downloads if ZIP fails (e.g. archiver not installed).
   const handleDownloadAll = useCallback(async (documents) => {
     if (!documents || documents.length === 0) return;
-    for (const doc of documents) {
-      try {
-        // downloadSecure triggers download with the correct filename automatically
-        await uploadsApi.downloadSecure(doc.id, doc.original_name);
-        // Wait 400ms between downloads to avoid browser popup blockers
-        await new Promise(resolve => setTimeout(resolve, 400));
-      } catch (err) {
-        console.error("[Download] Failed for doc", doc.id, err.message);
+    try {
+      const ids = documents.map(d => d.id);
+      await uploadsApi.downloadZip(ids, "dealer-registration-docs.zip");
+    } catch (zipErr) {
+      console.warn("[Download] ZIP failed, falling back to sequential:", zipErr.message);
+      // Graceful fallback: download one by one
+      for (const doc of documents) {
+        try {
+          await uploadsApi.downloadSecure(doc.id, doc.original_name);
+          await new Promise(resolve => setTimeout(resolve, 400));
+        } catch (err) {
+          console.error("[Download] Failed for doc", doc.id, err.message);
+        }
       }
     }
   }, []);
+
+  // IMP-5: single memoised filter — used by both the search badge and the table render
+  const filteredList = useMemo(() => {
+    if (!search.trim()) return list;
+    const q = search.toLowerCase();
+    return list.filter(r =>
+      r.name?.toLowerCase().includes(q) ||
+      r.email?.toLowerCase().includes(q) ||
+      r.location?.toLowerCase().includes(q) ||
+      r.company_name?.toLowerCase().includes(q) ||
+      r.mobile?.includes(q)
+    );
+  }, [list, search]);
 
   return (
     <div>
@@ -263,26 +315,37 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
       {/* ── Stat Boxes ────────────────────────────────────────────────────────────── */}
       <div className="stat-grid-6">
         {[
-          { label: "Total",              value: stats?.total,             color: "#1a1a1a",  bg: "#f8f9fa",  border: "#e2e8f0",  accent: "#94a3b8" },
-          { label: "Pending",            value: stats?.pending,           color: "#92400e",  bg: "#fffbeb",  border: "#fde68a",  accent: "#f59e0b" },
-          { label: "Approved",           value: stats?.approved,          color: "#166534",  bg: "#f0fdf4",  border: "#bbf7d0",  accent: "#22c55e" },
-          { label: "Rejected",           value: stats?.rejected,          color: "#991b1b",  bg: "#fef2f2",  border: "#fecaca",  accent: "#ef4444" },
-          { label: "Re-upload Req.",     value: stats?.reuploadRequested, color: "#7c2d12",  bg: "#fff7ed",  border: "#fed7aa",  accent: "#f97316" },
-          { label: "Awaiting Review",    value: stats?.needsReview,       color: "#78350f",  bg: "linear-gradient(135deg,#fffbeb,#fef3c7)", border: "#fcd34d", accent: "#f59e0b", highlight: true },
-        ].map(({ label, value, color, bg, border, accent, highlight }) => (
-          <div key={label} style={{
-            background: bg,
-            border: `1px solid ${border}`,
-            borderRadius: 12,
-            padding: "14px 16px",
-            borderTop: `3px solid ${accent}`,
-            boxShadow: highlight
-              ? "0 2px 12px rgba(245,158,11,0.15)"
-              : "0 1px 4px rgba(0,0,0,0.04)",
-            transition: "transform 0.15s, box-shadow 0.15s",
-            cursor: "default",
-            minWidth: 0,
-          }}
+          { label: "Total",           value: stats?.total,             color: "#1a1a1a",  bg: "#f8f9fa",  border: "#e2e8f0",  accent: "#94a3b8", tab: "All" },
+          { label: "Pending",         value: stats?.pending,           color: "#92400e",  bg: "#fffbeb",  border: "#fde68a",  accent: "#f59e0b", tab: "Pending" },
+          { label: "Approved",        value: stats?.approved,          color: "#166534",  bg: "#f0fdf4",  border: "#bbf7d0",  accent: "#22c55e", tab: "Approved" },
+          { label: "Rejected",        value: stats?.rejected,          color: "#991b1b",  bg: "#fef2f2",  border: "#fecaca",  accent: "#ef4444", tab: "Rejected" },
+          { label: "Re-upload Req.",  value: stats?.reuploadRequested, color: "#7c2d12",  bg: "#fff7ed",  border: "#fed7aa",  accent: "#f97316", tab: "ReuploadRequested" },
+          { label: "Awaiting Review", value: stats?.needsReview,       color: "#78350f",  bg: "linear-gradient(135deg,#fffbeb,#fef3c7)", border: "#fcd34d", accent: "#f59e0b", tab: "Pending", highlight: true },
+        ].map(({ label, value, color, bg, border, accent, highlight, tab: targetTab }) => (
+          <div
+            key={label}
+            onClick={() => setTab(targetTab)}
+            onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setTab(targetTab); } }}
+            role="button"
+            tabIndex={0}
+            title={`View ${label} registrations`}
+            aria-label={`View ${label} registrations (${value ?? 0})`}
+            aria-pressed={tab === targetTab}
+            style={{
+              background: bg,
+              border: `1px solid ${border}`,
+              borderRadius: 12,
+              padding: "14px 16px",
+              borderTop: `3px solid ${accent}`,
+              boxShadow: highlight
+                ? "0 2px 12px rgba(245,158,11,0.15)"
+                : "0 1px 4px rgba(0,0,0,0.04)",
+              transition: "transform 0.15s, box-shadow 0.15s",
+              cursor: "pointer",
+              minWidth: 0,
+              outline: tab === targetTab ? `2px solid ${accent}` : "none",
+              outlineOffset: 2,
+            }}
             onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = highlight ? "0 6px 18px rgba(245,158,11,0.22)" : "0 4px 12px rgba(0,0,0,0.08)"; }}
             onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = highlight ? "0 2px 12px rgba(245,158,11,0.15)" : "0 1px 4px rgba(0,0,0,0.04)"; }}
           >
@@ -343,18 +406,9 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
           />
           {search && (
             <>
+              {/* IMP-5: uses memoised filteredList — no duplicate filter computation */}
               <span style={{ fontSize: 11, color: "var(--muted)", whiteSpace: "nowrap", flexShrink: 0 }}>
-                {(() => {
-                  const count = list.filter(r => {
-                    const q = search.toLowerCase();
-                    return r.name?.toLowerCase().includes(q) ||
-                           r.email?.toLowerCase().includes(q) ||
-                           r.location?.toLowerCase().includes(q) ||
-                           r.company_name?.toLowerCase().includes(q) ||
-                           r.mobile?.includes(q);
-                  }).length;
-                  return `${count}`;
-                })()}
+                {filteredList.length}
               </span>
               <button
                 onClick={() => setSearch("")}
@@ -421,16 +475,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
           compact
         />
       ) : (() => {
-        const filteredList = search.trim()
-          ? list.filter(r => {
-              const q = search.toLowerCase();
-              return r.name?.toLowerCase().includes(q) ||
-                     r.email?.toLowerCase().includes(q) ||
-                     r.location?.toLowerCase().includes(q) ||
-                     r.company_name?.toLowerCase().includes(q) ||
-                     r.mobile?.includes(q);
-            })
-          : list;
+        // IMP-5: uses memoised filteredList from useMemo above
         if (list.length === 0) return (
           <div className="card" style={{ textAlign: "center", padding: "3rem", color: "var(--muted)" }}>
             <div style={{ marginBottom: 12 }}><UserPlus size={48} strokeWidth={1} /></div>
@@ -590,8 +635,10 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                   if (idx === 0 && regPendingDocsCount > 0) {
                     rows.push(
                       <tr key="hdr-reg-docs-review" style={{ background: "rgba(245,158,11,0.06)", pointerEvents: "none" }}>
-                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "#b45309", borderBottom: "1px solid rgba(245,158,11,0.18)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
-                          <CheckCircle size={12} /> Documents Re-uploaded — Review Required ({regPendingDocsCount})
+                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "#b45309", borderBottom: "1px solid rgba(245,158,11,0.18)", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <CheckCircle size={12} /> Documents Re-uploaded — Review Required ({regPendingDocsCount})
+                          </div>
                         </td>
                       </tr>
                     );
@@ -599,8 +646,10 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                   if (!isDocsReview && idx === regPendingDocsCount && regPendingNewCount > 0 && regPendingDocsCount > 0) {
                     rows.push(
                       <tr key="hdr-reg-new-apps" style={{ background: "var(--bg, #f8fafc)", pointerEvents: "none" }}>
-                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "var(--muted)", borderBottom: "1px solid var(--border)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
-                          <UserPlus size={12} /> New Applications ({regPendingNewCount})
+                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "var(--muted)", borderBottom: "1px solid var(--border)", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <UserPlus size={12} /> New Applications ({regPendingNewCount})
+                          </div>
                         </td>
                       </tr>
                     );
@@ -612,8 +661,10 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                   if (idx === 0 && expiredCount > 0) {
                     rows.push(
                       <tr key="hdr-reg-expired" style={{ background: "rgba(220,38,38,0.04)", pointerEvents: "none" }}>
-                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "#b91c1c", borderBottom: "1px solid rgba(220,38,38,0.15)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
-                          <AlertTriangle size={12} /> Link Expired — Resend Required ({expiredCount})
+                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "#b91c1c", borderBottom: "1px solid rgba(220,38,38,0.15)", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <AlertTriangle size={12} /> Link Expired — Resend Required ({expiredCount})
+                          </div>
                         </td>
                       </tr>
                     );
@@ -621,8 +672,10 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                   if (!isExpired && idx === expiredCount && activeCount > 0 && expiredCount > 0) {
                     rows.push(
                       <tr key="hdr-reg-active" style={{ background: "var(--bg, #f8fafc)", pointerEvents: "none" }}>
-                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "var(--muted)", borderBottom: "1px solid var(--border)", letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
-                          <Clock size={12} /> Awaiting Dealer Response ({activeCount})
+                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "var(--muted)", borderBottom: "1px solid var(--border)", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <Clock size={12} /> Awaiting Dealer Response ({activeCount})
+                          </div>
                         </td>
                       </tr>
                     );
@@ -896,7 +949,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
         >
           <div
             style={{
-              background: "#ffffff",
+              background: "var(--card, white)",
               borderRadius: 20,
               width: "100%",
               maxWidth: 700,
@@ -918,7 +971,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                 borderBottom: "1px solid rgba(0,0,0,0.06)",
                 position: "sticky",
                 top: 0,
-                background: "#ffffff",
+                background: "var(--card, white)",
                 zIndex: 10
               }}
             >
@@ -1031,7 +1084,8 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#991b1b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>
                     Rejection Reason
                   </div>
-                  <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.6 }}>
+                  {/* IMP-7: var(--text) instead of hardcoded #374151 — dark-mode safe */}
+                  <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6 }}>
                     {selectedRegistration.rejection_reason}
                   </div>
                 </div>
@@ -1051,15 +1105,13 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                     Re-upload Request Sent
                   </div>
                   {selectedRegistration.reupload_requested_at && (
-                    <div style={{ fontSize: 12, color: "#374151", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ fontSize: 12, color: "var(--text)", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
                       <Clock size={12} />
                       Sent on {new Date(selectedRegistration.reupload_requested_at).toLocaleString("en-IN")}
                       {selectedRegistration.reupload_expires_at && (
                         <span style={{
-                          marginLeft: 6,
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: new Date(selectedRegistration.reupload_expires_at) < new Date() ? "#dc2626" : "#2E7D52",
+                          marginLeft: 6, fontSize: 11, fontWeight: 700,
+                          color: new Date(selectedRegistration.reupload_expires_at) < new Date() ? "var(--red, #dc2626)" : "var(--green, #2E7D52)",
                         }}>
                           ({new Date(selectedRegistration.reupload_expires_at) < new Date() ? "Link Expired" : "Link Active"})
                         </span>
@@ -1067,13 +1119,13 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                     </div>
                   )}
                   {selectedRegistration.reupload_required_docs && (
-                    <div style={{ fontSize: 12, color: "#374151", marginBottom: 4 }}>
+                    <div style={{ fontSize: 12, color: "var(--text)", marginBottom: 4 }}>
                       <strong>Documents requested:</strong>{" "}
                       {selectedRegistration.reupload_required_docs.split(",").map(d => DOC_TYPE_LABELS[d] || d).join(", ")}
                     </div>
                   )}
                   {selectedRegistration.reupload_reason && (
-                    <div style={{ fontSize: 12, color: "#374151", marginTop: 6, padding: "8px 10px", background: "rgba(0,0,0,0.03)", borderRadius: 8 }}>
+                    <div style={{ fontSize: 12, color: "var(--text)", marginTop: 6, padding: "8px 10px", background: "rgba(0,0,0,0.03)", borderRadius: 8 }}>
                       <strong>Note to dealer:</strong>{" "}{selectedRegistration.reupload_reason}
                     </div>
                   )}
@@ -1197,7 +1249,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                 gap: 12,
                 padding: "16px 24px",
                 borderTop: "1px solid rgba(0,0,0,0.06)",
-                background: "#f8fafc",
+                background: "var(--bg, #f8fafc)",
                 position: "sticky",
                 bottom: 0,
                 zIndex: 10,
@@ -1356,12 +1408,12 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
             display: "flex", justifyContent: "center", alignItems: "center",
             zIndex: 1500, padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px",
           }}
-          onClick={() => { if (!reuploadLoading) setReuploadModal(null); }}
+          onClick={() => { if (!reuploadLoading) { clearTimeout(reuploadTimerRef.current); setReuploadModal(null); } }}
         >
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              background: "#ffffff", borderRadius: 20, width: "100%", maxWidth: 480,
+              background: "var(--card, white)", borderRadius: 20, width: "100%", maxWidth: 480,
               boxShadow: "0 25px 60px rgba(0,0,0,0.25)", overflow: "hidden",
             }}
           >
@@ -1384,7 +1436,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
               </div>
               {!reuploadLoading && (
                 <button
-                  onClick={() => setReuploadModal(null)}
+                  onClick={() => { clearTimeout(reuploadTimerRef.current); setReuploadModal(null); }}
                   style={{ background: "#f1f5f9", border: "none", borderRadius: "50%", width: 32, height: 32, display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer", color: "var(--text)" }}
                 >
                   <X size={16} />
@@ -1404,13 +1456,20 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                   }}>
                     <CheckCircle size={28} color="#2E7D52" />
                   </div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 8 }}>Request Sent Successfully</div>
-                  <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6, marginBottom: 20 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>Request Sent Successfully</div>
+                  <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6, marginBottom: 16 }}>
                     An email with a secure re-upload link has been sent to <strong>{reuploadModal.email}</strong>.
                     The registration is now marked as <strong>Re-upload Requested</strong>.
                   </div>
+                  {/* IMP-3: countdown bar shows auto-dismiss in 2.5s */}
+                  <div style={{ height: 3, background: "var(--border, #e2e8f0)", borderRadius: 99, overflow: "hidden", marginBottom: 16 }}>
+                    <div style={{
+                      height: "100%", background: "var(--green, #2E7D52)", borderRadius: 99,
+                      animation: "shrinkWidth 2.5s linear forwards",
+                    }} />
+                  </div>
                   <button
-                    onClick={() => setReuploadModal(null)}
+                    onClick={() => { clearTimeout(reuploadTimerRef.current); setReuploadModal(null); }}
                     style={{ padding: "10px 24px", background: "var(--green)", color: "white", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}
                   >
                     Done
@@ -1490,7 +1549,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                     <button
                       onClick={() => setReuploadModal(null)}
                       disabled={reuploadLoading}
-                      style={{ padding: "10px 18px", background: "white", color: "#374151", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                      style={{ padding: "10px 18px", background: "var(--card, white)", color: "#374151", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
                     >
                       Cancel
                     </button>
@@ -1529,12 +1588,12 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
             display: "flex", justifyContent: "center", alignItems: "center",
             zIndex: 1500, padding: "env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px",
           }}
-          onClick={() => { if (!rejectLoading) setRejectModal(null); }}
+          onClick={() => { if (!rejectLoading) { clearTimeout(rejectTimerRef.current); setRejectModal(null); } }}
         >
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              background: "#ffffff", borderRadius: 20, width: "100%", maxWidth: 480,
+              background: "var(--card, white)", borderRadius: 20, width: "100%", maxWidth: 480,
               boxShadow: "0 25px 60px rgba(0,0,0,0.25)", overflow: "hidden",
             }}
           >
@@ -1557,7 +1616,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
               </div>
               {!rejectLoading && (
                 <button
-                  onClick={() => setRejectModal(null)}
+                  onClick={() => { clearTimeout(rejectTimerRef.current); setRejectModal(null); }}
                   style={{ background: "#f1f5f9", border: "none", borderRadius: "50%", width: 32, height: 32, display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer", color: "var(--text)" }}
                 >
                   <X size={16} />
@@ -1577,15 +1636,22 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                   }}>
                     <CheckCircle size={28} color="#2E7D52" />
                   </div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 8 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>
                     Registration Rejected
                   </div>
-                  <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6, marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6, marginBottom: 16 }}>
                     The registration for <strong>{rejectModal.name}</strong> has been rejected.<br />
                     A notification email with the reason has been sent to <strong>{rejectModal.email}</strong>.
                   </div>
+                  {/* IMP-3: countdown bar — auto-dismiss in 2.5s */}
+                  <div style={{ height: 3, background: "var(--border, #e2e8f0)", borderRadius: 99, overflow: "hidden", marginBottom: 16 }}>
+                    <div style={{
+                      height: "100%", background: "var(--green, #2E7D52)", borderRadius: 99,
+                      animation: "shrinkWidth 2.5s linear forwards",
+                    }} />
+                  </div>
                   <button
-                    onClick={() => setRejectModal(null)}
+                    onClick={() => { clearTimeout(rejectTimerRef.current); setRejectModal(null); }}
                     style={{ padding: "10px 24px", background: "var(--green)", color: "white", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}
                   >
                     Done
@@ -1642,7 +1708,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                       onClick={() => setRejectModal(null)}
                       disabled={rejectLoading}
                       style={{
-                        padding: "10px 18px", background: "white", color: "#374151",
+                        padding: "10px 18px", background: "var(--card, white)", color: "#374151",
                         border: "1px solid rgba(0,0,0,0.12)", borderRadius: 8,
                         fontSize: 13, fontWeight: 600, cursor: "pointer",
                       }}

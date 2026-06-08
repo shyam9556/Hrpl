@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { dealers as dealersApi } from "../utils/api";
-import { Loader2, Store, ChevronLeft, ChevronRight, Search, X, KeyRound, Eye, EyeOff, CheckCircle, XCircle, LockKeyholeOpen } from "lucide-react";
+import { Loader2, Store, ChevronLeft, ChevronRight, Search, X, KeyRound, Eye, EyeOff, CheckCircle, XCircle, LockKeyholeOpen, Clock, AlertTriangle } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ErrorState from "./ErrorState";
 
@@ -12,6 +12,7 @@ export default function DealersList() {
   const [confirmToggle, setConfirmToggle] = useState(null);
   const [confirmUnlock, setConfirmUnlock] = useState(null); // null | dealer object
   const [errorDialog, setErrorDialog] = useState({ open: false, message: "" });
+  const [successDialog, setSuccessDialog] = useState({ open: false, title: "", message: "" });
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const PAGE_SIZE = 20;
@@ -25,6 +26,7 @@ export default function DealersList() {
   const [rpLoading, setRpLoading]             = useState(false);
   const [rpError, setRpError]                 = useState("");
   const [rpSuccess, setRpSuccess]             = useState(false);
+  const resetTimerRef = useRef(null);
 
   const openResetModal = (dealer) => {
     setRpNew(""); setRpConfirm("");
@@ -32,7 +34,22 @@ export default function DealersList() {
     setRpLoading(false); setRpError(""); setRpSuccess(false);
     setResetModal(dealer);
   };
-  const closeResetModal = () => { if (!rpLoading) setResetModal(null); };
+  const closeResetModal = () => { if (!rpLoading) { clearTimeout(resetTimerRef.current); setResetModal(null); } };
+
+  // ── Escape key handler for reset-password modal ────────────────────────────
+  useEffect(() => {
+    if (!resetModal) return;
+    const handler = (e) => { if (e.key === "Escape") closeResetModal(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  // closeResetModal depends on rpLoading, which is stable within this effect
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetModal, rpLoading]);
+
+  // ── Unmount cleanup — clear auto-dismiss timer if component unmounts mid-countdown
+  useEffect(() => {
+    return () => { clearTimeout(resetTimerRef.current); };
+  }, []);
 
   const handleAdminReset = async (e) => {
     e.preventDefault();
@@ -43,8 +60,11 @@ export default function DealersList() {
     try {
       await dealersApi.adminResetPassword(resetModal.id, rpNew);
       setRpSuccess(true);
-      // Auto-close the modal after 2.5s so the admin sees success then it dismisses naturally
-      setTimeout(() => setResetModal(null), 2500);
+      // Auto-close the modal after 2.5s — store timer ID so manual Done can cancel it
+      resetTimerRef.current = setTimeout(() => {
+        resetTimerRef.current = null;
+        setResetModal(null);
+      }, 2500);
     } catch (err) {
       setRpError(err.message || "Failed to reset password. Please try again.");
     } finally {
@@ -58,7 +78,11 @@ export default function DealersList() {
     setActionLoading(`unlock-${dealer.id}`);
     try {
       const res = await dealersApi.unlockAccount(dealer.id);
-      setErrorDialog({ open: true, message: res.message || `${dealer.name}'s account has been unlocked successfully.` });
+      setSuccessDialog({
+        open: true,
+        title: "Account Unlocked",
+        message: res.message || `${dealer.name}'s account has been unlocked successfully.`,
+      });
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to unlock account. Please try again." });
     } finally {
@@ -196,7 +220,7 @@ export default function DealersList() {
       ) : (
         <div className="card">
           <div className="table-scroll-wrap">
-            <table style={{ minWidth: "700px" }}>
+            <table style={{ minWidth: "900px" }}>
               <thead>
                 <tr>
                   <th>Name</th>
@@ -205,6 +229,7 @@ export default function DealersList() {
                   <th>Company</th>
                   <th>Status</th>
                   <th>Joined</th>
+                  <th>Last Login</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -225,6 +250,29 @@ export default function DealersList() {
                     </td>
                     <td style={{ color: "var(--muted)", fontSize: 12 }}>
                       {new Date(d.created_at).toLocaleDateString("en-IN")}
+                    </td>
+                    {/* IMP-6/IMP-9: Last Login column with lockout indicator */}
+                    <td>
+                      {d.last_login_at ? (
+                        <div>
+                          <div style={{ fontSize: 12, color: "var(--text)", display: "flex", alignItems: "center", gap: 4 }}>
+                            <Clock size={11} style={{ opacity: 0.5, flexShrink: 0 }} />
+                            {new Date(d.last_login_at).toLocaleDateString("en-IN")}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                            {new Date(d.last_login_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: 12, color: "var(--muted)", fontStyle: "italic" }}>Never</span>
+                      )}
+                      {/* IMP-1: lockout warning badge */}
+                      {d.failed_attempts > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 3, fontSize: 10, fontWeight: 700, color: "#92400e" }}>
+                          <AlertTriangle size={10} style={{ flexShrink: 0 }} />
+                          {d.failed_attempts} failed attempt{d.failed_attempts !== 1 ? "s" : ""}
+                        </div>
+                      )}
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: 6 }}>
@@ -248,20 +296,23 @@ export default function DealersList() {
                         >
                           <KeyRound size={12} /> Reset Pwd
                         </button>
-                        <button
-                          className="btn-sm"
-                          title="Unlock account (clear login lockout)"
-                          aria-label={`Unlock account for ${d.name}`}
-                          disabled={actionLoading === `unlock-${d.id}`}
-                          style={{ padding: "4px 10px", fontSize: 11, borderRadius: 6,
-                            display: "flex", alignItems: "center", gap: 4,
-                            background: "var(--yellow, #f59e0b)", color: "white", border: "none" }}
-                          onClick={() => setConfirmUnlock(d)}
-                        >
-                          {actionLoading === `unlock-${d.id}`
-                            ? <Loader2 size={12} className="animate-spin" />
-                            : <LockKeyholeOpen size={12} />}
-                        </button>
+                        {/* IMP-1: only show Unlock when dealer has recent failed login attempts */}
+                        {d.failed_attempts > 0 && (
+                          <button
+                            className="btn-sm"
+                            title={`Unlock account — ${d.failed_attempts} failed attempt${d.failed_attempts !== 1 ? "s" : ""} in last 30 min`}
+                            aria-label={`Unlock account for ${d.name}`}
+                            disabled={actionLoading === `unlock-${d.id}`}
+                            style={{ padding: "4px 10px", fontSize: 11, borderRadius: 6,
+                              display: "flex", alignItems: "center", gap: 4,
+                              background: "var(--yellow, #f59e0b)", color: "white", border: "none" }}
+                            onClick={() => setConfirmUnlock(d)}
+                          >
+                            {actionLoading === `unlock-${d.id}`
+                              ? <Loader2 size={12} className="animate-spin" />
+                              : <LockKeyholeOpen size={12} />}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -310,13 +361,23 @@ export default function DealersList() {
       )}
       <ConfirmDialog
         open={errorDialog.open}
-        title={errorDialog.message?.toLowerCase().includes("unlock") ? "Account Unlocked" : "Action Failed"}
+        title="Action Failed"
         message={errorDialog.message}
-        variant={errorDialog.message?.toLowerCase().includes("unlock") ? "info" : "danger"}
+        variant="danger"
         confirmText="OK"
         hideCancel
         onConfirm={() => setErrorDialog({ open: false, message: "" })}
         onCancel={() => setErrorDialog({ open: false, message: "" })}
+      />
+      <ConfirmDialog
+        open={successDialog.open}
+        title={successDialog.title || "Success"}
+        message={successDialog.message}
+        variant="info"
+        confirmText="OK"
+        hideCancel
+        onConfirm={() => setSuccessDialog({ open: false, title: "", message: "" })}
+        onCancel={() => setSuccessDialog({ open: false, title: "", message: "" })}
       />
 
       {/* ── Admin Reset Password Modal ───────────────────────────────────── */}
@@ -328,7 +389,7 @@ export default function DealersList() {
           onClick={closeResetModal}
         >
           <div
-            style={{ background: "white", borderRadius: 16, width: "100%", maxWidth: 400,
+            style={{ background: "var(--card, white)", borderRadius: 16, width: "100%", maxWidth: 400,
               boxShadow: "0 24px 64px rgba(0,0,0,0.3)", overflow: "hidden" }}
             onClick={e => e.stopPropagation()}
           >
@@ -359,11 +420,12 @@ export default function DealersList() {
                     margin: "0 auto 14px", boxShadow: "0 8px 20px rgba(46,125,82,0.2)" }}>
                     <CheckCircle size={30} color="#2E7D52" />
                   </div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>Password Reset!</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>Password Reset Successfully!</div>
                   <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 18 }}>
-                    A secure reset link has been sent to <strong>{resetModal.email}</strong>. {resetModal.name} must use that link to set their new password.
+                    The password for <strong>{resetModal.name}</strong> has been updated immediately.
+                    A notification email with a reset link has also been sent to <strong>{resetModal.email}</strong> in case they need to set a different password.
                   </div>
-                  <button className="btn-primary" onClick={() => setResetModal(null)}>Done</button>
+                    <button className="btn-primary" onClick={() => { clearTimeout(resetTimerRef.current); setResetModal(null); }}>Done</button>
                 </div>
               ) : (
                 <form onSubmit={handleAdminReset}>

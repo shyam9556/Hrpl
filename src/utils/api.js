@@ -332,6 +332,11 @@ export const dealers = {
 
   getStats: () =>
     request("/dealers/registrations/stats"),
+
+  // Lightweight endpoint — only returns registrations needing admin review after
+  // a dealer re-upload. Much cheaper than fetching all registrations.
+  needsReview: () =>
+    request("/dealers/registrations/needs-review"),
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -412,6 +417,39 @@ export const uploads = {
 
   updateCoordinates: (id, latitude, longitude) =>
     request(`/uploads/${id}/coordinates`, { method: "PATCH", body: { latitude, longitude } }),
+
+  // Download multiple documents as a single ZIP archive (IMP-8).
+  // ids: array of document IDs.
+  downloadZip: async (ids, zipFilename = "documents.zip") => {
+    const token = getToken();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000); // 60s for large downloads
+    try {
+      const qs = ids.join(",");
+      const response = await fetch(`${API_BASE}/uploads/zip?ids=${qs}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `ZIP download failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = zipFilename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === "AbortError") throw new Error("ZIP download timed out.");
+      throw err;
+    }
+  },
 };
 
 // ─── Isolated Request (No auto-token injection) ──────────

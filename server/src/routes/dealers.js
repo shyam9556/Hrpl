@@ -43,6 +43,26 @@ router.get("/registrations/stats", async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ─── GET /api/dealers/registrations/needs-review ─────────
+// Lightweight endpoint for cross-tab review banners.
+// Returns only the minimal fields for registrations that need admin review
+// after a dealer has re-uploaded documents (needs_review_after_reupload = 1).
+// Much cheaper than fetching status=All with full document JOINs just for banners.
+// Must be before /registrations/:id to avoid being parsed as :id="needs-review".
+router.get("/registrations/needs-review", async (req, res, next) => {
+  try {
+    const result = await db.query(
+      `SELECT id, name, email,
+              (SELECT COUNT(*) FROM dealer_reupload_tokens
+               WHERE registration_id = dr.id AND used = 1) AS reupload_count
+       FROM dealer_registrations dr
+       WHERE status = 'Pending' AND needs_review_after_reupload = 1
+       ORDER BY submitted_at DESC`
+    );
+    res.json({ success: true, registrations: result.rows });
+  } catch (err) { next(err); }
+});
+
 // ─── GET /api/dealers/registrations ──────────────────────
 // List dealer registration applications
 router.get("/registrations", async (req, res, next) => {
@@ -327,11 +347,23 @@ router.post("/registrations/:id/reject", async (req, res, next) => {
 
 // ─── GET /api/dealers ────────────────────────────────────
 // List all dealers (approved users with role='dealer')
+// Returns: standard dealer fields + last_login_at (IMP-6) + failed_attempts count (IMP-1)
 router.get("/", async (req, res, next) => {
   try {
     const result = await db.query(
-      `SELECT id, name, email, mobile, location, company_name, is_active, created_at
-       FROM users WHERE role = 'dealer' ORDER BY name`
+      `SELECT
+         u.id, u.name, u.email, u.mobile, u.location, u.company_name, u.is_active, u.created_at,
+         u.last_login_at,
+         COALESCE((
+           SELECT COUNT(*)
+           FROM login_attempts la
+           WHERE la.email = u.email
+             AND la.succeeded = 0
+             AND la.attempted_at >= DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+         ), 0) AS failed_attempts
+       FROM users u
+       WHERE u.role = 'dealer'
+       ORDER BY u.name`
     );
 
     res.json({

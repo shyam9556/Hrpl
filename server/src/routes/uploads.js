@@ -378,6 +378,64 @@ router.get("/entity/:entityType/:entityId", async (req, res, next) => {
   }
 });
 
+// ─── GET /api/uploads/zip ────────────────────────────────
+// Admin only — Download multiple documents as a ZIP archive.
+// Query param: ids=1,2,3  (comma-separated document IDs, max 20)
+// Uses Node.js streams + archiver for efficient memory usage.
+// Route MUST be before /:id to prevent "zip" being treated as a numeric id.
+router.get("/zip", authorize("admin"), async (req, res, next) => {
+  try {
+    const rawIds = (req.query.ids || "").split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+
+    if (rawIds.length === 0) {
+      return res.status(400).json({ success: false, error: "No document IDs provided." });
+    }
+    if (rawIds.length > 20) {
+      return res.status(400).json({ success: false, error: "Cannot download more than 20 documents at once." });
+    }
+
+    // Fetch all requested documents
+    const placeholders = rawIds.map(() => "?").join(", ");
+    const result = await db.query(
+      `SELECT id, file_path, original_name, mime_type FROM documents WHERE id IN (${placeholders})`,
+      rawIds
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "No documents found." });
+    }
+
+    // Dynamically import archiver — avoids top-level import error if not installed
+    let archiver;
+    try {
+      archiver = (await import("archiver")).default;
+    } catch {
+      return res.status(500).json({ success: false, error: "ZIP support requires the 'archiver' package. Please run: npm install archiver" });
+    }
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="documents.zip"`);
+
+    const archive = archiver("zip", { zlib: { level: 6 } });
+    archive.on("error", (err) => {
+      if (!res.headersSent) next(err);
+    });
+    archive.pipe(res);
+
+    for (const doc of result.rows) {
+      const absolutePath = safeResolvePath(doc.file_path);
+      // eslint-disable-next-line security/detect-non-literal-fs-filename
+      if (absolutePath && fs.existsSync(absolutePath)) {
+        archive.file(absolutePath, { name: doc.original_name });
+      }
+    }
+
+    await archive.finalize();
+  } catch (err) {
+    if (!res.headersSent) next(err);
+  }
+});
+
 // ─── GET /api/uploads/:id ────────────────────────────────
 // Stream a document — only the uploader or an admin can access it.
 router.get("/:id", async (req, res, next) => {
