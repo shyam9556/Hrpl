@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { auth as authApi } from "../utils/api";
 import { Store, Shield, Eye, EyeOff, Loader2, CheckCircle, IdCard, CreditCard, User, XCircle, Download, FileText } from "lucide-react";
 import UploadZone from "./UploadZone";
@@ -31,15 +31,270 @@ export default function LoginPage({ onLogin }) {
   const [forgotStatus, setForgotStatus] = useState(""); // "sending", "sent", "error"
   const [forgotMessage, setForgotMessage] = useState("");
 
+  // ── OTP state (dealer registration email verification) ────────────────────
+  // otpState drives every visual state of the OTP sub-flow:
+  // idle | sending | sent | send_failed | verifying | otp_wrong |
+  // otp_locked | expired | resending | resend_limit | verified
+  const [otpState, setOtpState]                       = useState("idle");
+  const [otpDigits, setOtpDigits]                     = useState(["","","","","",""]);
+  const [otpError, setOtpError]                       = useState("");
+  const [resendCooldown, setResendCooldown]           = useState(0);   // seconds left
+  const [resendCount, setResendCount]                 = useState(0);   // resends used (max 3)
+  const [emailVerifiedToken, setEmailVerifiedToken]   = useState(null);
+  const [emailLocked, setEmailLocked]                 = useState(false);
+  const [showEmailChangeWarning, setShowEmailChangeWarning] = useState(false);
+  const [tokenExpiringSoon, setTokenExpiringSoon]     = useState(false);
+
+  // Refs — DOM refs for the 6 OTP input boxes and timer IDs
+  const otpRefs         = useRef([]);
+  const cooldownRef     = useRef(null); // setInterval ID for resend countdown
+  const expiryRef       = useRef(null); // setTimeout ID for OTP 10-min expiry
+  const tokenExpiryRef  = useRef(null); // setTimeout ID for email_verified_token 14-min warning
+
+  // ── Cleanup all OTP timers on unmount ────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      clearInterval(cooldownRef.current);
+      clearTimeout(expiryRef.current);
+      clearTimeout(tokenExpiryRef.current);
+    };
+  }, []);
+
+  // ── OTP helpers ──────────────────────────────────────────────────────────
   const validateEmail = (mail) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail);
   };
+
+  // Reset all OTP-related state to idle — called on email change or mode switch
+  const resetOtpState = () => {
+    clearInterval(cooldownRef.current);
+    clearTimeout(expiryRef.current);
+    clearTimeout(tokenExpiryRef.current);
+    setOtpState("idle");
+    setOtpDigits(["","","","","",""]);
+    setOtpError("");
+    setResendCooldown(0);
+    setResendCount(0);
+    setEmailVerifiedToken(null);
+    setEmailLocked(false);
+    setShowEmailChangeWarning(false);
+    setTokenExpiringSoon(false);
+  };
+
+  // Start 60-second resend cooldown timer
+  const startCooldown = () => {
+    setResendCooldown(60);
+    cooldownRef.current = setInterval(() => {
+      setResendCooldown(prev => {
+        if (prev <= 1) { clearInterval(cooldownRef.current); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  // Start 10-minute OTP expiry timer
+  const startExpiryTimer = () => {
+    clearTimeout(expiryRef.current);
+    expiryRef.current = setTimeout(() => {
+      setOtpState("expired");
+      setOtpError("Your OTP has expired. Please request a new one.");
+      clearInterval(cooldownRef.current);
+    }, 10 * 60 * 1000);
+  };
+
+  // ── Send OTP ─────────────────────────────────────────────────────────────
+  const handleSendOTP = async () => {
+    setOtpState("sending");
+    setOtpError("");
+    try {
+      await authApi.sendOTP(email.toLowerCase().trim());
+      setOtpState("sent");
+      setEmailLocked(true);
+      startCooldown();
+      startExpiryTimer();
+      // Focus first OTP box after brief delay for DOM to render
+      setTimeout(() => otpRefs.current[0]?.focus(), 120);
+    } catch (err) {
+      setOtpState("send_failed");
+      setOtpError(err.message || "Failed to send OTP. Please try again.");
+      setEmailLocked(false);
+    }
+  };
+
+  // ── Resend OTP ────────────────────────────────────────────────────────────
+  const handleResendOTP = async () => {
+    if (resendCount >= 3) { setOtpState("resend_limit"); return; }
+    clearInterval(cooldownRef.current);
+    clearTimeout(expiryRef.current);
+    setOtpState("resending");
+    setOtpDigits(["","","","","",""]);
+    setOtpError("");
+    try {
+      await authApi.sendOTP(email.toLowerCase().trim());
+      setResendCount(prev => prev + 1);
+      setOtpState("sent");
+      startCooldown();
+      startExpiryTimer();
+      setTimeout(() => otpRefs.current[0]?.focus(), 120);
+    } catch (err) {
+      // Stay in sent state so user can retry resend
+      setOtpState("sent");
+      setOtpError(err.message || "Resend failed. Please try again.");
+    }
+  };
+
+  // ── Verify OTP ────────────────────────────────────────────────────────────
+  const handleVerifyOTP = async (forceOtpString = null) => {
+    const otpString = forceOtpString || otpDigits.join("");
+    if (otpString.length < 6) {
+      setOtpError("Please enter all 6 digits.");
+      return;
+    }
+    setOtpState("verifying");
+    setOtpError("");
+    try {
+      const data = await authApi.confirmOTP(email.toLowerCase().trim(), otpString);
+      // Success — stop timers, save token, transition to verified
+      clearTimeout(expiryRef.current);
+      clearInterval(cooldownRef.current);
+      setEmailVerifiedToken(data.token);
+      setOtpState("verified");
+      setOtpDigits(["","","","","",""]);
+      // Show expiry warning 1 minute before the 15-min token expires
+      tokenExpiryRef.current = setTimeout(() => setTokenExpiringSoon(true), 14 * 60 * 1000);
+    } catch (err) {
+      const isLocked = err.status === 429 || err.data?.locked;
+      if (isLocked) {
+        setOtpState("otp_locked");
+        setOtpError("OTP locked after too many incorrect attempts. Please request a new OTP.");
+        setOtpDigits(["","","","","",""]);
+      } else if (err.status === 400) {
+        const remaining = err.data?.remainingAttempts ?? 0;
+        setOtpError(
+          remaining > 0
+            ? `Incorrect OTP — ${remaining} attempt${remaining === 1 ? "" : "s"} remaining`
+            : "OTP is now locked. Please request a new one."
+        );
+        setOtpDigits(["","","","","",""]);
+        // Brief shake stays, then transition back to sent so user can retry
+        setTimeout(() => {
+          setOtpState(remaining > 0 ? "sent" : "otp_locked");
+          if (remaining > 0) otpRefs.current[0]?.focus();
+        }, 600);
+        setOtpState("otp_wrong"); // triggers shake CSS class immediately
+      } else {
+        // Network / server error — stay in sent, show message
+        setOtpState("sent");
+        setOtpError(err.message || "Verification failed. Please try again.");
+      }
+    }
+  };
+
+  // ── OTP box keyboard navigation ───────────────────────────────────────────
+  const handleOtpKeyDown = (index, e) => {
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      if (otpDigits[index] !== "") {
+        const next = [...otpDigits]; next[index] = "";
+        setOtpDigits(next);
+      } else if (index > 0) {
+        otpRefs.current[index - 1]?.focus();
+        const next = [...otpDigits]; next[index - 1] = "";
+        setOtpDigits(next);
+      }
+    } else if (e.key === "ArrowLeft" && index > 0) {
+      otpRefs.current[index - 1]?.focus();
+    } else if (e.key === "ArrowRight" && index < 5) {
+      otpRefs.current[index + 1]?.focus();
+    }
+  };
+
+  // ── OTP digit change ──────────────────────────────────────────────────────
+  const handleOtpDigitChange = (index, value) => {
+    const digit = value.replace(/\D/g, "").slice(-1); // accept only last digit
+    const next = [...otpDigits];
+    next[index] = digit;
+    setOtpDigits(next);
+    // Move focus to next box
+    if (digit && index < 5) {
+      otpRefs.current[index + 1]?.focus();
+    }
+    // Auto-verify once all 6 digits are filled
+    if (digit && index === 5) {
+      const fullOtp = next.join("");
+      if (fullOtp.length === 6) setTimeout(() => handleVerifyOTP(fullOtp), 80);
+    }
+  };
+
+  // ── OTP paste handler ─────────────────────────────────────────────────────
+  const handleOtpPaste = (e) => {
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (pasted.length === 0) return;
+    e.preventDefault();
+    const next = ["","","","","",""];
+    for (let i = 0; i < pasted.length; i++) next[i] = pasted[i];
+    setOtpDigits(next);
+    // Focus last filled box
+    const focusIndex = Math.min(pasted.length, 5);
+    setTimeout(() => otpRefs.current[focusIndex]?.focus(), 30);
+    // Auto-verify if all 6 filled
+    if (pasted.length === 6) setTimeout(() => handleVerifyOTP(pasted), 150);
+  };
+
+  // ── Confirm email change ──────────────────────────────────────────────────
+  const confirmEmailChange = () => {
+    resetOtpState();
+    setShowEmailChangeWarning(false);
+  };
+
+  // ── Render OTP digit boxes ────────────────────────────────────────────────
+  const renderOtpBoxes = () => (
+    <div className="otp-boxes-row">
+      {otpDigits.map((digit, i) => (
+        <input
+          key={i}
+          ref={el => { otpRefs.current[i] = el; }}
+          type="text"
+          inputMode="numeric"
+          pattern="\d*"
+          maxLength={1}
+          value={digit}
+          autoComplete={i === 0 ? "one-time-code" : "off"}
+          disabled={
+            otpState === "verifying" ||
+            otpState === "otp_locked" ||
+            otpState === "verified" ||
+            otpState === "resending"
+          }
+          className={[
+            "otp-box",
+            digit ? "otp-filled" : "",
+            otpState === "otp_wrong" ? "otp-error" : "",
+          ].join(" ").trim()}
+          onChange={e => handleOtpDigitChange(i, e.target.value)}
+          onKeyDown={e => handleOtpKeyDown(i, e)}
+          onPaste={handleOtpPaste}
+        />
+      ))}
+    </div>
+  );
+
+  // Shows OTP section for these states
+  const otpSectionVisible = [
+    "sent","verifying","otp_wrong","otp_locked","expired","resending","resend_limit"
+  ].includes(otpState);
 
   const handleAuth = async () => {
     setErr("");
     setSuccess("");
 
     if (mode === "register") {
+      // ── Gate: email must be OTP-verified before any other validation ─────
+      if (otpState !== "verified") {
+        setErr("Please verify your email address first. Click \"Send OTP to Email\" and enter the code sent to your inbox.");
+        return;
+      }
+
       if (!name || name.trim().length < 3) {
         setErr("Dealer Name must be at least 3 characters");
         return;
@@ -105,6 +360,8 @@ export default function LoginPage({ onLogin }) {
           mobile: mobile.trim(),
           location: location.trim(),
           companyName: companyName.trim() || undefined,
+          // Pass email_verified_token so server saves email_verified = 1
+          emailVerifiedToken: emailVerifiedToken || null,
           // Aadhaar: send either the single PDF/scan or the two photos depending on mode
           ...(aadhaarMode === "pdf"
             ? { aadhaarPhoto }
@@ -307,17 +564,82 @@ export default function LoginPage({ onLogin }) {
             </div>
 
             <div className="form-grid" style={{ marginBottom: "1rem" }}>
-              <div className="field">
+              {/* ── Email field with OTP verification ── */}
+              <div className={`field ${otpState === "verified" ? "field-email-verified" : ""}`}>
                 <label>Email Address</label>
-                <input
-                  type="email"
-                  placeholder="e.g. dealer@example.com"
-                  value={email}
-                  disabled={isLoading}
-                  autoComplete="email"
-                  onChange={e => setEmail(e.target.value)}
-                />
+                <div style={{ position: "relative" }}>
+                  <input
+                    type="email"
+                    placeholder="e.g. dealer@example.com"
+                    value={email}
+                    disabled={isLoading || emailLocked}
+                    autoComplete="email"
+                    onChange={e => {
+                      // If OTP not yet sent, allow free typing
+                      if (!emailLocked) setEmail(e.target.value);
+                    }}
+                    onFocus={() => {
+                      // Warn before unlocking email after OTP was sent
+                      if (emailLocked) setShowEmailChangeWarning(true);
+                    }}
+                    style={{
+                      paddingRight: otpState === "verified" ? 38 : undefined,
+                      cursor: emailLocked ? "not-allowed" : "text",
+                    }}
+                  />
+                  {otpState === "verified" && (
+                    <CheckCircle
+                      size={17}
+                      style={{
+                        position: "absolute", right: 12,
+                        top: "50%", transform: "translateY(-50%)",
+                        color: "var(--green)", pointerEvents: "none",
+                      }}
+                    />
+                  )}
+                </div>
+
+                {/* Email verified badge */}
+                {otpState === "verified" && (
+                  <div className="email-verified-badge">
+                    <CheckCircle size={13} />
+                    Email Verified
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailChangeWarning(true)}
+                      style={{
+                        marginLeft: 6, fontSize: 11, color: "var(--muted)",
+                        background: "none", border: "none", cursor: "pointer",
+                        padding: 0, fontFamily: "inherit", textDecoration: "underline",
+                      }}
+                    >
+                      Change
+                    </button>
+                  </div>
+                )}
+
+                {/* Send OTP button — shown when idle or send_failed */}
+                {(otpState === "idle" || otpState === "send_failed") && (
+                  <button
+                    type="button"
+                    onClick={handleSendOTP}
+                    disabled={!email || !validateEmail(email) || otpState === "sending" || isLoading}
+                    className="btn-primary"
+                    style={{ marginTop: 10, padding: "10px", fontSize: 13 }}
+                  >
+                    {otpState === "sending"
+                      ? <><Loader2 size={13} className="animate-spin" style={{ marginRight: 6 }} />Sending OTP...</>
+                      : "Send OTP to Email"
+                    }
+                  </button>
+                )}
+                {otpState === "send_failed" && otpError && (
+                  <p style={{ fontSize: 12, color: "var(--red)", marginTop: 5, fontWeight: 600 }}>
+                    {otpError}
+                  </p>
+                )}
               </div>
+
               <div className="field">
                 <label>Working Location</label>
                 <input
@@ -329,6 +651,107 @@ export default function LoginPage({ onLogin }) {
                 />
               </div>
             </div>
+
+            {/* ── Email change warning ── */}
+            {showEmailChangeWarning && (
+              <div className="otp-email-change-warning">
+                <p style={{ fontSize: 12, color: "#92400e", fontWeight: 600, marginBottom: 10 }}>
+                  Changing your email will reset the current OTP verification. You will need to verify the new address.
+                </p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" onClick={confirmEmailChange} className="btn-sm danger" style={{ flex: 1 }}>
+                    Change Email
+                  </button>
+                  <button type="button" onClick={() => setShowEmailChangeWarning(false)} className="btn-sm" style={{ flex: 1 }}>
+                    Keep Current
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── OTP verification section ── */}
+            {otpSectionVisible && (
+              <div className="otp-section" style={{ marginBottom: "1rem" }}>
+                <p style={{ fontSize: 12, color: "var(--green)", fontWeight: 700, margin: "0 0 1px" }}>
+                  OTP sent to <span style={{ fontWeight: 800 }}>{email}</span>
+                </p>
+                <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>
+                  Check your inbox and spam folder. Valid for 10 minutes.
+                </p>
+
+                {renderOtpBoxes()}
+
+                {otpError && (
+                  <p style={{ fontSize: 11, color: "var(--red)", textAlign: "center", margin: "0 0 8px", fontWeight: 600 }}>
+                    {otpError}
+                  </p>
+                )}
+
+                {!["otp_locked","expired","resend_limit","resending"].includes(otpState) && (
+                  <button
+                    type="button"
+                    onClick={() => handleVerifyOTP()}
+                    disabled={otpDigits.join("").length < 6 || otpState === "verifying"}
+                    className="btn-primary"
+                    style={{ marginBottom: 8, padding: "9px", fontSize: 12 }}
+                  >
+                    {otpState === "verifying"
+                      ? <><Loader2 size={13} className="animate-spin" style={{ marginRight: 5 }} />Verifying...</>
+                      : "Verify OTP"
+                    }
+                  </button>
+                )}
+
+                <div className="otp-resend-row">
+                  {otpState === "resend_limit" ? (
+                    <span style={{ color: "var(--red)", fontSize: 11, fontWeight: 600 }}>
+                      Resend limit reached. Refresh the page to try a new email.
+                    </span>
+                  ) : otpState === "otp_locked" || otpState === "expired" ? (
+                    <button
+                      type="button"
+                      onClick={handleResendOTP}
+                      className="otp-resend-btn"
+                      style={{ width: "100%", textAlign: "center" }}
+                      disabled={otpState === "resending"}
+                    >
+                      {otpState === "resending"
+                        ? <><Loader2 size={11} style={{ display: "inline", marginRight: 4 }} />Sending...</>
+                        : "Request New OTP"
+                      }
+                    </button>
+                  ) : (
+                    <>
+                      <span>
+                        {resendCooldown > 0
+                          ? `Resend in ${resendCooldown}s`
+                          : `${3 - resendCount} resend${3 - resendCount !== 1 ? "s" : ""} left`
+                        }
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleResendOTP}
+                        disabled={resendCooldown > 0 || otpState === "resending"}
+                        className="otp-resend-btn"
+                      >
+                        {otpState === "resending" ? "Sending..." : "Resend OTP"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Token expiry warning banner — appears 14 min after verification */}
+            {tokenExpiringSoon && otpState === "verified" && (
+              <div style={{
+                background: "#fffbeb", border: "1px solid #f59e0b",
+                borderRadius: 8, padding: "8px 12px", marginBottom: "1rem",
+                fontSize: 11, color: "#92400e", fontWeight: 600,
+              }}>
+                Email verification expires soon. Please submit your application now.
+              </div>
+            )}
 
             <div className="form-grid" style={{ marginBottom: "1rem" }}>
               <div className="field">
@@ -668,6 +1091,7 @@ export default function LoginPage({ onLogin }) {
             className="toggle-mode-link"
             onClick={() => {
               if (isLoading) return;
+              resetOtpState();
               setMode(mode === "login" ? "register" : "login");
               setErr("");
               setSuccess("");

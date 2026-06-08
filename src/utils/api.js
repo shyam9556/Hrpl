@@ -162,6 +162,16 @@ export const auth = {
 
   resetPassword: (token, newPassword) =>
     request("/auth/reset-password", { method: "POST", body: { token, newPassword } }),
+
+  // ── Email OTP verification (used during dealer registration) ──
+  // sendOTP: sends a 6-digit OTP to the given email. Always resolves 200.
+  sendOTP: (email) =>
+    request("/auth/verify-email/send-otp", { method: "POST", body: { email } }),
+
+  // confirmOTP: verifies the 6-digit OTP. Returns { token } (email_verified_token JWT) on success.
+  // Throws with err.data.remainingAttempts / err.data.locked on wrong OTP.
+  confirmOTP: (email, otp) =>
+    request("/auth/verify-email/confirm-otp", { method: "POST", body: { email, otp } }),
 };
 
 // ═══════════════════════════════════════════════════════════

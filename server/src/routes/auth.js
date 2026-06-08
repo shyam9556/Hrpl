@@ -18,8 +18,10 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   adminResetPasswordSchema,
+  sendOTPSchema,
+  confirmOTPSchema,
 } from "../validators/authSchema.js";
-import { sendPasswordResetEmail, sendDealerWelcomeEmail, sendReuploadConfirmationEmail, sendQuotationReuploadConfirmationEmail, sendAdminPasswordResetEmail } from "../services/emailService.js";
+import { sendPasswordResetEmail, sendDealerWelcomeEmail, sendReuploadConfirmationEmail, sendQuotationReuploadConfirmationEmail, sendAdminPasswordResetEmail, sendEmailOTPEmail } from "../services/emailService.js";
 
 const router = Router();
 
@@ -214,7 +216,26 @@ const saveBase64File = async (fileObj, entityType, entityId, docType, dbClient =
 // Public — Submit dealer registration application
 router.post("/register", validate(registerSchema), async (req, res, next) => {
   try {
-    const { name, email, password, mobile, location, companyName, aadhaarPhoto, aadhaarFront, aadhaarBack, panPhoto, passportPhoto, agreementPhoto } = req.body;
+    const { name, email, password, mobile, location, companyName, aadhaarPhoto, aadhaarFront, aadhaarBack, panPhoto, passportPhoto, agreementPhoto, emailVerifiedToken } = req.body;
+
+    // ── Email verification token check ──────────────────────────────────────
+    // If an emailVerifiedToken JWT was provided (from the OTP flow), validate it.
+    // - type must be "email_verified"
+    // - email in token must match the registration email
+    // - must not be expired
+    // If invalid/missing, email_verified saves as 0 (registration still succeeds).
+    let emailVerified = 0;
+    if (emailVerifiedToken) {
+      try {
+        const decoded = jwt.verify(emailVerifiedToken, env.jwt.secret);
+        if (decoded.type === "email_verified" && decoded.email === email) {
+          emailVerified = 1;
+        }
+      } catch {
+        // Expired or malformed token — treat as unverified, do not block registration
+        emailVerified = 0;
+      }
+    }
 
     // ── Aadhaar completeness check ──────────────────────────────────────────
     // Require EITHER a single PDF/scan (aadhaarPhoto) OR both front+back photos.
@@ -265,11 +286,11 @@ router.post("/register", validate(registerSchema), async (req, res, next) => {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Insert registration application
+    // Insert registration application (includes email_verified status)
     const insertResult = await db.query(
-      `INSERT INTO dealer_registrations (name, email, mobile, location, company_name, password_hash)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [name, email, mobile, location, companyName || null, passwordHash]
+      `INSERT INTO dealer_registrations (name, email, mobile, location, company_name, password_hash, email_verified)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [name, email, mobile, location, companyName || null, passwordHash, emailVerified]
     );
 
     const regId = insertResult.insertId;
@@ -327,6 +348,161 @@ router.post("/register", validate(registerSchema), async (req, res, next) => {
       success: true,
       message: "Registration submitted successfully. Waiting for admin approval.",
       registration: result.rows[0],
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/auth/verify-email/send-otp ────────────────
+// Public — Generate and email a 6-digit OTP for email verification.
+// Used during dealer registration to prove email ownership before form submit.
+// Always returns 200 to prevent email enumeration (same pattern as forgot-password).
+router.post("/verify-email/send-otp", validate(sendOTPSchema), async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    // ── Silently skip if email is already a registered active user ──────────
+    // We still return 200 so we don't reveal that the email is taken at this stage.
+    // The /register route will give the proper 409 error at submission time.
+    const existingUser = await db.query(
+      "SELECT id FROM users WHERE email = ? AND is_active = 1",
+      [email]
+    );
+    if (existingUser.rows.length > 0) {
+      console.log(`[OTP] Send attempt for already-registered email: ${email} (silent skip)`);
+      return res.json({ success: true, message: "OTP sent to your email if eligible." });
+    }
+
+    // ── Per-email rate limit: max 5 OTP sends per hour ─────────────────────
+    const recentCount = await db.query(
+      `SELECT COUNT(*) AS cnt FROM email_otp_tokens
+       WHERE email = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)`,
+      [email]
+    );
+    if (recentCount.rows[0].cnt >= 5) {
+      return res.status(429).json({
+        success: false,
+        error: "Too many OTP requests for this email. Please wait before trying again.",
+      });
+    }
+
+    // ── Delete all previous OTPs for this email (only one active at a time) ─
+    await db.query("DELETE FROM email_otp_tokens WHERE email = ?", [email]);
+
+    // ── Generate a 6-digit OTP using cryptographically secure random ────────
+    // crypto.randomInt(min, max) is exclusive of max, so 100000–999999 gives exactly 6 digits.
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
+
+    // ── Store hashed OTP with 10-minute expiry ──────────────────────────────
+    await db.query(
+      `INSERT INTO email_otp_tokens (email, otp_hash, expires_at)
+       VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))`,
+      [email, otpHash]
+    );
+
+    // ── Send OTP email — fire-and-forget so SMTP failure doesn't block ──────
+    // If SMTP fails the OTP is still in DB and user can request another.
+    sendEmailOTPEmail(email, otp)
+      .catch(err => console.error(`[OTP] Email send failed for ${email}:`, err.message));
+
+    console.log(`[OTP] Sent to: ${email}`);
+    return res.json({ success: true, message: "OTP sent to your email if eligible." });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/auth/verify-email/confirm-otp ─────────────
+// Public — Verify the OTP entered by the user.
+// On success, returns a short-lived email_verified_token JWT (15 min).
+// On wrong OTP, increments attempt counter. Locks OTP after 5 wrong attempts.
+router.post("/verify-email/confirm-otp", validate(confirmOTPSchema), async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+
+    // ── Find the active OTP for this email ─────────────────────────────────
+    const result = await db.query(
+      `SELECT id, otp_hash, attempts
+       FROM email_otp_tokens
+       WHERE email = ? AND used = 0 AND expires_at > NOW()
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "OTP has expired or is invalid. Please request a new one.",
+      });
+    }
+
+    const record = result.rows[0];
+
+    // ── Check if already locked (5+ failed attempts) ────────────────────────
+    if (record.attempts >= 5) {
+      // Mark as used to force a fresh OTP on next send
+      await db.query("UPDATE email_otp_tokens SET used = 1 WHERE id = ?", [record.id]);
+      return res.status(429).json({
+        success: false,
+        error: "Too many incorrect attempts. Please request a new OTP.",
+        locked: true,
+        remainingAttempts: 0,
+      });
+    }
+
+    // ── Compare hashes ──────────────────────────────────────────────────────
+    const incomingHash = crypto.createHash("sha256").update(otp).digest("hex");
+    if (incomingHash !== record.otp_hash) {
+      const newAttempts = record.attempts + 1;
+      const remainingAttempts = 5 - newAttempts;
+
+      if (remainingAttempts <= 0) {
+        // Lock the OTP — user must request a new one
+        await db.query(
+          "UPDATE email_otp_tokens SET attempts = ?, used = 1 WHERE id = ?",
+          [newAttempts, record.id]
+        );
+        return res.status(429).json({
+          success: false,
+          error: "OTP locked after too many incorrect attempts. Please request a new OTP.",
+          locked: true,
+          remainingAttempts: 0,
+        });
+      }
+
+      // Increment attempt counter, keep OTP active
+      await db.query(
+        "UPDATE email_otp_tokens SET attempts = ? WHERE id = ?",
+        [newAttempts, record.id]
+      );
+      return res.status(400).json({
+        success: false,
+        error: "Incorrect OTP.",
+        locked: false,
+        remainingAttempts,
+      });
+    }
+
+    // ── OTP is correct — mark as used ──────────────────────────────────────
+    await db.query("UPDATE email_otp_tokens SET used = 1 WHERE id = ?", [record.id]);
+
+    // ── Issue email_verified_token JWT (15 minutes) ─────────────────────────
+    // This token proves email ownership. Passed back to the register endpoint.
+    // Payload: type, email (validated against registration body at register time).
+    const emailVerifiedToken = jwt.sign(
+      { type: "email_verified", email, sub: email },
+      env.jwt.secret,
+      { expiresIn: "15m" }
+    );
+
+    console.log(`[OTP] Email verified successfully for: ${email}`);
+    return res.json({
+      success: true,
+      message: "Email verified successfully.",
+      token: emailVerifiedToken,
     });
   } catch (err) {
     next(err);

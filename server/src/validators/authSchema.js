@@ -1,5 +1,22 @@
 import Joi from "joi";
 
+// ─── OTP Schemas ─────────────────────────────────────────────
+
+export const sendOTPSchema = Joi.object({
+  email: Joi.string().email().required().lowercase().trim()
+    .messages({ "string.email": "Please enter a valid email address" }),
+});
+
+export const confirmOTPSchema = Joi.object({
+  email: Joi.string().email().required().lowercase().trim()
+    .messages({ "string.email": "Please enter a valid email address" }),
+  otp: Joi.string().required().pattern(/^\d{6}$/)
+    .messages({
+      "string.pattern.base": "OTP must be exactly 6 digits",
+      "string.empty": "OTP is required",
+    }),
+});
+
 /**
  * Auth Validation Schemas
  * All input validation rules for authentication endpoints.
@@ -25,6 +42,9 @@ export const registerSchema = Joi.object({
   location: Joi.string().required().trim().min(3).max(255)
     .messages({ "string.min": "Working location must be at least 3 characters" }),
   companyName: Joi.string().allow("", null).trim().max(255),
+  // Optional: short-lived JWT issued by /verify-email/confirm-otp.
+  // If provided and valid, the registration is saved with email_verified = 1.
+  emailVerifiedToken: Joi.string().allow("", null).optional(),
   // ── Aadhaar: either a single PDF/scan OR two photos (front + back) ──
   aadhaarPhoto: Joi.object({
     name: Joi.string().required().max(255),

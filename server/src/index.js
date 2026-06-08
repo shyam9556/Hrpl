@@ -207,6 +207,23 @@ app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
 app.use("/api/auth/reset-password", authLimiter);
 app.use("/api/auth/change-password", authLimiter);
+// OTP: strict per-IP limits to prevent automated OTP spam / brute-force
+// 5 send attempts per 15min per IP — a legitimate user needs at most 1
+app.use("/api/auth/verify-email/send-otp", rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { success: false, error: "Too many OTP requests. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+}));
+// 15 confirm attempts per 15min per IP (covers retry after paste/typo)
+app.use("/api/auth/verify-email/confirm-otp", rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  message: { success: false, error: "Too many OTP verification attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+}));
 // Reupload verify: strict limit to prevent brute-forcing the dealer's registration password
 app.use("/api/auth/reupload/verify", authLimiter);
 // Quotation reupload verify: same strict limit as dealer reupload verify
@@ -276,6 +293,19 @@ const startServer = async () => {
     }
   } catch (err) {
     console.warn("[Startup] Could not clean expired re-upload tokens:", err.message);
+  }
+
+  // Cleanup expired email OTP tokens on startup
+  try {
+    const otpCleanup = await db.query(
+      "DELETE FROM email_otp_tokens WHERE expires_at < NOW()"
+    );
+    const otpDeleted = otpCleanup.affectedRows ?? otpCleanup.rowCount ?? 0;
+    if (otpDeleted > 0) {
+      console.log(`[Startup] Cleaned up ${otpDeleted} expired OTP token(s).`);
+    }
+  } catch (err) {
+    console.warn("[Startup] Could not clean expired OTP tokens:", err.message);
   }
 
   // Cleanup database records for files missing on disk (orphaned files cleanup)

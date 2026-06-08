@@ -1380,6 +1380,112 @@ export async function sendAdminPasswordResetEmail(toEmail, dealerName, newPasswo
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// EMAIL OTP VERIFICATION
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Send a 6-digit OTP email for dealer registration email verification.
+ *
+ * Security notes:
+ * - The OTP is displayed plaintext in the email — this is intentional and standard.
+ * - The OTP stored in the DB is a SHA-256 hash (never plaintext on the server).
+ * - Valid for 10 minutes. Max 5 wrong attempts before it locks.
+ *
+ * @param {string} toEmail  - Recipient email address
+ * @param {string} otp      - The 6-digit plaintext OTP to display in the email
+ * @returns {boolean} true if sent (or dev mode), false on failure
+ */
+export async function sendEmailOTPEmail(toEmail, otp) {
+  // Render each digit as an individual table cell — avoids letter-spacing
+  // rendering inconsistencies in Gmail Mobile and Apple Mail.
+  const digitCells = otp.split("").map(d =>
+    `<td style="width:36px;height:44px;text-align:center;vertical-align:middle;
+                background:#ffffff;border:2px solid #2E7D52;border-radius:8px;
+                font-size:24px;font-weight:800;color:#1C3A2A;
+                font-family:'Courier New',Courier,monospace;padding:0;">` + escapeHtml(d) + `</td>
+     <td style="width:6px;"></td>`
+  ).join("");
+
+  const bodyHtml = `
+    <h2 style="color:#111827;margin:0 0 6px 0;font-size:20px;font-weight:700;line-height:1.3;">
+      Verify Your Email Address
+    </h2>
+    <p style="color:#6b7280;font-size:12px;margin:0 0 20px 0;">
+      ${new Date().toLocaleString("en-IN", { dateStyle: "long", timeStyle: "short" })}
+    </p>
+
+    <p style="color:#374151;font-size:14px;line-height:1.7;margin:0 0 20px 0;">
+      Use the verification code below to confirm your email address for your
+      <strong>Highlight Pro</strong> dealer registration.
+    </p>
+
+    <!-- OTP Box: individual digit cells for reliable mobile rendering -->
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 20px 0;">
+      <tr>
+        <td align="center"
+            style="background:#f0f7f4;border:1px solid #c6dfd2;border-radius:12px;padding:20px 16px;">
+          <p style="margin:0 0 12px 0;font-size:10px;font-weight:700;letter-spacing:2px;
+                     text-transform:uppercase;color:#6b7280;">
+            Your Verification Code
+          </p>
+          <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+            <tr>${digitCells}</tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+
+    ${infoBox({
+      content: [
+        '<strong style="display:block;margin-bottom:4px;color:#1f2937;font-size:13px;">Code expires in 10 minutes</strong>',
+        '<span style="color:#374151;font-size:13px;">Enter it on the registration page before it expires. If it expires, request a new one.</span>'
+      ].join(''),
+      bgColor: "#fffbeb",
+      borderColor: "#f59e0b",
+    })}
+
+    ${infoBox({
+      content: [
+        '<strong style="display:block;margin-bottom:4px;color:#1f2937;font-size:13px;">Security Notice</strong>',
+        '<span style="color:#374151;font-size:13px;">Never share this code with anyone. <strong>Highlight Pro will never ask for your OTP</strong> over phone or chat.<br>If you did not request this code, you can safely ignore this email.</span>'
+      ].join(''),
+      bgColor: "#f9fafb",
+      borderColor: "#d1d5db",
+    })}
+  `;
+
+  const htmlContent = buildEmailHtml({ subtitle: "Email Verification", bodyHtml });
+
+  // Dev mode — log OTP to console clearly so developers can test without real SMTP
+  if (!transporter) {
+    console.log("");
+    console.log("╔══════════════════════════════════════════════════╗");
+    console.log("║   EMAIL OTP (Dev Mode — Not Sent via SMTP)      ║");
+    console.log("╠══════════════════════════════════════════════════╣");
+    console.log(`║   To:  ${toEmail.padEnd(42)}║`);
+    console.log(`║   OTP: ${otp.padEnd(42)}║`);
+    console.log("╚══════════════════════════════════════════════════╝");
+    console.log("");
+    return true;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`,
+      to: toEmail,
+      subject: `${otp} — Your Highlight Pro verification code`,
+      html: htmlContent,
+      attachments: SHARED_ATTACHMENTS,
+    });
+    console.log(`[OTP] Email sent to: ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`[OTP] Failed to send email to ${toEmail}:`, err.message);
+    throw new Error("Failed to send OTP email. Please try again.");
+  }
+}
+
 // Startup warning if SMTP is not configured
 if (!env.smtp.isConfigured) {
   console.warn("");
