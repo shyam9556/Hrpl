@@ -471,12 +471,16 @@ export default function DealerRequests() {
     };
   }, [fetchQuotations, fetchGlobalData]);
 
-  // \u2500\u2500 Fallback polling: silent refresh every 60 seconds \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // ── Fallback polling: silent refresh every 60 seconds ────────────────────
   // Catches status changes in case the SSE connection is unavailable.
+  // Both fetchQuotations (paginated list) and fetchGlobalData (stats banners) are refreshed.
   useEffect(() => {
-    const id = setInterval(() => fetchQuotations(false), 60_000);
+    const id = setInterval(() => {
+      fetchQuotations(false);
+      fetchGlobalData();
+    }, 60_000);
     return () => clearInterval(id);
-  }, [fetchQuotations]);
+  }, [fetchQuotations, fetchGlobalData]);
 
 
   useEffect(() => {

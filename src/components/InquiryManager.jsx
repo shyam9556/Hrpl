@@ -68,6 +68,15 @@ export default function InquiryManager({ onConvertToQuote }) {
     return () => clearTimeout(timer);
   }, [search, fetchInquiries]);
 
+  // ── SSE: Refresh instantly when any inquiry is mutated ────────────────────
+  // inquiry:changed fires on: create, update, status change, followup added, delete.
+  // Covers both admin sessions (seeing all) and dealer sessions (own inquiries).
+  useEffect(() => {
+    const handler = () => fetchInquiries();
+    window.addEventListener("hp:sse:inquiry:changed", handler);
+    return () => window.removeEventListener("hp:sse:inquiry:changed", handler);
+  }, [fetchInquiries]);
+
   useEffect(() => {
     if (selectedInquiry) {
       document.body.style.overflow = 'hidden';

@@ -55,6 +55,8 @@ const KNOWN_EVENTS = [
   "settings:changed",
   // Document mutations (admin deletes a doc)
   "document:deleted",
+  // Inquiry mutations (create / update / status / followup / delete)
+  "inquiry:changed",
 ];
 
 export default function useSSE(token) {

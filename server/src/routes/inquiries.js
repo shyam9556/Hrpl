@@ -4,6 +4,7 @@ import Joi from "joi";
 import db from "../config/database.js";
 import { authenticate } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
+import { broadcastToRole, broadcastToUser } from "../utils/sseManager.js";
 
 const router = Router();
 
@@ -114,6 +115,12 @@ router.post("/", validate(inquirySchema), async (req, res, next) => {
       message: `Inquiry for '${name}' added successfully.`,
       inquiry: result.rows[0],
     });
+
+    // Notify all admins + the creator (if dealer) that a new inquiry was added
+    broadcastToRole("admin", "inquiry:changed", { action: "created", id: insertResult.insertId });
+    if (req.user.role === "dealer") {
+      broadcastToUser(req.user.id, "inquiry:changed", { action: "created", id: insertResult.insertId });
+    }
   } catch (err) {
     next(err);
   }
@@ -154,6 +161,10 @@ router.put("/:id", validate(inquirySchema), async (req, res, next) => {
       message: `Inquiry for '${name}' updated successfully.`,
       inquiry: result.rows[0],
     });
+
+    // Notify all admins + the owner so every open InquiryManager tab refreshes
+    broadcastToRole("admin", "inquiry:changed", { action: "updated", id });
+    broadcastToUser(existing.rows[0].created_by, "inquiry:changed", { action: "updated", id });
   } catch (err) {
     next(err);
   }
@@ -192,6 +203,10 @@ router.patch("/:id/status", validate(statusSchema), async (req, res, next) => {
       message: "Status updated.",
       inquiry: result.rows[0],
     });
+
+    // Notify all admins + the owner of the status change
+    broadcastToRole("admin", "inquiry:changed", { action: "status_updated", id, status });
+    broadcastToUser(existing.rows[0].created_by, "inquiry:changed", { action: "status_updated", id, status });
   } catch (err) {
     next(err);
   }
@@ -264,6 +279,10 @@ router.post("/:id/followups", validate(followupSchema), async (req, res, next) =
       followup: followupResult.rows[0],
       inquiry: inquiryResult.rows[0],
     });
+
+    // Notify all admins + the dealer owner that a follow-up was added and status may have changed
+    broadcastToRole("admin", "inquiry:changed", { action: "followup_added", id });
+    broadcastToUser(existing.rows[0].created_by, "inquiry:changed", { action: "followup_added", id });
   } catch (err) {
     await client.query("ROLLBACK");
     next(err);
@@ -332,6 +351,10 @@ router.delete("/:id", async (req, res, next) => {
       success: true,
       message: `Inquiry for '${existing.rows[0].name}' deleted.`,
     });
+
+    // Notify all admins + the dealer owner that this inquiry was removed
+    broadcastToRole("admin", "inquiry:changed", { action: "deleted", id });
+    broadcastToUser(existing.rows[0].created_by, "inquiry:changed", { action: "deleted", id });
   } catch (err) {
     next(err);
   }
