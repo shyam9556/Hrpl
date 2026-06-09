@@ -201,10 +201,17 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
     // dealer:reuploadRequested fires when admin sends a re-upload request —
     // status changes to ReuploadRequested; other admin sessions should see it.
     window.addEventListener("hp:sse:dealer:reuploadRequested", onChanged);
+    // document:uploaded fires when dealer submits registration reupload docs
+    // (auth.js /reupload/submit saves files). Refresh so doc panel shows new files.
+    window.addEventListener("hp:sse:document:uploaded", onChanged);
+    // document:deleted fires when admin deletes a doc from the registration panel.
+    window.addEventListener("hp:sse:document:deleted", onChanged);
     return () => {
       window.removeEventListener("hp:sse:registration:new", onNew);
       window.removeEventListener("hp:sse:registration:status_changed", onChanged);
       window.removeEventListener("hp:sse:dealer:reuploadRequested", onChanged);
+      window.removeEventListener("hp:sse:document:uploaded", onChanged);
+      window.removeEventListener("hp:sse:document:deleted", onChanged);
     };
   }, [fetchRegistrations, fetchStats, fetchReviewItems]);
 

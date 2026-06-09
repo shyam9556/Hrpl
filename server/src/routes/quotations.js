@@ -260,6 +260,11 @@ router.post("/", validate(createQuotationSchema), async (req, res, next) => {
       quotation_number: quotationNumber,
       dealer_name: quotationResult.rows[0]?.dealer_name,
     });
+    // Notify the dealer's other open tabs (e.g. DealerRequests open alongside DealerQuotation)
+    broadcastToUser(req.user.id, "quotation:new", {
+      id: quotationResult.rows[0]?.id,
+      quotation_number: quotationNumber,
+    });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     await client.query("SELECT RELEASE_LOCK('quotation_number_lock')").catch(() => {});
