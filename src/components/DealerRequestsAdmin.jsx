@@ -375,6 +375,28 @@ export default function DealerRequestsAdmin() {
     }
   };
 
+  // Download all customer docs for a quotation as a single ZIP archive.
+  // Falls back to sequential downloads if ZIP fails.
+  const handleDownloadAllDocs = useCallback(async (documents) => {
+    if (!documents || documents.length === 0) return;
+    const customerDocs = documents.filter(doc => doc.doc_type !== "other" && !doc.doc_type.startsWith("geotag_"));
+    if (customerDocs.length === 0) return;
+    try {
+      const ids = customerDocs.map(d => d.id);
+      await uploadsApi.downloadZip(ids, "quotation-customer-docs.zip");
+    } catch (zipErr) {
+      console.warn("[Download] ZIP failed, falling back to sequential:", zipErr.message);
+      for (const doc of customerDocs) {
+        try {
+          await uploadsApi.downloadSecure(doc.id, doc.original_name);
+          await new Promise(resolve => setTimeout(resolve, 400));
+        } catch (err) {
+          console.error("[Download] Failed for doc", doc.id, err.message);
+        }
+      }
+    }
+  }, []);
+
   const handleDownloadBOM = (q) => {
     const bom = generateBOM(q);
 
@@ -1713,8 +1735,27 @@ export default function DealerRequestsAdmin() {
               </div>
 
               <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  {"Uploaded Customer Documents"}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    {"Uploaded Customer Documents"}
+                  </div>
+                  {(selectedQuotation.documents || []).filter(d => d.doc_type !== "other" && !d.doc_type.startsWith("geotag_")).length > 0 && (
+                    <button
+                      onClick={() => handleDownloadAllDocs(selectedQuotation.documents)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 5,
+                        padding: "5px 12px", fontSize: 11, fontWeight: 600,
+                        background: "var(--primary, #2E7D52)", color: "white",
+                        border: "none", borderRadius: 8, cursor: "pointer",
+                        transition: "opacity 0.15s",
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
+                      onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                      title="Download all customer documents as a ZIP file"
+                    >
+                      <Download size={12} /> Download All
+                    </button>
+                  )}
                 </div>
                 {(() => {
                   const customerDocs = (selectedQuotation.documents || []).filter(doc => doc.doc_type !== "other" && !doc.doc_type.startsWith("geotag_"));
