@@ -448,27 +448,26 @@ export default function DealerRequests() {
   // reupload_requested: admin sent a document re-upload request to this dealer
   // geotag_reupload_requested: admin sent a geo-tag re-upload request
   // document:deleted: admin deleted one of the dealer's uploaded documents
+  // document:uploaded: dealer uploaded a doc in another tab (e.g. geotag modal)
+  // document:coordinates_updated: admin edited GPS on a geotag photo
   useEffect(() => {
     const handler = () => {
       fetchQuotations(false);
       fetchGlobalData();
     };
-    window.addEventListener("hp:sse:quotation:new", handler);
-    window.addEventListener("hp:sse:quotation:deleted", handler);
-    window.addEventListener("hp:sse:quotation:status_changed", handler);
-    window.addEventListener("hp:sse:quotation:delivery_changed", handler);
-    window.addEventListener("hp:sse:quotation:reupload_requested", handler);
-    window.addEventListener("hp:sse:quotation:geotag_reupload_requested", handler);
-    window.addEventListener("hp:sse:document:deleted", handler);
-    return () => {
-      window.removeEventListener("hp:sse:quotation:new", handler);
-      window.removeEventListener("hp:sse:quotation:deleted", handler);
-      window.removeEventListener("hp:sse:quotation:status_changed", handler);
-      window.removeEventListener("hp:sse:quotation:delivery_changed", handler);
-      window.removeEventListener("hp:sse:quotation:reupload_requested", handler);
-      window.removeEventListener("hp:sse:quotation:geotag_reupload_requested", handler);
-      window.removeEventListener("hp:sse:document:deleted", handler);
-    };
+    const events = [
+      "hp:sse:quotation:new",
+      "hp:sse:quotation:deleted",
+      "hp:sse:quotation:status_changed",
+      "hp:sse:quotation:delivery_changed",
+      "hp:sse:quotation:reupload_requested",
+      "hp:sse:quotation:geotag_reupload_requested",
+      "hp:sse:document:deleted",
+      "hp:sse:document:uploaded",
+      "hp:sse:document:coordinates_updated",
+    ];
+    events.forEach(e => window.addEventListener(e, handler));
+    return () => events.forEach(e => window.removeEventListener(e, handler));
   }, [fetchQuotations, fetchGlobalData]);
 
   // ── Fallback polling: silent refresh every 60 seconds ────────────────────

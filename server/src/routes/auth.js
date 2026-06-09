@@ -1417,7 +1417,7 @@ router.post("/reupload-quotation/submit", async (req, res, next) => {
 
     // Re-validate the token is still valid (not used/expired)
     const tokenResult = await db.query(
-      `SELECT rt.id, rt.required_docs, q.quotation_number, q.status, q.customer_id,
+      `SELECT rt.id, rt.required_docs, q.quotation_number, q.status, q.customer_id, q.dealer_id,
               u.name AS dealer_name, u.email AS dealer_email,
               c.name AS customer_name
        FROM quotation_reupload_tokens rt
@@ -1544,6 +1544,15 @@ router.post("/reupload-quotation/submit", async (req, res, next) => {
       status: "Pending",
       needs_review: true,
     });
+    // Notify the dealer's logged-in sessions (DealerRequests tab) that their quotation
+    // is now back to Pending — even though the reupload was done via the email link.
+    if (tokenRecord.dealer_id) {
+      broadcastToUser(tokenRecord.dealer_id, "quotation:status_changed", {
+        id: quotationId,
+        quotation_number: tokenRecord.quotation_number,
+        status: "Pending",
+      });
+    }
   } catch (err) {
     next(err);
   }

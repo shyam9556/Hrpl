@@ -258,6 +258,22 @@ router.post("/single", uploadSingle("file"), handleUploadError, async (req, res,
 
     res.status(201).json({ success: true, message: "File uploaded successfully.", document: result.rows[0] });
 
+    // Notify admin panels watching this entity that a new document was uploaded
+    broadcastToRole("admin", "document:uploaded", {
+      id: insertResult.insertId,
+      entity_type: entityType,
+      entity_id: parseInt(entityId, 10),
+      doc_type: docType,
+      uploaded_by: req.user.id,
+    });
+    // Also notify the uploader's other sessions (e.g. second browser tab)
+    broadcastToUser(req.user.id, "document:uploaded", {
+      id: insertResult.insertId,
+      entity_type: entityType,
+      entity_id: parseInt(entityId, 10),
+      doc_type: docType,
+    });
+
   } catch (err) {
     safeUnlink(req.file?.path);
     next(err);
@@ -330,6 +346,23 @@ router.post("/multiple", uploadMultiple("files", 5), handleUploadError, async (r
     }
 
     res.status(201).json({ success: true, message: `${documents.length} file(s) uploaded successfully.`, documents });
+
+    // Notify admin panels watching this entity that new documents were uploaded
+    broadcastToRole("admin", "document:uploaded", {
+      entity_type: entityType,
+      entity_id: parseInt(entityId, 10),
+      doc_type: docType,
+      count: documents.length,
+      uploaded_by: req.user.id,
+    });
+    // Also notify the uploader's other sessions
+    broadcastToUser(req.user.id, "document:uploaded", {
+      entity_type: entityType,
+      entity_id: parseInt(entityId, 10),
+      doc_type: docType,
+      count: documents.length,
+    });
+
   } catch (err) {
     if (req.files) {
       for (const file of req.files) safeUnlink(file.path);
@@ -632,6 +665,23 @@ router.patch("/:id/coordinates", async (req, res, next) => {
     );
 
     res.json({ success: true, message: "Coordinates updated successfully.", document: updateResult.rows[0] });
+
+    // Notify admin panels (coordinate edit reflects in the doc viewer immediately)
+    broadcastToRole("admin", "document:coordinates_updated", {
+      id: docId,
+      entity_type: doc.entity_type,
+      entity_id: doc.entity_id,
+      latitude: lat,
+      longitude: lng,
+    });
+    // Notify the document owner's other sessions
+    if (doc.uploaded_by && doc.uploaded_by !== req.user.id) {
+      broadcastToUser(doc.uploaded_by, "document:coordinates_updated", {
+        id: docId,
+        entity_type: doc.entity_type,
+        entity_id: doc.entity_id,
+      });
+    }
   } catch (err) {
     next(err);
   }

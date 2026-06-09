@@ -55,6 +55,10 @@ const KNOWN_EVENTS = [
   "settings:changed",
   // Document mutations (admin deletes a doc)
   "document:deleted",
+  // Document uploads (dealer uploads a new doc to a quotation or registration)
+  "document:uploaded",
+  // Admin manually edits GPS coordinates on a geotag photo
+  "document:coordinates_updated",
   // Inquiry mutations (create / update / status / followup / delete)
   "inquiry:changed",
 ];

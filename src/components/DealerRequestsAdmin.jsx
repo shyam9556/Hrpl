@@ -352,6 +352,10 @@ export default function DealerRequestsAdmin() {
       "hp:sse:quotation:geotag_submitted",
       // Admin deleted a document — refresh the document panel in the modal
       "hp:sse:document:deleted",
+      // Dealer uploaded a new document (reupload / fresh upload)
+      "hp:sse:document:uploaded",
+      // Admin edited GPS coordinates on a geotag in another tab
+      "hp:sse:document:coordinates_updated",
     ];
     events.forEach(e => window.addEventListener(e, handler));
     return () => events.forEach(e => window.removeEventListener(e, handler));

@@ -1033,6 +1033,12 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
       status: "Pending",
       needs_review: true,
     });
+    // Notify the dealer's other open tabs that their quotation is now back to Pending
+    broadcastToUser(req.user.id, "quotation:status_changed", {
+      id: quotationId,
+      quotation_number: q.quotation_number,
+      status: "Pending",
+    });
   } catch (err) {
     next(err);
   }
