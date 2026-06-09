@@ -84,6 +84,8 @@ export default function DealersList() {
     setActionLoading(`unlock-${dealer.id}`);
     try {
       const res = await dealersApi.unlockAccount(dealer.id);
+      // Refresh the list so the LOCKED badge and Unlock button disappear immediately.
+      await fetchDealers(false);
       setSuccessDialog({
         open: true,
         title: "Account Unlocked",

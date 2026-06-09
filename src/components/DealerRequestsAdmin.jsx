@@ -42,7 +42,6 @@ function getQuotationDocFilename(doc, customerName, quotationNumber) {
   return `${label}_${safeCust}_${safeNum}${ext}`;
 }
 
-
 const escapeHtml = (str) => {
   if (!str) return "";
   return String(str)
