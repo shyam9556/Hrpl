@@ -360,6 +360,11 @@ router.get("/", async (req, res, next) => {
            WHERE la.email = u.email
              AND la.succeeded = 0
              AND la.attempted_at >= DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+             AND la.attempted_at > COALESCE(
+               (SELECT MAX(attempted_at) FROM login_attempts
+                WHERE email = u.email AND succeeded = 1),
+               '1970-01-01'
+             )
          ), 0) AS failed_attempts
        FROM users u
        WHERE u.role = 'dealer'

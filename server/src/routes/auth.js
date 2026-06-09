@@ -54,16 +54,23 @@ router.post("/login", validate(loginSchema), async (req, res, next) => {
     const clientIp = req.ip || req.socket?.remoteAddress || "unknown";
 
     // ── Per-account lockout check ────────────────────────────────────────────
-    // Check if this account has too many recent failed attempts (last 30 min).
-    // Uses a 10-attempt threshold to stop targeted brute-force attacks that
-    // rotate IPs to bypass the IP-based rate limiter at the route level.
+    // Count ONLY failures that occurred AFTER the last successful login.
+    // This means one successful login resets the counter — a dealer who
+    // mistyped 8 times but eventually got in will NOT be locked on their
+    // next visit. Without this, failures accumulate across sessions.
     const lockoutWindow = new Date(Date.now() - 30 * 60 * 1000);
     const attemptResult = await db.query(
       `SELECT COUNT(*) AS fail_count
        FROM login_attempts
-       WHERE email = ? AND succeeded = 0 AND attempted_at >= ?
-       ORDER BY attempted_at DESC`,
-      [email, lockoutWindow]
+       WHERE email = ?
+         AND succeeded = 0
+         AND attempted_at >= ?
+         AND attempted_at > COALESCE(
+           (SELECT MAX(attempted_at) FROM login_attempts
+            WHERE email = ? AND succeeded = 1),
+           '1970-01-01'
+         )`,
+      [email, lockoutWindow, email]
     );
     const failCount = attemptResult.rows[0]?.fail_count ?? 0;
     if (failCount >= 10) {
