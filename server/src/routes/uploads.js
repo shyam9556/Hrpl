@@ -4,6 +4,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import rateLimit from "express-rate-limit";
+import { ZipArchive } from "archiver";
 
 import db from "../config/database.js";
 import env from "../config/env.js";
@@ -405,18 +406,12 @@ router.get("/zip", authorize("admin"), async (req, res, next) => {
       return res.status(404).json({ success: false, error: "No documents found." });
     }
 
-    // Dynamically import archiver — avoids top-level import error if not installed
-    let archiver;
-    try {
-      archiver = (await import("archiver")).default;
-    } catch {
-      return res.status(500).json({ success: false, error: "ZIP support requires the 'archiver' package. Please run: npm install archiver" });
-    }
-
     res.setHeader("Content-Type", "application/zip");
     res.setHeader("Content-Disposition", `attachment; filename="documents.zip"`);
 
-    const archive = archiver("zip", { zlib: { level: 6 } });
+    // archiver v8 uses a named class export — ZipArchive — imported at the top of this file.
+    // Previous code used (await import("archiver")).default which returns undefined in v8.
+    const archive = new ZipArchive({ zlib: { level: 6 } });
     archive.on("error", (err) => {
       if (!res.headersSent) next(err);
     });
