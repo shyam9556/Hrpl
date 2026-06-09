@@ -1038,6 +1038,14 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
       status: "Pending",
       needs_review: true,
     });
+    // Notify admin that new documents were uploaded (so the doc viewer panel refreshes)
+    // submit-portal-reupload saves files via direct DB INSERT, not POST /uploads/single,
+    // so document:uploaded is not broadcast there — we must emit it explicitly here.
+    broadcastToRole("admin", "document:uploaded", {
+      entity_type: "quotation",
+      entity_id: quotationId,
+      uploaded_by: req.user.id,
+    });
     // Notify the dealer's other open tabs that their quotation is now back to Pending
     broadcastToUser(req.user.id, "quotation:status_changed", {
       id: quotationId,

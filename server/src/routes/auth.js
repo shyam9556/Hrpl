@@ -1217,6 +1217,13 @@ router.post("/reupload/submit", async (req, res, next) => {
       status: "Pending",
       needs_review: true,
     });
+    // Notify admin that new documents were uploaded (doc viewer panel refresh)
+    // reupload/submit saves via saveBase64File, not POST /uploads/single,
+    // so document:uploaded must be emitted explicitly here.
+    broadcastToRole("admin", "document:uploaded", {
+      entity_type: "dealer_registration",
+      entity_id: regId,
+    });
   } catch (err) {
     next(err);
   }
@@ -1543,6 +1550,13 @@ router.post("/reupload-quotation/submit", async (req, res, next) => {
       quotation_number: tokenRecord.quotation_number,
       status: "Pending",
       needs_review: true,
+    });
+    // Notify admin that new documents were uploaded (doc viewer panel refresh)
+    // reupload-quotation/submit saves via saveBase64File, not POST /uploads/single,
+    // so document:uploaded must be emitted explicitly here.
+    broadcastToRole("admin", "document:uploaded", {
+      entity_type: "quotation",
+      entity_id: quotationId,
     });
     // Notify the dealer's logged-in sessions (DealerRequests tab) that their quotation
     // is now back to Pending — even though the reupload was done via the email link.
