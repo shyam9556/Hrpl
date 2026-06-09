@@ -440,8 +440,10 @@ export default function DealerRequests() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list]);
 
-  // ── SSE: Real-time updates from admin actions ─────────────────────────────
-  // status_changed: admin approved/rejected/dispatched a quotation
+  // ── SSE: Real-time updates from admin actions and own mutations ───────────
+  // quotation:new: dealer submitted a new quotation (e.g. from another tab)
+  // quotation:deleted: dealer or admin deleted a quotation
+  // status_changed: admin approved/rejected/dispatched
   // delivery_changed: admin updated delivery milestone
   // reupload_requested: admin sent a document re-upload request to this dealer
   // geotag_reupload_requested: admin sent a geo-tag re-upload request
@@ -451,12 +453,16 @@ export default function DealerRequests() {
       fetchQuotations(false);
       fetchGlobalData();
     };
+    window.addEventListener("hp:sse:quotation:new", handler);
+    window.addEventListener("hp:sse:quotation:deleted", handler);
     window.addEventListener("hp:sse:quotation:status_changed", handler);
     window.addEventListener("hp:sse:quotation:delivery_changed", handler);
     window.addEventListener("hp:sse:quotation:reupload_requested", handler);
     window.addEventListener("hp:sse:quotation:geotag_reupload_requested", handler);
     window.addEventListener("hp:sse:document:deleted", handler);
     return () => {
+      window.removeEventListener("hp:sse:quotation:new", handler);
+      window.removeEventListener("hp:sse:quotation:deleted", handler);
       window.removeEventListener("hp:sse:quotation:status_changed", handler);
       window.removeEventListener("hp:sse:quotation:delivery_changed", handler);
       window.removeEventListener("hp:sse:quotation:reupload_requested", handler);

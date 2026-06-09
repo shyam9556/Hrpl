@@ -269,17 +269,24 @@ export default function App() {
   useSSE(sseToken);
 
   // ── SSE-driven nav badge refresh ───────────────────────────────────────────
-  // When a new quotation or registration arrives, re-fetch badge counts
-  // immediately instead of waiting for the next 15s polling interval.
+  // Re-fetch badge counts immediately on any event that changes pending numbers:
+  //  - quotation:new             → pending quotations count goes up
+  //  - quotation:status_changed  → pending count drops when admin approves/rejects
+  //  - quotation:deleted         → pending count may drop
+  //  - registration:new          → pending dealers count goes up
+  //  - registration:status_changed → pending count drops when admin approves/rejects
   useEffect(() => {
     if (!user || user.role !== "admin") return;
     const handler = () => fetchPendingCounts();
-    window.addEventListener("hp:sse:quotation:new", handler);
-    window.addEventListener("hp:sse:registration:new", handler);
-    return () => {
-      window.removeEventListener("hp:sse:quotation:new", handler);
-      window.removeEventListener("hp:sse:registration:new", handler);
-    };
+    const events = [
+      "hp:sse:quotation:new",
+      "hp:sse:quotation:status_changed",
+      "hp:sse:quotation:deleted",
+      "hp:sse:registration:new",
+      "hp:sse:registration:status_changed",
+    ];
+    events.forEach(e => window.addEventListener(e, handler));
+    return () => events.forEach(e => window.removeEventListener(e, handler));
   }, [user, fetchPendingCounts]);
 
   const navigateTo = useCallback((pageId) => {

@@ -712,6 +712,8 @@ router.delete("/:id", async (req, res, next) => {
 
     // Notify admins that a quotation was deleted
     broadcastToRole("admin", "quotation:deleted", { id: quotationId });
+    // Notify the dealer so their other open tabs refresh and remove the deleted card
+    broadcastToUser(quotation.dealer_id, "quotation:deleted", { id: quotationId });
   } catch (err) {
     next(err);
   }
