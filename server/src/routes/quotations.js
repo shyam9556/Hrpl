@@ -1227,6 +1227,12 @@ router.post("/:id/submit-geotag", authorize("dealer"), async (req, res, next) =>
       isReupload,
       needs_review: isReupload,
     });
+    // Notify the dealer's other open tabs so the geotag status updates immediately
+    broadcastToUser(req.user.id, "quotation:geotag_submitted", {
+      id: quotationId,
+      quotation_number: q.quotation_number,
+      isReupload,
+    });
   } catch (err) {
     next(err);
   }
@@ -1248,6 +1254,13 @@ router.patch("/:id/clear-geotag-reupload", authenticate, async (req, res, next) 
       params.push(req.user.id);
     }
 
+    // Fetch dealer_id before the update so we can notify them
+    const qRow = await db.query(
+      "SELECT dealer_id FROM quotations WHERE id = ?",
+      [quotationId]
+    );
+    const dealerId = qRow.rows[0]?.dealer_id;
+
     await db.query(
       `UPDATE quotations
        SET geotag_reupload_requested = 0,
@@ -1262,6 +1275,10 @@ router.patch("/:id/clear-geotag-reupload", authenticate, async (req, res, next) 
 
     // Notify all admins the geotag flag was cleared so their review panels update
     broadcastToRole("admin", "quotation:status_changed", { id: quotationId });
+    // Notify the dealer's tabs so the geotag reupload banner disappears immediately
+    if (dealerId) {
+      broadcastToUser(dealerId, "quotation:status_changed", { id: quotationId });
+    }
   } catch (err) {
     next(err);
   }

@@ -462,6 +462,8 @@ export default function DealerRequests() {
       "hp:sse:quotation:delivery_changed",
       "hp:sse:quotation:reupload_requested",
       "hp:sse:quotation:geotag_reupload_requested",
+      // Dealer submitted geotag from another tab — banner must disappear immediately
+      "hp:sse:quotation:geotag_submitted",
       "hp:sse:document:deleted",
       "hp:sse:document:uploaded",
       "hp:sse:document:coordinates_updated",
