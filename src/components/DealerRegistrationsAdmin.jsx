@@ -27,9 +27,34 @@ const DOC_TYPE_LABELS = {
   aadhaar_front:  "Aadhaar Card (Front)",
   aadhaar_back:   "Aadhaar Card (Back)",
   pan:            "PAN Card",
+  passbook:       "Bank Passbook",
+  light_bill:     "Light Bill",
+  vera_bill:      "Vera Bill",
   passport_photo: "Passport Photo",
+  house_photo_1:  "House Photo 1",
+  house_photo_2:  "House Photo 2",
+  house_photo_3:  "House Photo 3",
+  geotag_1:       "Geotag Site Inverter",
+  geotag_2:       "Geotag Solar Panels",
+  geotag_3:       "Geotag ACDB NetMeter",
   other:          "Dealership Agreement",
 };
+
+// Converts spaces/special chars to underscores for safe use in filenames.
+function toSafeSegment(str) {
+  return (str || "").replace(/[^\w\s]/g, "").trim().replace(/\s+/g, "_") || "unknown";
+}
+
+// Build a recognizable filename for a dealer registration document.
+// Format: {DocTypeLabel}_{DealerName}.{ext}
+// Example: Aadhaar_Card_Rahul_Sharma.jpg
+function getFriendlyFilename(doc, dealerName) {
+  const label = (DOC_TYPE_LABELS[doc.doc_type] || "Document").replace(/\s+/g, "_");
+  const ext   = doc.original_name?.includes(".")
+    ? doc.original_name.slice(doc.original_name.lastIndexOf(".")).toLowerCase()
+    : "";
+  return `${label}_${toSafeSegment(dealerName)}${ext}`;
+}
 
 // Secure image component — fetches with Authorization header to avoid JWT in src URL
 function SecureImage({ docId, alt, className, style, onClick }) {
@@ -271,19 +296,21 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
     }
   };
 
-  // IMP-8: Download all documents as a single ZIP archive.
-  // Falls back to sequential downloads if ZIP fails (e.g. archiver not installed).
-  const handleDownloadAll = useCallback(async (documents) => {
+  // Download all documents for a registration as a single ZIP archive.
+  // dealerName is passed to generate a recognizable ZIP filename.
+  // Falls back to sequential downloads if ZIP fails.
+  const handleDownloadAll = useCallback(async (documents, dealerName) => {
     if (!documents || documents.length === 0) return;
     try {
       const ids = documents.map(d => d.id);
-      await uploadsApi.downloadZip(ids, "dealer-registration-docs.zip");
+      const zipName = `Dealer_Docs_${toSafeSegment(dealerName)}.zip`;
+      await uploadsApi.downloadZip(ids, zipName);
     } catch (zipErr) {
       console.warn("[Download] ZIP failed, falling back to sequential:", zipErr.message);
-      // Graceful fallback: download one by one
+      // Graceful fallback: download one by one with friendly names
       for (const doc of documents) {
         try {
-          await uploadsApi.downloadSecure(doc.id, doc.original_name);
+          await uploadsApi.downloadSecure(doc.id, getFriendlyFilename(doc, dealerName));
           await new Promise(resolve => setTimeout(resolve, 400));
         } catch (err) {
           console.error("[Download] Failed for doc", doc.id, err.message);
@@ -1149,7 +1176,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                         gap: 4,
                         borderRadius: 6
                       }}
-                      onClick={() => handleDownloadAll(selectedRegistration.documents)}
+                      onClick={() => handleDownloadAll(selectedRegistration.documents, selectedRegistration.name)}
                     >
                       <Download size={12} /> Download All
                     </button>
@@ -1203,7 +1230,7 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                                 e.stopPropagation();
                                 try {
                                   // Use downloadSecure so browser saves with correct filename
-                                  await uploadsApi.downloadSecure(doc.id, doc.original_name);
+                                  await uploadsApi.downloadSecure(doc.id, getFriendlyFilename(doc, selectedRegistration.name));
                                 } catch (err) {
                                   console.error("Download failed:", err.message);
                                   setErrorDialog({ open: true, message: err.message || "Could not download the document. Please try again." });

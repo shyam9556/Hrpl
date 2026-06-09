@@ -5,6 +5,43 @@ import { Loader2, Inbox, CheckCircle, XCircle, Paperclip, Download, Eye, X, User
 import ConfirmDialog from "./ConfirmDialog";
 import ErrorState from "./ErrorState";
 
+// ─── Friendly doc-type labels for quotation file downloads ────────────
+const QUOTATION_DOC_LABELS = {
+  aadhaar:        "Aadhaar_Card",
+  aadhaar_front:  "Aadhaar_Front",
+  aadhaar_back:   "Aadhaar_Back",
+  pan:            "PAN_Card",
+  passbook:       "Bank_Passbook",
+  light_bill:     "Light_Bill",
+  vera_bill:      "Vera_Bill",
+  passport_photo: "Passport_Photo",
+  house_photo_1:  "House_Photo_1",
+  house_photo_2:  "House_Photo_2",
+  house_photo_3:  "House_Photo_3",
+  geotag_1:       "Geotag_Site_Inverter",
+  geotag_2:       "Geotag_Solar_Panels",
+  geotag_3:       "Geotag_ACDB_NetMeter",
+  other:          "Document",
+};
+
+// Converts a string to a safe filename segment (spaces → underscores, strips special chars).
+function toSafeSegment(str) {
+  return (str || "").replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "_") || "unknown";
+}
+
+// Build a recognizable filename for a quotation document download.
+// Format: {DocTypeLabel}_{CustomerName}_{QuotationNumber}.{ext}
+// Example: Aadhaar_Card_Manoj_Patel_HP-2024-001.jpg
+function getQuotationDocFilename(doc, customerName, quotationNumber) {
+  const label   = QUOTATION_DOC_LABELS[doc.doc_type] || "Document";
+  const ext     = doc.original_name?.includes(".")
+    ? doc.original_name.slice(doc.original_name.lastIndexOf(".")).toLowerCase()
+    : "";
+  const safeCust = toSafeSegment(customerName);
+  const safeNum  = toSafeSegment(quotationNumber);
+  return `${label}_${safeCust}_${safeNum}${ext}`;
+}
+
 
 const escapeHtml = (str) => {
   if (!str) return "";
@@ -376,19 +413,21 @@ export default function DealerRequestsAdmin() {
   };
 
   // Download all customer docs for a quotation as a single ZIP archive.
+  // customerName and quotationNumber are passed to build recognizable file/ZIP names.
   // Falls back to sequential downloads if ZIP fails.
-  const handleDownloadAllDocs = useCallback(async (documents) => {
+  const handleDownloadAllDocs = useCallback(async (documents, customerName, quotationNumber) => {
     if (!documents || documents.length === 0) return;
     const customerDocs = documents.filter(doc => doc.doc_type !== "other" && !doc.doc_type.startsWith("geotag_"));
     if (customerDocs.length === 0) return;
     try {
       const ids = customerDocs.map(d => d.id);
-      await uploadsApi.downloadZip(ids, "quotation-customer-docs.zip");
+      const zipName = `Customer_Docs_${toSafeSegment(customerName)}_${toSafeSegment(quotationNumber)}.zip`;
+      await uploadsApi.downloadZip(ids, zipName);
     } catch (zipErr) {
       console.warn("[Download] ZIP failed, falling back to sequential:", zipErr.message);
       for (const doc of customerDocs) {
         try {
-          await uploadsApi.downloadSecure(doc.id, doc.original_name);
+          await uploadsApi.downloadSecure(doc.id, getQuotationDocFilename(doc, customerName, quotationNumber));
           await new Promise(resolve => setTimeout(resolve, 400));
         } catch (err) {
           console.error("[Download] Failed for doc", doc.id, err.message);
@@ -1741,7 +1780,7 @@ export default function DealerRequestsAdmin() {
                   </div>
                   {(selectedQuotation.documents || []).filter(d => d.doc_type !== "other" && !d.doc_type.startsWith("geotag_")).length > 0 && (
                     <button
-                      onClick={() => handleDownloadAllDocs(selectedQuotation.documents)}
+                      onClick={() => handleDownloadAllDocs(selectedQuotation.documents, selectedQuotation.customer_name, selectedQuotation.quotation_number)}
                       style={{
                         display: "flex", alignItems: "center", gap: 5,
                         padding: "5px 12px", fontSize: 11, fontWeight: 600,
@@ -1856,7 +1895,7 @@ export default function DealerRequestsAdmin() {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 try {
-                                  await uploadsApi.downloadSecure(doc.id, doc.original_name);
+                                  await uploadsApi.downloadSecure(doc.id, getQuotationDocFilename(doc, selectedQuotation.customer_name, selectedQuotation.quotation_number));
                                 } catch(err) {
                                   console.error('Download failed:', err);
                                   setErrorDialog({ open: true, message: err.message || "Could not download the document. Please try again." });
@@ -2023,7 +2062,7 @@ export default function DealerRequestsAdmin() {
                                         e.preventDefault();
                                         e.stopPropagation();
                                         try {
-                                          await uploadsApi.downloadSecure(doc.id, doc.original_name);
+                                          await uploadsApi.downloadSecure(doc.id, getQuotationDocFilename(doc, selectedQuotation.customer_name, selectedQuotation.quotation_number));
                                         } catch(err) {
                                           console.error('Download failed:', err);
                                           setErrorDialog({ open: true, message: err.message || "Could not download the document. Please try again." });

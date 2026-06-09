@@ -379,6 +379,27 @@ router.get("/entity/:entityType/:entityId", async (req, res, next) => {
   }
 });
 
+// ─── Friendly label map for files inside a ZIP ───────────
+// Converts doc_type keys to human-readable filename labels.
+// Used by GET /api/uploads/zip to name files inside the archive.
+const ZIP_DOC_LABELS = {
+  aadhaar:        "Aadhaar_Card",
+  aadhaar_front:  "Aadhaar_Front",
+  aadhaar_back:   "Aadhaar_Back",
+  pan:            "PAN_Card",
+  passbook:       "Bank_Passbook",
+  light_bill:     "Light_Bill",
+  vera_bill:      "Vera_Bill",
+  passport_photo: "Passport_Photo",
+  house_photo_1:  "House_Photo_1",
+  house_photo_2:  "House_Photo_2",
+  house_photo_3:  "House_Photo_3",
+  geotag_1:       "Geotag_Site_Inverter",
+  geotag_2:       "Geotag_Solar_Panels",
+  geotag_3:       "Geotag_ACDB_NetMeter",
+  other:          "Document",
+};
+
 // ─── GET /api/uploads/zip ────────────────────────────────
 // Admin only — Download multiple documents as a ZIP archive.
 // Query param: ids=1,2,3  (comma-separated document IDs, max 20)
@@ -395,10 +416,10 @@ router.get("/zip", authorize("admin"), async (req, res, next) => {
       return res.status(400).json({ success: false, error: "Cannot download more than 20 documents at once." });
     }
 
-    // Fetch all requested documents
+    // Fetch all requested documents — include doc_type for friendly naming inside the ZIP.
     const placeholders = rawIds.map(() => "?").join(", ");
     const result = await db.query(
-      `SELECT id, file_path, original_name, mime_type FROM documents WHERE id IN (${placeholders})`,
+      `SELECT id, file_path, original_name, mime_type, doc_type FROM documents WHERE id IN (${placeholders})`,
       rawIds
     );
 
@@ -410,18 +431,27 @@ router.get("/zip", authorize("admin"), async (req, res, next) => {
     res.setHeader("Content-Disposition", `attachment; filename="documents.zip"`);
 
     // archiver v8 uses a named class export — ZipArchive — imported at the top of this file.
-    // Previous code used (await import("archiver")).default which returns undefined in v8.
     const archive = new ZipArchive({ zlib: { level: 6 } });
     archive.on("error", (err) => {
       if (!res.headersSent) next(err);
     });
     archive.pipe(res);
 
+    // Track used names to avoid collisions when two docs share the same doc_type.
+    const nameCount = {};
     for (const doc of result.rows) {
       const absolutePath = safeResolvePath(doc.file_path);
       // eslint-disable-next-line security/detect-non-literal-fs-filename
       if (absolutePath && fs.existsSync(absolutePath)) {
-        archive.file(absolutePath, { name: doc.original_name });
+        const label = ZIP_DOC_LABELS[doc.doc_type] || "Document";
+        const ext = doc.original_name.includes(".")
+          ? doc.original_name.slice(doc.original_name.lastIndexOf(".")).toLowerCase()
+          : "";
+        const base = `${label}${ext}`;
+        nameCount[base] = (nameCount[base] ?? 0) + 1;
+        // First occurrence keeps the clean name; duplicates get a numeric suffix.
+        const archiveName = nameCount[base] === 1 ? base : `${label}_${nameCount[base]}${ext}`;
+        archive.file(absolutePath, { name: archiveName });
       }
     }
 
