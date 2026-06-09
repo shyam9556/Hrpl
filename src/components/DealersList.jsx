@@ -4,6 +4,12 @@ import { Loader2, Store, ChevronLeft, ChevronRight, Search, X, KeyRound, Eye, Ey
 import ConfirmDialog from "./ConfirmDialog";
 import ErrorState from "./ErrorState";
 
+// Lockout threshold — must match the failCount >= 10 check in server/src/routes/auth.js.
+// After this many failed attempts in 30 min, the dealer cannot log in at all.
+const LOCKOUT_THRESHOLD = 10;
+// Warning level — shown earlier so admin can spot a dealer struggling before they fully lock out.
+const LOCKOUT_WARNING = 5;
+
 export default function DealersList() {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -266,13 +272,20 @@ export default function DealersList() {
                       ) : (
                         <span style={{ fontSize: 12, color: "var(--muted)", fontStyle: "italic" }}>Never</span>
                       )}
-                      {/* IMP-1: lockout warning badge */}
-                      {d.failed_attempts > 0 && (
+                      {/* IMP-1: lockout warning/locked badge — only meaningful counts shown */}
+                      {d.failed_attempts >= LOCKOUT_THRESHOLD ? (
+                        // Account is actually locked
+                        <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 3, fontSize: 10, fontWeight: 700, color: "#dc2626" }}>
+                          <AlertTriangle size={10} style={{ flexShrink: 0 }} />
+                          LOCKED ({d.failed_attempts} attempts)
+                        </div>
+                      ) : d.failed_attempts >= LOCKOUT_WARNING ? (
+                        // Approaching lockout — warning
                         <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 3, fontSize: 10, fontWeight: 700, color: "#92400e" }}>
                           <AlertTriangle size={10} style={{ flexShrink: 0 }} />
                           {d.failed_attempts} failed attempt{d.failed_attempts !== 1 ? "s" : ""}
                         </div>
-                      )}
+                      ) : null}
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: 6 }}>
@@ -296,16 +309,16 @@ export default function DealersList() {
                         >
                           <KeyRound size={12} /> Reset Pwd
                         </button>
-                        {/* IMP-1: only show Unlock when dealer has recent failed login attempts */}
-                        {d.failed_attempts > 0 && (
+                        {/* IMP-1: Unlock button — only shown when account is actually locked (>= LOCKOUT_THRESHOLD) */}
+                        {d.failed_attempts >= LOCKOUT_THRESHOLD && (
                           <button
                             className="btn-sm"
-                            title={`Unlock account — ${d.failed_attempts} failed attempt${d.failed_attempts !== 1 ? "s" : ""} in last 30 min`}
+                            title={`Account LOCKED — ${d.failed_attempts} failed attempts in last 30 min. Click to unlock.`}
                             aria-label={`Unlock account for ${d.name}`}
                             disabled={actionLoading === `unlock-${d.id}`}
                             style={{ padding: "4px 10px", fontSize: 11, borderRadius: 6,
                               display: "flex", alignItems: "center", gap: 4,
-                              background: "var(--yellow, #f59e0b)", color: "white", border: "none" }}
+                              background: "var(--red, #dc2626)", color: "white", border: "none" }}
                             onClick={() => setConfirmUnlock(d)}
                           >
                             {actionLoading === `unlock-${d.id}`
