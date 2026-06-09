@@ -440,6 +440,39 @@ export default function DealerRequests() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list]);
 
+  // ── SSE: Real-time updates from admin actions ─────────────────────────────
+  // status_changed: admin approved/rejected/dispatched a quotation
+  // delivery_changed: admin updated delivery milestone
+  // reupload_requested: admin sent a document re-upload request to this dealer
+  // geotag_reupload_requested: admin sent a geo-tag re-upload request
+  // document:deleted: admin deleted one of the dealer's uploaded documents
+  useEffect(() => {
+    const handler = () => {
+      fetchQuotations(false);
+      fetchGlobalData();
+    };
+    window.addEventListener("hp:sse:quotation:status_changed", handler);
+    window.addEventListener("hp:sse:quotation:delivery_changed", handler);
+    window.addEventListener("hp:sse:quotation:reupload_requested", handler);
+    window.addEventListener("hp:sse:quotation:geotag_reupload_requested", handler);
+    window.addEventListener("hp:sse:document:deleted", handler);
+    return () => {
+      window.removeEventListener("hp:sse:quotation:status_changed", handler);
+      window.removeEventListener("hp:sse:quotation:delivery_changed", handler);
+      window.removeEventListener("hp:sse:quotation:reupload_requested", handler);
+      window.removeEventListener("hp:sse:quotation:geotag_reupload_requested", handler);
+      window.removeEventListener("hp:sse:document:deleted", handler);
+    };
+  }, [fetchQuotations, fetchGlobalData]);
+
+  // \u2500\u2500 Fallback polling: silent refresh every 60 seconds \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // Catches status changes in case the SSE connection is unavailable.
+  useEffect(() => {
+    const id = setInterval(() => fetchQuotations(false), 60_000);
+    return () => clearInterval(id);
+  }, [fetchQuotations]);
+
+
   useEffect(() => {
     if (!geotagModalQuotation) {
       // Delay revocation by 1.5s so any tab the user opened with a blob URL

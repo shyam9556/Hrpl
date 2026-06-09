@@ -4,6 +4,7 @@ import Joi from "joi";
 import db from "../config/database.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
+import { broadcastToRole, broadcastToUser } from "../utils/sseManager.js";
 
 const router = Router();
 
@@ -104,6 +105,10 @@ router.post("/", validate(customerSchema), async (req, res, next) => {
       message: `Customer '${name}' added.`,
       customer: result.rows[0],
     });
+
+    // Notify admin and the creating dealer that a new customer was added
+    broadcastToRole("admin", "customer:changed", { action: "created", id: insertResult.insertId });
+    broadcastToUser(req.user.id, "customer:changed", { action: "created", id: insertResult.insertId });
   } catch (err) {
     next(err);
   }
@@ -189,6 +194,10 @@ router.put("/:id", validate(customerSchema), async (req, res, next) => {
       message: `Customer '${name}' updated.`,
       customer: result.rows[0],
     });
+
+    // Notify admin and the creating dealer that a customer was updated
+    broadcastToRole("admin", "customer:changed", { action: "updated", id: customerId });
+    broadcastToUser(existing.rows[0].created_by, "customer:changed", { action: "updated", id: customerId });
   } catch (err) {
     next(err);
   }
@@ -217,9 +226,9 @@ router.delete("/:id", authorize("admin"), async (req, res, next) => {
       });
     }
 
-    // Fetch name before deletion for response message
+    // Fetch name and creator before deletion (for response + SSE targeting)
     const findResult = await db.query(
-      "SELECT name FROM customers WHERE id = ?",
+      "SELECT name, created_by FROM customers WHERE id = ?",
       [customerId]
     );
 
@@ -227,7 +236,7 @@ router.delete("/:id", authorize("admin"), async (req, res, next) => {
       return res.status(404).json({ success: false, error: "Customer not found." });
     }
 
-    const customerName = findResult.rows[0].name;
+    const { name: customerName, created_by: ownerId } = findResult.rows[0];
 
     await db.query("DELETE FROM customers WHERE id = ?", [customerId]);
 
@@ -235,9 +244,17 @@ router.delete("/:id", authorize("admin"), async (req, res, next) => {
       success: true,
       message: `Customer '${customerName}' deleted.`,
     });
+
+    // Notify all admins that a customer was removed
+    broadcastToRole("admin", "customer:changed", { action: "deleted", id: customerId });
+    // Notify the dealer who created this customer so their CustomerManager refreshes
+    if (ownerId) {
+      broadcastToUser(ownerId, "customer:changed", { action: "deleted", id: customerId });
+    }
   } catch (err) {
     next(err);
   }
+
 });
 
 export default router;

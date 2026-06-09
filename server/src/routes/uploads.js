@@ -10,6 +10,7 @@ import db from "../config/database.js";
 import env from "../config/env.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { uploadSingle, uploadMultiple, handleUploadError } from "../middleware/upload.js";
+import { broadcastToRole, broadcastToUser } from "../utils/sseManager.js";
 
 // ─── Uploads Directory ───────────────────────────────────
 // Resolved once at module load to an absolute, normalised path.
@@ -564,6 +565,21 @@ router.delete("/:id", authorize("admin"), async (req, res, next) => {
     await db.query("DELETE FROM documents WHERE id = ?", [docId]);
 
     res.json({ success: true, message: `Document '${doc.original_name}' deleted successfully.` });
+
+    // Notify all admins that a document was removed (so doc panel refreshes in DealerRequestsAdmin)
+    broadcastToRole("admin", "document:deleted", {
+      id: docId,
+      entity_type: doc.entity_type,
+      entity_id: doc.entity_id,
+    });
+    // Notify the document owner (dealer) so their panel refreshes too
+    if (doc.uploaded_by) {
+      broadcastToUser(doc.uploaded_by, "document:deleted", {
+        id: docId,
+        entity_type: doc.entity_type,
+        entity_id: doc.entity_id,
+      });
+    }
   } catch (err) {
     next(err);
   }

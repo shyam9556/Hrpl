@@ -6,6 +6,7 @@ import db from "../config/database.js";
 import env from "../config/env.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { sendDealerStatusEmail, sendDocumentReuploadEmail } from "../services/emailService.js";
+import { broadcastToRole } from "../utils/sseManager.js";
 
 const router = Router();
 
@@ -270,6 +271,13 @@ router.post("/registrations/:id/approve", async (req, res, next) => {
       dealer: userResult.rows[0],
     });
 
+    // Notify all admin sessions that a registration was approved
+    broadcastToRole("admin", "registration:status_changed", {
+      id: regId,
+      name: reg.name,
+      status: "Approved",
+    });
+
     // Fire-and-forget email notification
     sendDealerStatusEmail(reg.email, reg.name, "Approved")
       .catch(err => console.error(`[EMAIL] Failed to send dealer Approved email to ${reg.email}:`, err.message));
@@ -333,6 +341,13 @@ router.post("/registrations/:id/reject", async (req, res, next) => {
     res.json({
       success: true,
       message: `Dealer registration for '${reg.name}' rejected.`,
+    });
+
+    // Notify all admin sessions that a registration was rejected
+    broadcastToRole("admin", "registration:status_changed", {
+      id: regId,
+      name: reg.name,
+      status: "Rejected",
     });
 
     // Fire-and-forget email — includes admin's reason
@@ -420,6 +435,9 @@ router.patch("/:id/toggle-active", async (req, res, next) => {
         is_active: newActiveState === 1,
       },
     });
+
+    // Notify all admin tabs about dealer active state change
+    broadcastToRole("admin", "dealer:toggled", { id: dealerId, is_active: newActiveState === 1 });
   } catch (err) {
     next(err);
   }
@@ -506,6 +524,9 @@ router.post("/registrations/:id/request-reupload", async (req, res, next) => {
       success: true,
       message: `Re-upload request sent to ${reg.name} (${reg.email}).`,
     });
+
+    // Notify all admin tabs that a re-upload request was sent
+    broadcastToRole("admin", "dealer:reuploadRequested", { regId, name: reg.name });
   } catch (err) {
     next(err);
   }

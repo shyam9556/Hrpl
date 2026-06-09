@@ -23,6 +23,12 @@ import reportRoutes from "./routes/reports.js";
 import inquiryRoutes from "./routes/inquiries.js";
 import { verifySMTPConnection } from "./services/emailService.js";
 import { cleanupOrphanedDocuments } from "./utils/cleanup.js";
+import { addClient, removeClient, broadcastToRole, broadcastToUser, getClientCount } from "./utils/sseManager.js";
+import jwt from "jsonwebtoken";
+// Simple ID generator — avoids uuid dependency
+function generateId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
 
 
 // ─── Resolve __dirname for ES Modules ────────────────────
@@ -215,6 +221,47 @@ app.get("/api/health", (req, res) => {
     version: "1.0.0",
     environment: env.nodeEnv,
     timestamp: new Date().toISOString(),
+    sseClients: getClientCount(),
+  });
+});
+
+// ─── SSE Events Endpoint ─────────────────────────────────
+// Browser EventSource cannot set custom headers, so the JWT is passed
+// as a query-param (?token=<JWT>) and validated here before upgrading.
+// The connection is kept alive with a 30-second heartbeat comment.
+app.get("/api/events", (req, res) => {
+  const token = req.query.token;
+  if (!token) {
+    return res.status(401).json({ success: false, error: "Missing token." });
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, env.jwt.secret);
+  } catch {
+    return res.status(401).json({ success: false, error: "Invalid or expired token." });
+  }
+
+  // Upgrade the HTTP response to a long-lived SSE stream
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("X-Accel-Buffering", "no"); // Disable Nginx proxy buffering
+  res.flushHeaders();
+
+  const clientId = generateId();
+  addClient(clientId, decoded.id, decoded.role, res);
+
+  // Send initial connected confirmation
+  res.write(`event: connected\ndata: ${JSON.stringify({ clientId })}\n\n`);
+
+  // Heartbeat every 30s keeps the connection alive through proxies and firewalls
+  const heartbeat = setInterval(() => {
+    try { res.write(":\n\n"); } catch { /* client gone */ }
+  }, 30_000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    removeClient(clientId);
   });
 });
 

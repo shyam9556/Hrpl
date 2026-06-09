@@ -22,6 +22,7 @@ import {
   confirmOTPSchema,
 } from "../validators/authSchema.js";
 import { sendPasswordResetEmail, sendDealerWelcomeEmail, sendReuploadConfirmationEmail, sendQuotationReuploadConfirmationEmail, sendAdminPasswordResetEmail, sendEmailOTPEmail } from "../services/emailService.js";
+import { broadcastToRole } from "../utils/sseManager.js";
 
 const router = Router();
 
@@ -416,6 +417,14 @@ router.post("/register", validate(registerSchema), async (req, res, next) => {
       success: true,
       message: "Registration submitted successfully. Waiting for admin approval.",
       registration: result.rows[0],
+    });
+
+    // Notify all admin sessions that a new dealer registration arrived
+    broadcastToRole("admin", "registration:new", {
+      id: regId,
+      name,
+      email,
+      created_at: new Date().toISOString(),
     });
   } catch (err) {
     next(err);
@@ -1200,6 +1209,14 @@ router.post("/reupload/submit", async (req, res, next) => {
       success: true,
       message: "Documents re-uploaded successfully. Your registration is now back under review.",
     });
+
+    // Notify all admin tabs that a dealer re-submitted registration docs (needs review)
+    broadcastToRole("admin", "registration:status_changed", {
+      id: regId,
+      name: tokenRecord.name,
+      status: "Pending",
+      needs_review: true,
+    });
   } catch (err) {
     next(err);
   }
@@ -1518,6 +1535,14 @@ router.post("/reupload-quotation/submit", async (req, res, next) => {
     res.json({
       success: true,
       message: "Documents and photos re-uploaded successfully. Your quotation is now back under review.",
+    });
+
+    // Notify all admin tabs that a quotation doc re-upload was submitted (via email link)
+    broadcastToRole("admin", "quotation:status_changed", {
+      id: quotationId,
+      quotation_number: tokenRecord.quotation_number,
+      status: "Pending",
+      needs_review: true,
     });
   } catch (err) {
     next(err);

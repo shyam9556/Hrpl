@@ -39,6 +39,18 @@ export default function SettingsPage() {
     return () => { document.body.style.overflow = ''; };
   }, [drawerOpen]);
 
+  // ── SSE: Reload if another admin session saves settings ────────────────────
+  // Only fetches if the drawer (edit form) is closed — avoids overwriting
+  // unsaved edits in progress.
+  useEffect(() => {
+    const handler = () => {
+      if (!drawerOpen) fetchSettings();
+    };
+    window.addEventListener("hp:sse:settings:changed", handler);
+    return () => window.removeEventListener("hp:sse:settings:changed", handler);
+  }, [drawerOpen, fetchSettings]);
+
+
   // Auto-dismiss save success banner after 4 seconds
   useEffect(() => {
     if (!saveSuccess) return;

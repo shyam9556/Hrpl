@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { prices as pricesApi } from "../utils/api";
 import { Loader2, Plus, Trash2, Save, Check, AlertTriangle, Info, X } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
@@ -41,7 +41,7 @@ export default function PriceManager() {
   const [editingKitId, setEditingKitId] = useState(null);
   const [editingKitPrice, setEditingKitPrice] = useState("");
 
-  const fetchPrices = async () => {
+  const fetchPrices = useCallback(async () => {
     setFetchError(false);
     setLoading(true);
     try {
@@ -56,9 +56,19 @@ export default function PriceManager() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchPrices(); }, []);
+  useEffect(() => { fetchPrices(); }, [fetchPrices]);
+
+  // ── SSE: Refresh when any price is added/updated/deleted ────────────────────
+  // Ensures PriceManager always shows the latest catalog even when a second
+  // admin session makes changes concurrently.
+  useEffect(() => {
+    const handler = () => fetchPrices();
+    window.addEventListener("hp:sse:prices:changed", handler);
+    return () => window.removeEventListener("hp:sse:prices:changed", handler);
+  }, [fetchPrices]);
+
 
   const handleAddPanel = async () => {
     const missing = [];

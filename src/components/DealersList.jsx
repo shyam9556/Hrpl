@@ -114,6 +114,20 @@ export default function DealersList() {
   useEffect(() => { fetchDealers(); }, [fetchDealers]);
   useEffect(() => { setPage(1); }, [search]);
 
+  // ── SSE: Real-time dealer list updates ─────────────────────────────────────
+  // dealer:toggled → admin activates/deactivates a dealer from this same view
+  // registration:status_changed → a new dealer was just approved; they appear in list
+  useEffect(() => {
+    const handler = () => fetchDealers(false);
+    window.addEventListener("hp:sse:dealer:toggled", handler);
+    window.addEventListener("hp:sse:registration:status_changed", handler);
+    return () => {
+      window.removeEventListener("hp:sse:dealer:toggled", handler);
+      window.removeEventListener("hp:sse:registration:status_changed", handler);
+    };
+  }, [fetchDealers]);
+
+
   const handleToggle = async (id) => {
     setConfirmToggle(null);
     setActionLoading(id);

@@ -25,6 +25,7 @@ import ReportsPage from "./components/ReportsPage";
 import SettingsPage from "./components/SettingsPage";
 import InquiryManager from "./components/InquiryManager";
 import DealerDocuments from "./components/DealerDocuments";
+import useSSE from "./utils/useSSE";
 
 // Map icon string IDs → Lucide components
 const ICON_MAP = {
@@ -241,9 +242,10 @@ export default function App() {
       if (pageRef.current !== "dealer_registrations") {
         setPendingDealersCount(dRes.registrations?.length || 0);
       }
-    } catch {
-      // Silently ignore — badges are non-critical. Session expiry is handled
-      // by the hp:session-expired event listener above.
+    } catch (err) {
+      // Badges are non-critical — don't show errors to user.
+      // Log for developer visibility during debugging.
+      console.warn("[Badges] Failed to fetch pending counts:", err?.message || err);
     }
   }, [user]);
 
@@ -256,6 +258,28 @@ export default function App() {
         pollIntervalRef.current = null;
       };
     }
+  }, [user, fetchPendingCounts]);
+
+  // ── Global SSE connection — one per browser tab ───────────────────────────
+  // Mounted at App level so only ONE EventSource is opened per session.
+  // Components listen for events via window.addEventListener("hp:sse:...").
+  // sseToken is derived from user state so the hook's effect re-triggers on
+  // login (null → token) and logout (token → null) causing clean reconnect/disconnect.
+  const sseToken = user ? localStorage.getItem("hp_token") : null;
+  useSSE(sseToken);
+
+  // ── SSE-driven nav badge refresh ───────────────────────────────────────────
+  // When a new quotation or registration arrives, re-fetch badge counts
+  // immediately instead of waiting for the next 15s polling interval.
+  useEffect(() => {
+    if (!user || user.role !== "admin") return;
+    const handler = () => fetchPendingCounts();
+    window.addEventListener("hp:sse:quotation:new", handler);
+    window.addEventListener("hp:sse:registration:new", handler);
+    return () => {
+      window.removeEventListener("hp:sse:quotation:new", handler);
+      window.removeEventListener("hp:sse:registration:new", handler);
+    };
   }, [user, fetchPendingCounts]);
 
   const navigateTo = useCallback((pageId) => {

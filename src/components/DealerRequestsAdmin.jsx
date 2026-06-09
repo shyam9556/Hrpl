@@ -304,6 +304,28 @@ export default function DealerRequestsAdmin() {
   useEffect(() => { setPage(1); }, [search]);
   useEffect(() => { setLoading(true); fetchQuotations(); fetchReviewItems(); fetchStats(); }, [filter, page]);
 
+  // ── SSE: Instant refresh on any quotation or document mutation ───────────
+  useEffect(() => {
+    const handler = () => {
+      fetchQuotations(false);
+      fetchStats();
+      fetchReviewItems();
+    };
+    const events = [
+      "hp:sse:quotation:new",
+      "hp:sse:quotation:status_changed",
+      "hp:sse:quotation:delivery_changed",
+      "hp:sse:quotation:deleted",
+      // Dealer submitted geotag photos — admin needs to review
+      "hp:sse:quotation:geotag_submitted",
+      // Admin deleted a document — refresh the document panel in the modal
+      "hp:sse:document:deleted",
+    ];
+    events.forEach(e => window.addEventListener(e, handler));
+    return () => events.forEach(e => window.removeEventListener(e, handler));
+  }, [fetchQuotations, fetchStats, fetchReviewItems]);
+
+
   // Load secure blob URLs for documents when modal opens.
   // Uses a local Set to track created blob URLs so the cleanup closure
   // always revokes the exact URLs created by THIS effect, not a stale snapshot.

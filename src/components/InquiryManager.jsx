@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { inquiries as inquiriesApi } from "../utils/api";
 import { 
   Loader2, Search, Plus, X, MessageSquare, PhoneCall, ArrowRight, 
@@ -34,11 +34,17 @@ export default function InquiryManager({ onConvertToQuote }) {
     status: "New"
   });
 
+  // ── searchRef: always holds the latest search value ────────────────────────────
+  // Without this ref, fetchInquiries would capture a stale `search` value
+  // from the closure when called by the debounce timer or status filter change.
+  const searchRef = useRef(search);
+  useEffect(() => { searchRef.current = search; }, [search]);
+
   const fetchInquiries = useCallback(async () => {
     try {
       setLoading(true);
       const params = {};
-      if (search) params.search = search;
+      if (searchRef.current) params.search = searchRef.current;
       if (statusFilter) params.status = statusFilter;
       const res = await inquiriesApi.list(params);
       setList(res.inquiries || []);
@@ -47,11 +53,20 @@ export default function InquiryManager({ onConvertToQuote }) {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter]);
+  }, [statusFilter]); // Only re-create when statusFilter changes; search is read via ref
 
+  // Fetch when statusFilter changes (fetchInquiries identity changes too)
   useEffect(() => {
     fetchInquiries();
-  }, [statusFilter]);
+  }, [fetchInquiries]);
+
+  // Debounced auto-search: fires 400ms after user stops typing.
+  // Skip the very first render (both search and ref are empty strings).
+  useEffect(() => {
+    if (!search && !searchRef.current) return;
+    const timer = setTimeout(() => fetchInquiries(), 400);
+    return () => clearTimeout(timer);
+  }, [search, fetchInquiries]);
 
   useEffect(() => {
     if (selectedInquiry) {
@@ -162,15 +177,14 @@ export default function InquiryManager({ onConvertToQuote }) {
       setFollowupNotes("");
       setShowFollowupForm(false);
 
-      // Update the selected inquiry with fresh data from the API response
+      // Refresh list first so cards in the grid show the updated last_followup_date
+      await fetchInquiries();
+      // Then reload the followup history in the drawer
+      await fetchFollowups(selectedInquiry.id);
+      // Finally update the selected inquiry header with the freshest data
       if (res.inquiry) {
         setSelectedInquiry(res.inquiry);
       }
-
-      // Refresh list and followup history
-      await fetchInquiries();
-      await fetchFollowups(selectedInquiry.id);
-
     } catch (err) {
       showError("Error", err.message || "Failed to log follow-up.");
     } finally {
@@ -186,9 +200,18 @@ export default function InquiryManager({ onConvertToQuote }) {
       message: `Do you want to create a new quotation proposal for ${inq.name}? Location details and name will be pre-filled automatically.`,
       variant: "info",
       callback: () => {
-        // Switch status to Quoted on the backend (best-effort — navigation proceeds regardless)
+        // Optimistically update the card's status to "Quoted" in local state
+        // so when the user navigates back to Inquiries it shows the correct status.
+        setList(prev => prev.map(i =>
+          i.id === inq.id ? { ...i, status: "Quoted" } : i
+        ));
+        // Fire-and-forget backend update — navigation proceeds regardless
         inquiriesApi.updateStatus(inq.id, "Quoted").catch(err => {
           console.error("Failed to update inquiry status:", err);
+          // Roll back the optimistic update on failure
+          setList(prev => prev.map(i =>
+            i.id === inq.id ? { ...i, status: inq.status } : i
+          ));
           showError("Status Update Failed", "The inquiry status could not be updated to 'Quoted'. Please update it manually.");
         });
         onConvertToQuote({

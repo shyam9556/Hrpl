@@ -4,6 +4,7 @@ import Joi from "joi";
 import db from "../config/database.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
+import { broadcast } from "../utils/sseManager.js";
 
 const router = Router();
 
@@ -193,6 +194,10 @@ router.put("/", authorize("admin"), validate(updateSettingsSchema), async (req, 
       message: `${updatedCount} setting(s) updated.`,
       settings: updatedSettings,
     });
+
+    // Notify all connected users that global settings changed.
+    // Components that depend on settings (quotation form, price manager) should re-fetch.
+    broadcast("settings:changed", { count: updatedCount });
   } catch (err) {
     next(err);
   }

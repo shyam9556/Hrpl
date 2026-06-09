@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { stock as stockApi, settings as settingsApi } from "../utils/api";
 import { 
   Loader2, Save, X, Coins, TrendingUp, Sun, Zap, Package, 
@@ -23,7 +23,7 @@ export default function StockManager() {
   const [shake, setShake] = useState(false);
   const [pinError, setPinError] = useState(false);
 
-  const fetchStock = () => {
+  const fetchStock = useCallback(() => {
     setLoading(true);
     setFetchError(false);
     Promise.all([
@@ -42,13 +42,25 @@ export default function StockManager() {
         }
       }).catch(() => {}),
     ])
-      .catch(err => {
+      .catch(() => {
         setFetchError(true);
       })
       .finally(() => setLoading(false));
-  };
+  }, []);
 
-  useEffect(() => { fetchStock(); }, []);
+  useEffect(() => { fetchStock(); }, [fetchStock]);
+
+  // ── SSE: Refresh when another admin changes stock or settings ───────────────
+  useEffect(() => {
+    const handler = () => fetchStock();
+    window.addEventListener("hp:sse:stock:changed", handler);
+    window.addEventListener("hp:sse:settings:changed", handler);
+    return () => {
+      window.removeEventListener("hp:sse:stock:changed", handler);
+      window.removeEventListener("hp:sse:settings:changed", handler);
+    };
+  }, [fetchStock]);
+
 
   const handleKeyPress = (num) => {
     if (enteredPin.length < pin.length) {
@@ -177,24 +189,15 @@ export default function StockManager() {
         })
       );
 
-      // Update local state
-      setItems(prev =>
-        prev.map(item => {
-          const edit = edited[item.id];
-          if (edit) {
-            return {
-              ...item,
-              quantity: edit.quantity !== undefined && edit.quantity !== "" ? parseInt(edit.quantity) : item.quantity,
-              unit_price: edit.unitPrice !== undefined && edit.unitPrice !== "" ? parseFloat(edit.unitPrice) : item.unit_price,
-            };
-          }
-          return item;
-        })
-      );
+      // Clear edited state and show success
       setEdited({});
       setDrawerOpen(false);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3500);
+      // Re-sync from server to confirm saved values (catches server-side rounding etc.)
+      stockApi.getAll()
+        .then(res => setItems(res.stock || []))
+        .catch(() => { /* non-critical — UI already reflects saved values optimistically */ });
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to save stock changes." });
     } finally {

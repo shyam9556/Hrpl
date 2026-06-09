@@ -630,6 +630,18 @@ export const inquiries = {
     request(`/inquiries/${id}`, { method: "DELETE" }),
 };
 
+// ═══════════════════════════════════════════════════════════
+// EVENTS API
+// ═══════════════════════════════════════════════════════════
+// Returns the SSE endpoint URL with the current JWT embedded as a query param.
+// Browser EventSource cannot send custom headers, so we pass the token in the URL.
+export const events = {
+  url: () => {
+    const token = localStorage.getItem("hp_token");
+    return token ? `/api/events?token=${encodeURIComponent(token)}` : null;
+  },
+};
+
 export default {
   auth,
   prices,
@@ -644,4 +656,6 @@ export default {
   dashboard,
   reports,
   inquiries,
+  events,
 };
+

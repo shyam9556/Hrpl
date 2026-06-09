@@ -185,6 +185,30 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
 
   useEffect(() => { fetchRegistrations(); }, [fetchRegistrations]);
 
+  // ── SSE: Real-time notification for all registration mutations ─────────────
+  useEffect(() => {
+    const onNew = () => {
+      fetchRegistrations(true);
+      fetchStats();
+    };
+    const onChanged = () => {
+      fetchRegistrations(true);
+      fetchStats();
+      fetchReviewItems();
+    };
+    window.addEventListener("hp:sse:registration:new", onNew);
+    window.addEventListener("hp:sse:registration:status_changed", onChanged);
+    // dealer:reuploadRequested fires when admin sends a re-upload request —
+    // status changes to ReuploadRequested; other admin sessions should see it.
+    window.addEventListener("hp:sse:dealer:reuploadRequested", onChanged);
+    return () => {
+      window.removeEventListener("hp:sse:registration:new", onNew);
+      window.removeEventListener("hp:sse:registration:status_changed", onChanged);
+      window.removeEventListener("hp:sse:dealer:reuploadRequested", onChanged);
+    };
+  }, [fetchRegistrations, fetchStats, fetchReviewItems]);
+
+
   useEffect(() => {
     if (selectedRegistration) {
       document.body.style.overflow = 'hidden';

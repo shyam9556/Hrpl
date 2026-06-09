@@ -10,6 +10,7 @@ import env from "../config/env.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
 import { sendQuotationStatusEmail, sendDeliveryMilestoneEmail, sendPortalReuploadNotificationEmail, sendGeotagReuploadEmail, sendQuotationReuploadConfirmationEmail } from "../services/emailService.js";
+import { broadcastToRole, broadcastToUser } from "../utils/sseManager.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -251,6 +252,13 @@ router.post("/", validate(createQuotationSchema), async (req, res, next) => {
       success: true,
       message: `Quotation ${quotationNumber} created successfully.`,
       quotation: quotationResult.rows[0],
+    });
+
+    // Notify all admin tabs that a new quotation arrived
+    broadcastToRole("admin", "quotation:new", {
+      id: quotationResult.rows[0]?.id,
+      quotation_number: quotationNumber,
+      dealer_name: quotationResult.rows[0]?.dealer_name,
     });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -504,7 +512,7 @@ router.patch("/:id/status", authorize("admin"), validate(updateStatusSchema), as
 
     // Fetch updated row with dealer info so we can send a notification email
     const result = await db.query(
-      `SELECT q.id, q.quotation_number, q.status,
+      `SELECT q.id, q.dealer_id, q.quotation_number, q.status,
               u.name AS dealer_name, u.email AS dealer_email
        FROM quotations q
        JOIN users u ON u.id = q.dealer_id
@@ -529,6 +537,10 @@ router.patch("/:id/status", authorize("admin"), validate(updateStatusSchema), as
       message: `Quotation ${quotation.quotation_number} marked as ${status}.`,
       quotation: { id: quotation.id, quotation_number: quotation.quotation_number, status: quotation.status },
     });
+
+    // Notify all admins and the specific dealer about the status change
+    broadcastToRole("admin", "quotation:status_changed", { id: quotationId, status });
+    broadcastToUser(quotation.dealer_id, "quotation:status_changed", { id: quotationId, status });
   } catch (err) {
     next(err);
   }
@@ -569,7 +581,7 @@ router.patch("/:id/delivery", authorize("admin"), validate(updateDeliverySchema)
 
     // Fetch updated row with dealer and customer info for the milestone email
     const result = await db.query(
-      `SELECT q.id, q.quotation_number, q.delivery_status, q.status,
+      `SELECT q.id, q.dealer_id, q.quotation_number, q.delivery_status, q.status,
               u.name AS dealer_name, u.email AS dealer_email,
               c.name AS customer_name
        FROM quotations q
@@ -597,6 +609,10 @@ router.patch("/:id/delivery", authorize("admin"), validate(updateDeliverySchema)
       message: `Quotation ${quotation.quotation_number} delivery marked as ${status}.`,
       quotation: { id: quotation.id, quotation_number: quotation.quotation_number, delivery_status: quotation.delivery_status, status: quotation.status },
     });
+
+    // Notify all admins and the specific dealer about the delivery status change
+    broadcastToRole("admin", "quotation:delivery_changed", { id: quotationId, delivery_status: status });
+    broadcastToUser(quotation.dealer_id, "quotation:delivery_changed", { id: quotationId, delivery_status: status });
   } catch (err) {
     next(err);
   }
@@ -693,6 +709,9 @@ router.delete("/:id", async (req, res, next) => {
       success: true,
       message: `Quotation ${quotation.quotation_number} and all associated files/documents deleted.`,
     });
+
+    // Notify admins that a quotation was deleted
+    broadcastToRole("admin", "quotation:deleted", { id: quotationId });
   } catch (err) {
     next(err);
   }
@@ -723,7 +742,7 @@ router.post("/:id/request-reupload", authorize("admin"), validate(requestReuploa
 
     // Fetch the quotation — must be Pending, Rejected, or ReuploadRequested
     const qResult = await db.query(
-      `SELECT q.id, q.quotation_number, q.status, q.customer_id,
+      `SELECT q.id, q.quotation_number, q.status, q.customer_id, q.dealer_id,
               u.name AS dealer_name, u.email AS dealer_email,
               c.name AS customer_name
        FROM quotations q
@@ -767,6 +786,14 @@ router.post("/:id/request-reupload", authorize("admin"), validate(requestReuploa
       success: true,
       message: `Re-upload request sent to dealer ${q.dealer_name} for quotation ${q.quotation_number}.`,
     });
+
+    // Notify the specific dealer that their quotation needs document re-upload
+    broadcastToUser(q.dealer_id || req.user.id, "quotation:reupload_requested", {
+      id: quotationId,
+      quotation_number: q.quotation_number,
+    });
+    // Notify all admins that the status changed to ReuploadRequested
+    broadcastToRole("admin", "quotation:status_changed", { id: quotationId, status: "ReuploadRequested" });
   } catch (err) {
     next(err);
   }
@@ -996,6 +1023,14 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
       success: true,
       message: "Documents re-uploaded successfully. Your quotation is now back under review.",
     });
+
+    // Notify all admins that a quotation came back to Pending and needs review
+    broadcastToRole("admin", "quotation:status_changed", {
+      id: quotationId,
+      quotation_number: q.quotation_number,
+      status: "Pending",
+      needs_review: true,
+    });
   } catch (err) {
     next(err);
   }
@@ -1027,7 +1062,7 @@ router.post("/:id/request-geotag-reupload", authorize("admin"), async (req, res,
 
     // Only allowed on Approved quotations WHERE geo-tags have been uploaded at least once
     const qResult = await db.query(
-      `SELECT q.id, q.quotation_number, q.status, q.geotag_submitted,
+      `SELECT q.id, q.quotation_number, q.status, q.geotag_submitted, q.dealer_id,
               u.name AS dealer_name, u.email AS dealer_email
        FROM quotations q
        JOIN users u ON u.id = q.dealer_id
@@ -1076,6 +1111,13 @@ router.post("/:id/request-geotag-reupload", authorize("admin"), async (req, res,
     res.json({
       success: true,
       message: `Geo-tag re-upload request sent to dealer ${q.dealer_name}.`,
+      slots: requestedSlots,
+    });
+
+    // Notify the specific dealer that geo-tag photos need re-upload
+    broadcastToUser(q.dealer_id || req.user.id, "quotation:geotag_reupload_requested", {
+      id: quotationId,
+      quotation_number: q.quotation_number,
       slots: requestedSlots,
     });
   } catch (err) {
@@ -1164,6 +1206,14 @@ router.post("/:id/submit-geotag", authorize("dealer"), async (req, res, next) =>
       message: "Geo-tag photos submitted successfully.",
       isReupload,
     });
+
+    // Notify all admins that a dealer submitted geo-tag photos (needs review if re-upload)
+    broadcastToRole("admin", "quotation:geotag_submitted", {
+      id: quotationId,
+      quotation_number: q.quotation_number,
+      isReupload,
+      needs_review: isReupload,
+    });
   } catch (err) {
     next(err);
   }
@@ -1196,6 +1246,15 @@ router.patch("/:id/clear-geotag-reupload", authenticate, async (req, res, next) 
     );
 
     res.json({ success: true });
+
+    // Notify the dealer (or admin) that the geotag re-upload flag has been cleared
+    if (req.user.role === "admin") {
+      // Admin manually cleared — notify all admins (including self) to refresh
+      broadcastToRole("admin", "quotation:status_changed", { id: quotationId });
+    } else {
+      // Dealer triggered clear — notify admins
+      broadcastToRole("admin", "quotation:status_changed", { id: quotationId });
+    }
   } catch (err) {
     next(err);
   }

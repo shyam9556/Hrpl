@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { customers as customersApi } from "../utils/api";
 import { fmt } from "../utils/helpers";
-import { Loader2, Users, Pencil, Search, Plus, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, Users, Pencil, Trash2, Search, Plus, X, ChevronLeft, ChevronRight } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ErrorState from "./ErrorState";
 
@@ -29,6 +29,8 @@ export default function CustomerManager() {
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
   const [searchTrigger, setSearchTrigger] = useState(0);
   const [fetchError, setFetchError] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState({ open: false, id: null, name: "" });
+  const [deleting, setDeleting] = useState(false);
 
   const [form, setForm] = useState({
     name: "", phone: "", email: "", city: "", address: "", status: "Lead", notes: "",
@@ -55,6 +57,30 @@ export default function CustomerManager() {
 
   useEffect(() => { setPage(1); }, [statusFilter]);
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
+
+  // Debounced auto-search: fire 400ms after user stops typing.
+  // Avoids a request on every keystroke while still feeling responsive.
+  const prevSearchRef = useRef("");
+  useEffect(() => {
+    if (search === prevSearchRef.current) return; // Skip if value didn't change
+    prevSearchRef.current = search;
+    const timer = setTimeout(() => {
+      setPage(1);
+      setSearchTrigger(t => t + 1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // ── SSE: Refresh when any customer is created, updated, or deleted ──────────
+  useEffect(() => {
+    const handler = () => {
+      setPage(1);
+      setSearchTrigger(t => t + 1);
+    };
+    window.addEventListener("hp:sse:customer:changed", handler);
+    return () => window.removeEventListener("hp:sse:customer:changed", handler);
+  }, []);
+
 
   const handleSearch = (e) => {
     if (e.key === "Enter" || e.type === "click") {
@@ -114,6 +140,30 @@ export default function CustomerManager() {
     });
     setEditingId(c.id);
     setShowForm(true);
+  };
+
+  const handleDeleteClick = (c) => {
+    setConfirmDelete({ open: true, id: c.id, name: c.name });
+  };
+
+  const handleDeleteConfirm = async () => {
+    const { id, name } = confirmDelete;
+    setConfirmDelete({ open: false, id: null, name: "" });
+    setDeleting(true);
+    try {
+      await customersApi.delete(id);
+      // Refresh current page — if it becomes empty after delete, go back one page
+      const newTotal = pagination.total - 1;
+      const maxPage = Math.max(1, Math.ceil(newTotal / 20));
+      if (page > maxPage) setPage(maxPage);
+      else setSearchTrigger(t => t + 1);
+      setSaveSuccess(`Customer '${name}' deleted successfully.`);
+      setTimeout(() => setSaveSuccess(false), 3500);
+    } catch (err) {
+      setErrorDialog({ open: true, message: err.message || "Failed to delete customer." });
+    } finally {
+      setDeleting(false);
+    }
   };
 
   // Map.get() lookup — no prototype-pollutable bracket access.
@@ -286,13 +336,27 @@ export default function CustomerManager() {
                       {new Date(c.created_at).toLocaleDateString("en-IN")}
                     </td>
                     <td>
-                      <button
-                        className="btn-sm"
-                        style={{ padding: "4px 10px", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}
-                        onClick={() => handleEdit(c)}
-                      >
-                        <Pencil size={12} /> Edit
-                      </button>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button
+                          className="btn-sm"
+                          style={{ padding: "4px 10px", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}
+                          onClick={() => handleEdit(c)}
+                        >
+                          <Pencil size={12} /> Edit
+                        </button>
+                        <button
+                          className="btn-sm"
+                          style={{
+                            padding: "4px 10px", fontSize: 11, display: "flex", alignItems: "center", gap: 4,
+                            background: "rgba(239,68,68,0.08)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.25)"
+                          }}
+                          onClick={() => handleDeleteClick(c)}
+                          disabled={deleting}
+                          title="Delete customer"
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -315,6 +379,19 @@ export default function CustomerManager() {
           )}
         </div>
       )}
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={confirmDelete.open}
+        title="Delete Customer"
+        message={`Are you sure you want to delete "${confirmDelete.name}"? This cannot be undone. Note: customers with existing quotations cannot be deleted.`}
+        variant="danger"
+        confirmText="Yes, Delete"
+        cancelText="Cancel"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setConfirmDelete({ open: false, id: null, name: "" })}
+      />
+
+      {/* Error Dialog */}
       <ConfirmDialog
         open={errorDialog.open}
         title="Error"

@@ -4,6 +4,7 @@ import Joi from "joi";
 import db from "../config/database.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
+import { broadcast } from "../utils/sseManager.js";
 
 const router = Router();
 
@@ -62,6 +63,8 @@ router.post("/panels", authorize("admin"), validate(panelSchema), async (req, re
       message: `Panel ${brand} ${watt}W added successfully.`,
       panel: result.rows[0],
     });
+
+    broadcast("prices:changed", { type: "panel", action: "created" });
   } catch (err) {
     next(err);
   }
@@ -106,6 +109,8 @@ router.put("/panels/:id", authorize("admin"), validate(panelSchema), async (req,
       message: `Panel updated successfully.`,
       panel: updatedPanel,
     });
+
+    broadcast("prices:changed", { type: "panel", action: "updated", id: panelId });
   } catch (err) {
     next(err);
   }
@@ -154,6 +159,8 @@ router.delete("/panels/:id", authorize("admin"), async (req, res, next) => {
       success: true,
       message: `Panel ${p.brand} ${p.watt}W removed from catalog.`,
     });
+
+    broadcast("prices:changed", { type: "panel", action: "deleted", id: panelId });
   } catch (err) {
     next(err);
   }
@@ -201,6 +208,8 @@ router.post("/inverters", authorize("admin"), validate(inverterSchema), async (r
       message: `Inverter ${brand} ${kw}kW added successfully.`,
       inverter: result.rows[0],
     });
+
+    broadcast("prices:changed", { type: "inverter", action: "created" });
   } catch (err) {
     next(err);
   }
@@ -244,6 +253,8 @@ router.put("/inverters/:id", authorize("admin"), validate(inverterSchema), async
       message: `Inverter updated successfully.`,
       inverter: updatedInverter,
     });
+
+    broadcast("prices:changed", { type: "inverter", action: "updated", id: inverterId });
   } catch (err) {
     next(err);
   }
@@ -291,6 +302,8 @@ router.delete("/inverters/:id", authorize("admin"), async (req, res, next) => {
       success: true,
       message: `Inverter ${inv.brand} ${inv.kw}kW removed from catalog.`,
     });
+
+    broadcast("prices:changed", { type: "inverter", action: "deleted", id: inverterId });
   } catch (err) {
     next(err);
   }
@@ -387,6 +400,8 @@ router.put("/accessories", authorize("admin"), validate(accessoryUpdateSchema), 
       message: `${accessories.length} accessory price(s) updated.`,
       accessories: result.rows,
     });
+
+    broadcast("prices:changed", { type: "accessories", action: "updated" });
   } catch (err) {
     next(err);
   }
@@ -434,6 +449,8 @@ router.post("/kits", authorize("admin"), validate(kitCreateSchema), async (req, 
       message: `Kit ${brand} ${type} ${kw}kW added successfully.`,
       kit: result.rows[0],
     });
+
+    broadcast("prices:changed", { type: "kit", action: "created" });
   } catch (err) {
     next(err);
   }
@@ -469,6 +486,8 @@ router.put("/kits/:id", authorize("admin"), validate(kitPriceSchema), async (req
       message: `Kit price updated to ₹${price}.`,
       kit: result.rows[0],
     });
+
+    broadcast("prices:changed", { type: "kit", action: "updated", id: kitId });
   } catch (err) {
     next(err);
   }
@@ -492,6 +511,8 @@ router.delete("/kits/:id", authorize("admin"), async (req, res, next) => {
       success: true,
       message: `Kit ${k.brand} ${k.type} ${k.kw}kW removed from catalog.`,
     });
+
+    broadcast("prices:changed", { type: "kit", action: "deleted", id: kitId });
   } catch (err) {
     next(err);
   }

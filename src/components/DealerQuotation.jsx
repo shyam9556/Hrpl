@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { fmt, calculateSubsidy, generatePdfQuotation } from "../utils/helpers";
 import { prices as pricesApi, quotations as quotationsApi, customers as customersApi, uploads as uploadsApi, settings as settingsApi } from "../utils/api";
 import { Loader2, PartyPopper, Download, Check, Sun, Zap, Hash, BarChart3, IdCard, CreditCard, Landmark, Home, ArrowLeft, ArrowRight, Send, MessageCircle, Mail, Copy, Coins, Package, RefreshCw, FileText, Leaf, Info, AlertTriangle } from "lucide-react";
@@ -99,8 +99,8 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [pdfRetrying, setPdfRetrying] = useState(false);
 
-  // Shared price-fetching logic — used by initial load AND retry button
-  const fetchPrices = () => {
+  // Shared price-fetching logic — used by initial load AND retry button AND SSE refresh
+  const fetchPrices = useCallback(() => {
     setPriceError(false);
     setLoadingPrices(true);
     pricesApi.getAll()
@@ -137,13 +137,10 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
       })
       .catch(err => { setPriceError(true); console.error("Fetch prices error:", err); })
       .finally(() => setLoadingPrices(false));
-  };
+  }, []);
 
-  // Fetch prices on mount
-  useEffect(() => { fetchPrices(); }, []);
-
-  // Fetch pricing settings
-  useEffect(() => {
+  // Fetch settings (also used for SSE refresh)
+  const fetchSettings = useCallback(() => {
     settingsApi.getPublic()
       .then(res => {
         const s = res.settings || {};
@@ -163,6 +160,27 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
         setSettingsLoadFailed(true);
       });
   }, []);
+
+  // Fetch prices on mount
+  useEffect(() => { fetchPrices(); }, [fetchPrices]);
+
+  // Fetch pricing settings on mount
+  useEffect(() => { fetchSettings(); }, [fetchSettings]);
+
+  // ── SSE: Silently reload prices/settings when admin makes catalog changes ────
+  // This ensures the dealer's quotation form always uses the latest rates even
+  // if they have the form open when admin updates prices. Form state is preserved.
+  useEffect(() => {
+    const handlePrices = () => fetchPrices();
+    const handleSettings = () => fetchSettings();
+    window.addEventListener("hp:sse:prices:changed", handlePrices);
+    window.addEventListener("hp:sse:settings:changed", handleSettings);
+    return () => {
+      window.removeEventListener("hp:sse:prices:changed", handlePrices);
+      window.removeEventListener("hp:sse:settings:changed", handleSettings);
+    };
+  }, [fetchPrices, fetchSettings]);
+
 
   // Map DB accessories array to the flat object calcQuotation expects.
   function buildAccessoriesMap(accArray) {

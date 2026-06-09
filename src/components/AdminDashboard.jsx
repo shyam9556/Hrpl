@@ -312,6 +312,26 @@ export default function AdminDashboard({ onNavigate }) {
     return () => window.removeEventListener("keydown", handler);
   }, [selectedQuotation]);
 
+  // ── Auto-refresh every 60 seconds while dashboard is visible ──────────────
+  useEffect(() => {
+    const id = setInterval(() => fetchDashboard(), 60_000);
+    return () => clearInterval(id);
+  }, [fetchDashboard]);
+
+  // ── SSE: Refresh instantly on relevant real-time events ────────────────────
+  // The global SSE bus in App.jsx dispatches these window events.
+  useEffect(() => {
+    const handler = () => fetchDashboard();
+    const events = [
+      "hp:sse:quotation:new",
+      "hp:sse:quotation:status_changed",
+      "hp:sse:registration:new",
+      "hp:sse:registration:status_changed",
+    ];
+    events.forEach(e => window.addEventListener(e, handler));
+    return () => events.forEach(e => window.removeEventListener(e, handler));
+  }, [fetchDashboard]);
+
   if (loading) {
     return (
       <div style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>

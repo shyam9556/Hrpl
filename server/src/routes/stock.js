@@ -4,6 +4,7 @@ import Joi from "joi";
 import db from "../config/database.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
+import { broadcastToRole } from "../utils/sseManager.js";
 
 const router = Router();
 
@@ -96,6 +97,8 @@ router.post("/", validate(addStockSchema), async (req, res, next) => {
       message: `Stock item '${itemName}' added.`,
       item: result.rows[0],
     });
+
+    broadcastToRole("admin", "stock:changed", { action: "created" });
   } catch (err) {
     next(err);
   }
@@ -175,6 +178,8 @@ router.patch("/:id", validate(updateStockSchema), async (req, res, next) => {
       message: `Stock item '${updatedItem.item_name}' updated successfully.`,
       item: updatedItem,
     });
+
+    broadcastToRole("admin", "stock:changed", { action: "updated", id: stockId });
   } catch (err) {
     next(err);
   }
@@ -208,6 +213,8 @@ router.delete("/:id", async (req, res, next) => {
       success: true,
       message: `Stock item '${itemName}' removed.`,
     });
+
+    broadcastToRole("admin", "stock:changed", { action: "deleted", id: stockId });
   } catch (err) {
     next(err);
   }
