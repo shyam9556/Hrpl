@@ -788,7 +788,7 @@ router.post("/:id/request-reupload", authorize("admin"), validate(requestReuploa
     });
 
     // Notify the specific dealer that their quotation needs document re-upload
-    broadcastToUser(q.dealer_id || req.user.id, "quotation:reupload_requested", {
+    broadcastToUser(q.dealer_id, "quotation:reupload_requested", {
       id: quotationId,
       quotation_number: q.quotation_number,
     });
@@ -1115,7 +1115,7 @@ router.post("/:id/request-geotag-reupload", authorize("admin"), async (req, res,
     });
 
     // Notify the specific dealer that geo-tag photos need re-upload
-    broadcastToUser(q.dealer_id || req.user.id, "quotation:geotag_reupload_requested", {
+    broadcastToUser(q.dealer_id, "quotation:geotag_reupload_requested", {
       id: quotationId,
       quotation_number: q.quotation_number,
       slots: requestedSlots,
@@ -1247,14 +1247,8 @@ router.patch("/:id/clear-geotag-reupload", authenticate, async (req, res, next) 
 
     res.json({ success: true });
 
-    // Notify the dealer (or admin) that the geotag re-upload flag has been cleared
-    if (req.user.role === "admin") {
-      // Admin manually cleared — notify all admins (including self) to refresh
-      broadcastToRole("admin", "quotation:status_changed", { id: quotationId });
-    } else {
-      // Dealer triggered clear — notify admins
-      broadcastToRole("admin", "quotation:status_changed", { id: quotationId });
-    }
+    // Notify all admins the geotag flag was cleared so their review panels update
+    broadcastToRole("admin", "quotation:status_changed", { id: quotationId });
   } catch (err) {
     next(err);
   }
