@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { quotations as quotationsApi, uploads as uploadsApi } from "../utils/api";
 import { fmt, generatePdfQuotation, generateBOM } from "../utils/helpers";
 import { Loader2, Inbox, CheckCircle, XCircle, Paperclip, Download, Eye, X, User, Phone, MapPin, Zap, FileText, Camera, Truck, Package, Check, FolderOpen, ChevronLeft, ChevronRight, AlertTriangle, Copy, Search, RefreshCw, Send, Clock } from "lucide-react";
@@ -300,9 +300,41 @@ export default function DealerRequestsAdmin() {
     }
   }, [filter, page]);
 
-  useEffect(() => { setPage(1); }, [filter]);
+  // ── Coordinated filter + page effects (avoids double-fetch) ─────────────
+  // Problem with naive approach: having a separate `useEffect(() => setPage(1), [filter])`
+  // alongside `useEffect(() => fetch(), [filter, page])` causes TWO fetches when filter
+  // changes and admin is on page > 1:
+  //   1st fetch: new filter + OLD page (stale data flashes)
+  //   2nd fetch: new filter + page 1  (correct)
+  //
+  // Fix: filterChangedRef guards the fetch effect so it skips the stale-page run
+  // and only fires once page has been reset to 1.
+  const filterChangedRef = useRef(false);
+
+  // When filter changes: mark the guard and reset to page 1.
+  // This effect intentionally does NOT fetch — the fetch effect below handles it.
+  useEffect(() => {
+    filterChangedRef.current = true;
+    setPage(1);
+  }, [filter]);
+
+  // When search changes: only reset page (search is client-side, no server call needed).
+  // Resetting page re-renders the pagination UI so results stay on page 1 after search.
   useEffect(() => { setPage(1); }, [search]);
-  useEffect(() => { setLoading(true); fetchQuotations(); fetchReviewItems(); fetchStats(); }, [filter, page]);
+
+  // Main fetch effect — runs on filter or page change, but skips the stale-page
+  // intermediate run that occurs when filter changes and page hasn't reset yet.
+  useEffect(() => {
+    // If filter just changed but page is still the old value, skip this run.
+    // The effect will re-fire correctly once setPage(1) propagates.
+    if (filterChangedRef.current && page !== 1) return;
+    filterChangedRef.current = false; // consume the guard
+
+    setLoading(true);
+    fetchQuotations();
+    fetchReviewItems();
+    fetchStats();
+  }, [filter, page]);
 
   // ── SSE: Instant refresh on any quotation or document mutation ───────────
   useEffect(() => {
