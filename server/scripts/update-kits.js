@@ -23,81 +23,81 @@ const dbPassword = process.env.DB_PASSWORD || "";
 const dbName = process.env.DB_NAME || "highlight_pro";
 
 const kitsData = [
-  // === ADANI BIFACIAL ===
-  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 4, kw: 2.20, price: 110500 },
-  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 5, kw: 2.75, price: 130500 },
-  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 6, kw: 3.30, price: 149000 },
-  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 7, kw: 3.85, price: 177500 },
-  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 8, kw: 4.40, price: 196200 },
-  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 9, kw: 4.95, price: 223700 },
-  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 10, kw: 5.50, price: 248000 },
-  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 11, kw: 6.05, price: 287000 },
-  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 12, kw: 6.60, price: 320000 },
-  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 15, kw: 8.25, price: 368000 },
-  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 18, kw: 9.90, price: 424000 },
-
-  // === ADANI TOPCON ===
-  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 4, kw: 2.48, price: 119500 },
-  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 5, kw: 3.10, price: 141000 },
-  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 6, kw: 3.72, price: 162000 },
-  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 7, kw: 4.34, price: 191700 },
-  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 8, kw: 4.96, price: 213000 },
-  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 9, kw: 5.58, price: 242500 },
-  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 10, kw: 6.20, price: 287000 },
-  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 11, kw: 6.82, price: 313500 },
-  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 12, kw: 7.44, price: 333700 },
-  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 13, kw: 8.06, price: 358600 },
-  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 16, kw: 9.92, price: 421500 },
-
-  // === WAAREE BIFACIAL ===
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 4, kw: 2.16, price: 104000 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 5, kw: 2.70, price: 122000 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 6, kw: 3.24, price: 140000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 4, kw: 2.20, price: 108000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 4, kw: 2.48, price: 116000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 4, kw: 2.16, price: 102000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 4, kw: 2.34, price: 108000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 4, kw: 2.20, price: 94000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 5, kw: 2.75, price: 127000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 5, kw: 3.10, price: 138000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 5, kw: 2.70, price: 120000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 5, kw: 2.92, price: 127000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 5, kw: 2.75, price: 110000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 6, kw: 3.30, price: 147000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 6, kw: 3.72, price: 160000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 6, kw: 3.24, price: 139000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 6, kw: 3.51, price: 147000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 6, kw: 3.30, price: 126000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 7, kw: 3.85, price: 175000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 7, kw: 4.34, price: 190000 },
   { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 7, kw: 3.78, price: 165000 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 8, kw: 4.32, price: 182000 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 9, kw: 4.86, price: 210000 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 10, kw: 5.40, price: 232500 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 11, kw: 5.94, price: 255000 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 12, kw: 6.48, price: 290000 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 13, kw: 7.02, price: 311500 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 14, kw: 7.56, price: 327500 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 15, kw: 8.10, price: 344000 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 16, kw: 7.56, price: 363000 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 17, kw: 8.10, price: 380700 },
-  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 18, kw: 9.72, price: 397000 },
-
-  // === WAAREE TOPCON ===
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 4, kw: 2.34, price: 110000 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 5, kw: 2.92, price: 129500 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 6, kw: 3.51, price: 149500 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 7, kw: 4.09, price: 178500 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 8, kw: 4.68, price: 199000 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 9, kw: 5.26, price: 229000 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 10, kw: 5.85, price: 266000 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 11, kw: 6.43, price: 291000 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 12, kw: 7.02, price: 306500 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 13, kw: 7.60, price: 329500 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 14, kw: 8.19, price: 356000 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 15, kw: 8.77, price: 375000 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 16, kw: 9.36, price: 396000 },
-  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 17, kw: 9.94, price: 417000 },
-
-  // === RAYZON BIFACIAL ===
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 4, kw: 2.20, price: 96500 },
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 5, kw: 2.75, price: 112000 },
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 6, kw: 3.30, price: 129500 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 7, kw: 4.09, price: 175000 },
   { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 7, kw: 3.85, price: 151000 },
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 8, kw: 4.40, price: 165500 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 8, kw: 4.40, price: 194000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 8, kw: 4.96, price: 211000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 8, kw: 4.32, price: 183000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 8, kw: 4.68, price: 194000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 8, kw: 4.40, price: 166000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 9, kw: 4.95, price: 222000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 9, kw: 5.58, price: 240000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 9, kw: 4.86, price: 209000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 9, kw: 5.26, price: 221000 },
   { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 9, kw: 4.95, price: 190000 },
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 10, kw: 5.50, price: 211500 },
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 11, kw: 6.05, price: 250000 },
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 12, kw: 6.60, price: 264500 },
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 13, kw: 7.15, price: 284000 },
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 14, kw: 7.70, price: 298500 },
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 15, kw: 8.25, price: 313500 },
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 16, kw: 8.80, price: 329500 },
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 17, kw: 9.35, price: 345000 },
-  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 18, kw: 9.90, price: 360000 }
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 10, kw: 5.50, price: 247000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 10, kw: 6.20, price: 268000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 10, kw: 5.40, price: 233000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 10, kw: 5.85, price: 246000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 10, kw: 5.50, price: 212000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 11, kw: 6.05, price: 286000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 11, kw: 6.82, price: 309000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 11, kw: 5.94, price: 271000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 11, kw: 6.43, price: 286000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 11, kw: 6.05, price: 248000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 12, kw: 6.60, price: 305000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 12, kw: 7.44, price: 330000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 12, kw: 6.48, price: 288000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 12, kw: 7.02, price: 305000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 12, kw: 6.60, price: 263000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 13, kw: 7.15, price: 328000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 13, kw: 8.06, price: 355000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 13, kw: 7.02, price: 309000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 13, kw: 7.60, price: 327000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 13, kw: 7.15, price: 282000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 14, kw: 7.70, price: 346000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 14, kw: 8.68, price: 376000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 14, kw: 7.56, price: 327000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 14, kw: 8.19, price: 346000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 14, kw: 7.70, price: 297000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 15, kw: 8.25, price: 365000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 15, kw: 9.30, price: 396000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 15, kw: 8.10, price: 344000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 15, kw: 8.77, price: 364000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 15, kw: 8.25, price: 312000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 16, kw: 8.80, price: 385000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 16, kw: 9.92, price: 419000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 16, kw: 8.64, price: 363000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 16, kw: 9.36, price: 385000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 16, kw: 8.80, price: 329000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 17, kw: 9.35, price: 406000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 17, kw: 10.54, price: 442000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 17, kw: 9.18, price: 382000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 17, kw: 9.95, price: 406000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 17, kw: 9.35, price: 347000 },
+  { brand: "Adani", type: "Bifacial", watt: "540-555", panels: 18, kw: 9.90, price: 425000 },
+  { brand: "Adani", type: "TOPCon", watt: "605-620", panels: 18, kw: 11.16, price: 463000 },
+  { brand: "Waaree", type: "Bifacial", watt: "535-540", panels: 18, kw: 9.72, price: 400000 },
+  { brand: "Waaree", type: "TOPCon", watt: "570-585", panels: 18, kw: 10.53, price: 425000 },
+  { brand: "Rayzon", type: "Bifacial", watt: "540-550", panels: 18, kw: 9.90, price: 362000 }
 ];
 
 async function updateKits() {
@@ -134,18 +134,15 @@ async function updateKits() {
     console.log("🔨 Seeding real Raysolar kit prices...");
     let count = 0;
     for (const item of kitsData) {
-      // Calculate standard inverter size rule (nearest to kw):
+      // Calculate standard inverter size rule (matches BOM sheet exactly):
       let invKw = 3.6;
-      if (item.kw <= 2.5) invKw = 2.3;
-      else if (item.kw <= 3.8) invKw = 3.6;
-      else if (item.kw <= 4.4) invKw = 4.2;
-      else if (item.kw <= 4.85) invKw = 4.7;
-      else if (item.kw <= 5.2) invKw = 5.0;
-      else if (item.kw <= 5.7) invKw = 5.4;
-      else if (item.kw <= 6.5) invKw = 6.0;
-      else if (item.kw <= 7.5) invKw = 7.0;
-      else if (item.kw <= 8.5) invKw = 8.0;
-      else if (item.kw <= 9.5) invKw = 9.0;
+      if (item.panels <= 6) invKw = 3.6;
+      else if (item.panels === 7) invKw = 4.2;
+      else if (item.panels === 8) invKw = 5.0;
+      else if (item.panels === 9) invKw = 5.4;
+      else if (item.panels === 10) invKw = 6.0;
+      else if (item.panels <= 12) invKw = 7.0;
+      else if (item.panels <= 15) invKw = 8.0;
       else invKw = 10.0;
 
 

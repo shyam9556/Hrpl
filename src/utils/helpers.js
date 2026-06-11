@@ -40,227 +40,576 @@ export function getHighestWatt(wattStr) {
   return isNaN(val) ? 0 : val;
 }
 
-export function generateBOM(req, prices = {}) {
-  const systemKw = Number(req.systemKw || req.system_kw || 0);
+const BOM_TEMPLATES = {
+  "4": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 4, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 3.6, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 3, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 2, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 2, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 12, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 16, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 16, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 8, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 1, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 1 PHASE ", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 1 PHASE ", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 20, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 20, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 5, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 5, unit: "MTR" },
+    { sr_no: 21, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 20, unit: "MTR" },
+    { sr_no: 22, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 30, unit: "MTR" },
+    { sr_no: 23, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 2, unit: "NOS" },
+    { sr_no: 24, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 25, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT ", qty: 10, unit: "NOS" },
+    { sr_no: 26, material: "PVC ELBOW 25 MM", specification: "PRESS FIT ", qty: 20, unit: "NOS" },
+    { sr_no: 27, material: "PVC TEE 25 MM", specification: "PRESS FIT ", qty: 5, unit: "NOS" },
+    { sr_no: 28, material: "PVC CLIP 25 MM ", specification: "PRESS FIT ", qty: 0.5, unit: "PKT" },
+  ],
+  "5": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 5, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 3.6, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 3, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 3, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 2, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 12, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 20, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 16, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 8, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 1, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 1 PHASE ", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 1 PHASE ", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 20, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 20, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 5, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 5, unit: "MTR" },
+    { sr_no: 21, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 20, unit: "MTR" },
+    { sr_no: 22, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 30, unit: "MTR" },
+    { sr_no: 23, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 2, unit: "NOS" },
+    { sr_no: 24, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 25, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT ", qty: 10, unit: "NOS" },
+    { sr_no: 26, material: "PVC ELBOW 25 MM", specification: "PRESS FIT ", qty: 20, unit: "NOS" },
+    { sr_no: 27, material: "PVC TEE 25 MM", specification: "PRESS FIT ", qty: 5, unit: "NOS" },
+    { sr_no: 28, material: "PVC CLIP 25 MM ", specification: "PRESS FIT ", qty: 0.5, unit: "PKT" },
+  ],
+  "6": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 6, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 3.6, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 4, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 3, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 2, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 12, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 24, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 24, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 12, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 1, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 1 PHASE ", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 1 PHASE ", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 20, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 20, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 5, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 5, unit: "MTR" },
+    { sr_no: 21, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 20, unit: "MTR" },
+    { sr_no: 22, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 30, unit: "MTR" },
+    { sr_no: 23, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 4, unit: "NOS" },
+    { sr_no: 24, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 25, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT ", qty: 12, unit: "NOS" },
+    { sr_no: 26, material: "PVC ELBOW 25 MM", specification: "PRESS FIT ", qty: 24, unit: "NOS" },
+    { sr_no: 27, material: "PVC TEE 25 MM", specification: "PRESS FIT ", qty: 5, unit: "NOS" },
+    { sr_no: 28, material: "PVC CLIP 25 MM ", specification: "PRESS FIT ", qty: 0.5, unit: "PKT" },
+  ],
+  "7": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 7, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 4.2, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 5, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 3, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 2, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 12, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 28, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 24, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 12, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 1, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 1 PHASE ", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 1 PHASE ", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 25, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 25, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 5, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 5, unit: "MTR" },
+    { sr_no: 21, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 25, unit: "MTR" },
+    { sr_no: 22, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 35, unit: "MTR" },
+    { sr_no: 23, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 4, unit: "NOS" },
+    { sr_no: 24, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 25, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT ", qty: 13, unit: "NOS" },
+    { sr_no: 26, material: "PVC ELBOW 25 MM", specification: "PRESS FIT ", qty: 26, unit: "NOS" },
+    { sr_no: 27, material: "PVC TEE 25 MM", specification: "PRESS FIT ", qty: 7, unit: "NOS" },
+    { sr_no: 28, material: "PVC CLIP 25 MM ", specification: "PRESS FIT ", qty: 0.5, unit: "PKT" },
+  ],
+  "8": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 8, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 5, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 5, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 3, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 2, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 12, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 32, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 24, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 12, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 1, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 1 PHASE ", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 1 PHASE ", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 25, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 25, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 5, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 5, unit: "MTR" },
+    { sr_no: 21, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 25, unit: "MTR" },
+    { sr_no: 22, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 35, unit: "MTR" },
+    { sr_no: 23, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 4, unit: "NOS" },
+    { sr_no: 24, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 25, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT ", qty: 15, unit: "NOS" },
+    { sr_no: 26, material: "PVC ELBOW 25 MM", specification: "PRESS FIT ", qty: 30, unit: "NOS" },
+    { sr_no: 27, material: "PVC TEE 25 MM", specification: "PRESS FIT ", qty: 7, unit: "NOS" },
+    { sr_no: 28, material: "PVC CLIP 25 MM ", specification: "PRESS FIT ", qty: 0.5, unit: "PKT" },
+  ],
+  "9": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 9, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 5.4, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 6, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 4, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 2, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 12, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 36, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 32, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 16, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 1, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 1 PHASE ", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 1 PHASE ", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 30, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 30, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 5, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 5, unit: "MTR" },
+    { sr_no: 21, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 30, unit: "MTR" },
+    { sr_no: 22, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 40, unit: "MTR" },
+    { sr_no: 23, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 6, unit: "NOS" },
+    { sr_no: 24, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 25, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT ", qty: 15, unit: "NOS" },
+    { sr_no: 26, material: "PVC ELBOW 25 MM", specification: "PRESS FIT ", qty: 30, unit: "NOS" },
+    { sr_no: 27, material: "PVC TEE 25 MM", specification: "PRESS FIT ", qty: 7, unit: "NOS" },
+    { sr_no: 28, material: "PVC CLIP 25 MM ", specification: "PRESS FIT ", qty: 0.5, unit: "PKT" },
+  ],
+  "10": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 10, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 6, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 6, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 4, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 2, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 12, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 40, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 32, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 16, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 1, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 30, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 30, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 7, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 7, unit: "MTR" },
+    { sr_no: 21, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLUE", qty: 7, unit: "MTR" },
+    { sr_no: 22, material: "POLYCAB AC CABLE 4 SQ MM", specification: "YELLOW", qty: 7, unit: "MTR" },
+    { sr_no: 23, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 30, unit: "MTR" },
+    { sr_no: 24, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 40, unit: "MTR" },
+    { sr_no: 25, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 6, unit: "NOS" },
+    { sr_no: 26, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 27, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT", qty: 15, unit: "NOS" },
+    { sr_no: 28, material: "PVC ELBOW 25 MM", specification: "PRESS FIT", qty: 30, unit: "NOS" },
+    { sr_no: 29, material: "PVC TEE 25 MM", specification: "PRESS FIT", qty: 7, unit: "NOS" },
+    { sr_no: 30, material: "PVC CLIP 25 MM ", specification: "PRESS FIT", qty: 0.5, unit: "PKT" },
+  ],
+  "11": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 11, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 7, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 6, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 5, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 2, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 12, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 44, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 32, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 16, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 1, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 30, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 30, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 7, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 7, unit: "MTR" },
+    { sr_no: 21, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLUE", qty: 7, unit: "MTR" },
+    { sr_no: 22, material: "POLYCAB AC CABLE 4 SQ MM", specification: "YELLOW", qty: 7, unit: "MTR" },
+    { sr_no: 23, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 30, unit: "MTR" },
+    { sr_no: 24, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 40, unit: "MTR" },
+    { sr_no: 25, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 6, unit: "NOS" },
+    { sr_no: 26, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 27, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT", qty: 15, unit: "NOS" },
+    { sr_no: 28, material: "PVC ELBOW 25 MM", specification: "PRESS FIT", qty: 30, unit: "NOS" },
+    { sr_no: 29, material: "PVC TEE 25 MM", specification: "PRESS FIT", qty: 7, unit: "NOS" },
+    { sr_no: 30, material: "PVC CLIP 25 MM ", specification: "PRESS FIT", qty: 0.5, unit: "PKT" },
+  ],
+  "12": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 12, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 7, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 6, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 5, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 3, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 18, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 44, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 36, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 16, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 1, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 35, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 35, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 7, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 7, unit: "MTR" },
+    { sr_no: 21, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLUE", qty: 7, unit: "MTR" },
+    { sr_no: 22, material: "POLYCAB AC CABLE 4 SQ MM", specification: "YELLOW", qty: 7, unit: "MTR" },
+    { sr_no: 23, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 40, unit: "MTR" },
+    { sr_no: 24, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 40, unit: "MTR" },
+    { sr_no: 25, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 8, unit: "NOS" },
+    { sr_no: 26, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 27, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT", qty: 15, unit: "NOS" },
+    { sr_no: 28, material: "PVC ELBOW 25 MM", specification: "PRESS FIT", qty: 30, unit: "NOS" },
+    { sr_no: 29, material: "PVC TEE 25 MM", specification: "PRESS FIT", qty: 7, unit: "NOS" },
+    { sr_no: 30, material: "PVC CLIP 25 MM ", specification: "PRESS FIT", qty: 0.5, unit: "PKT" },
+  ],
+  "13": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 13, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 8, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 7, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 6, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 3, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 18, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 52, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 36, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 16, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 1, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 35, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 35, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 7, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 7, unit: "MTR" },
+    { sr_no: 21, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLUE", qty: 7, unit: "MTR" },
+    { sr_no: 22, material: "POLYCAB AC CABLE 4 SQ MM", specification: "YELLOW", qty: 7, unit: "MTR" },
+    { sr_no: 23, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 40, unit: "MTR" },
+    { sr_no: 24, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 45, unit: "MTR" },
+    { sr_no: 25, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 8, unit: "NOS" },
+    { sr_no: 26, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 27, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT", qty: 15, unit: "NOS" },
+    { sr_no: 28, material: "PVC ELBOW 25 MM", specification: "PRESS FIT", qty: 30, unit: "NOS" },
+    { sr_no: 29, material: "PVC TEE 25 MM", specification: "PRESS FIT", qty: 7, unit: "NOS" },
+    { sr_no: 30, material: "PVC CLIP 25 MM ", specification: "PRESS FIT", qty: 0.5, unit: "PKT" },
+  ],
+  "14": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 14, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 8, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 7, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 6, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 3, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 18, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 56, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 40, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 20, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 1, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 40, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 40, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 7, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 7, unit: "MTR" },
+    { sr_no: 21, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLUE", qty: 7, unit: "MTR" },
+    { sr_no: 22, material: "POLYCAB AC CABLE 4 SQ MM", specification: "YELLOW", qty: 7, unit: "MTR" },
+    { sr_no: 23, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 40, unit: "MTR" },
+    { sr_no: 24, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 45, unit: "MTR" },
+    { sr_no: 25, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 8, unit: "NOS" },
+    { sr_no: 26, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 27, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT", qty: 18, unit: "NOS" },
+    { sr_no: 28, material: "PVC ELBOW 25 MM", specification: "PRESS FIT", qty: 36, unit: "NOS" },
+    { sr_no: 29, material: "PVC TEE 25 MM", specification: "PRESS FIT", qty: 7, unit: "NOS" },
+    { sr_no: 30, material: "PVC CLIP 25 MM ", specification: "PRESS FIT", qty: 0.5, unit: "PKT" },
+  ],
+  "15": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 15, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 8, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 7, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 6, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 3, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 18, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 60, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 40, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 20, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 1, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 40, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 40, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 7, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 7, unit: "MTR" },
+    { sr_no: 21, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLUE", qty: 7, unit: "MTR" },
+    { sr_no: 22, material: "POLYCAB AC CABLE 4 SQ MM", specification: "YELLOW", qty: 7, unit: "MTR" },
+    { sr_no: 23, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 40, unit: "MTR" },
+    { sr_no: 24, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 45, unit: "MTR" },
+    { sr_no: 25, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 8, unit: "NOS" },
+    { sr_no: 26, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 27, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT", qty: 18, unit: "NOS" },
+    { sr_no: 28, material: "PVC ELBOW 25 MM", specification: "PRESS FIT", qty: 36, unit: "NOS" },
+    { sr_no: 29, material: "PVC TEE 25 MM", specification: "PRESS FIT", qty: 7, unit: "NOS" },
+    { sr_no: 30, material: "PVC CLIP 25 MM ", specification: "PRESS FIT", qty: 0.5, unit: "PKT" },
+  ],
+  "16": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 16, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 10, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 7, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 6, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 3, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 18, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 64, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 40, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 20, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 2, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 50, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 50, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 7, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 7, unit: "MTR" },
+    { sr_no: 21, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLUE", qty: 7, unit: "MTR" },
+    { sr_no: 22, material: "POLYCAB AC CABLE 4 SQ MM", specification: "YELLOW", qty: 7, unit: "MTR" },
+    { sr_no: 23, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 50, unit: "MTR" },
+    { sr_no: 24, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 50, unit: "MTR" },
+    { sr_no: 25, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 8, unit: "NOS" },
+    { sr_no: 26, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 27, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT", qty: 18, unit: "NOS" },
+    { sr_no: 28, material: "PVC ELBOW 25 MM", specification: "PRESS FIT", qty: 36, unit: "NOS" },
+    { sr_no: 29, material: "PVC TEE 25 MM", specification: "PRESS FIT", qty: 7, unit: "NOS" },
+    { sr_no: 30, material: "PVC CLIP 25 MM ", specification: "PRESS FIT", qty: 0.5, unit: "PKT" },
+  ],
+  "17": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 17, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 10, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 8, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 6, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 3, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 18, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 64, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 48, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 24, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 2, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 50, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 50, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 7, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 7, unit: "MTR" },
+    { sr_no: 21, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLUE", qty: 7, unit: "MTR" },
+    { sr_no: 22, material: "POLYCAB AC CABLE 4 SQ MM", specification: "YELLOW", qty: 7, unit: "MTR" },
+    { sr_no: 23, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 50, unit: "MTR" },
+    { sr_no: 24, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 50, unit: "MTR" },
+    { sr_no: 25, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 8, unit: "NOS" },
+    { sr_no: 26, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 27, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT", qty: 20, unit: "NOS" },
+    { sr_no: 28, material: "PVC ELBOW 25 MM", specification: "PRESS FIT", qty: 40, unit: "NOS" },
+    { sr_no: 29, material: "PVC TEE 25 MM", specification: "PRESS FIT", qty: 7, unit: "NOS" },
+    { sr_no: 30, material: "PVC CLIP 25 MM ", specification: "PRESS FIT", qty: 0.5, unit: "PKT" },
+  ],
+  "18": [
+    { sr_no: 1, material: "SOLAR MODULE", specification: "BIFACIAL/TOPCON", qty: 18, unit: "MODULES" },
+    { sr_no: 2, material: "SOLAR INVERTER", specification: "POLYCAB", qty: 10, unit: "KW" },
+    { sr_no: 3, material: "GI HOT DIP PIPE 60*40", specification: "HINDUSTAR 80 MIC", qty: 8, unit: "NOS" },
+    { sr_no: 4, material: "GI HOT DIP PIPE 40*40", specification: "HINDUSTAR 80 MIC", qty: 6, unit: "NOS" },
+    { sr_no: 5, material: "12 MM ZINC STUD", specification: "12*2 MTR", qty: 3, unit: "NOS" },
+    { sr_no: 6, material: "NUT WASHER ", specification: "12 MM", qty: 18, unit: "NOS" },
+    { sr_no: 7, material: "J BOLT WITH FLANGE NUT ", specification: "SS 304", qty: 72, unit: "NOS" },
+    { sr_no: 8, material: "ANCHOR FASTNER ", specification: "STANDARD 10MM/3", qty: 48, unit: "NOS" },
+    { sr_no: 9, material: "L ANGLE ", specification: "STANDARD ", qty: 24, unit: "NOS" },
+    { sr_no: 10, material: "ZINC SPRAY ", specification: "STANDARD", qty: 2, unit: "NOS" },
+    { sr_no: 11, material: " FOUNDATION CONCRETE DRY MIX", specification: "10 KG ", qty: 1, unit: "BAG" },
+    { sr_no: 12, material: "FOUNDATION PP SHEET", specification: "6 INCH", qty: 2, unit: "NOS" },
+    { sr_no: 13, material: "ACDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 14, material: "DCDB - 3 PHASE", specification: "L&T ELMEX", qty: 1, unit: "NOS" },
+    { sr_no: 15, material: "EARTHINGC & LA ELECTRODE ", specification: "STANDARD", qty: 1, unit: "SET" },
+    { sr_no: 16, material: "EARTHING CHEMICAL", specification: "STANDARD", qty: 1, unit: "BAG" },
+    { sr_no: 17, material: "POLYCAB DC CABLE 4 SQ MM", specification: "RED", qty: 55, unit: "MTR" },
+    { sr_no: 18, material: "POLYCAB DC CABLE 4 SQ MM", specification: "BLACK", qty: 55, unit: "MTR" },
+    { sr_no: 19, material: "POLYCAB AC CABLE 4 SQ MM", specification: "RED", qty: 7, unit: "MTR" },
+    { sr_no: 20, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLACK", qty: 7, unit: "MTR" },
+    { sr_no: 21, material: "POLYCAB AC CABLE 4 SQ MM", specification: "BLUE", qty: 7, unit: "MTR" },
+    { sr_no: 22, material: "POLYCAB AC CABLE 4 SQ MM", specification: "YELLOW", qty: 7, unit: "MTR" },
+    { sr_no: 23, material: "ADDISON LA CABLE 16 MM", specification: "GREEN", qty: 55, unit: "MTR" },
+    { sr_no: 24, material: "ADDISON EARTHING GREE 2.5 SQ MM", specification: "GREEN", qty: 55, unit: "MTR" },
+    { sr_no: 25, material: "MC4 CONNECTOR", specification: "SIBAS-1500 VDC", qty: 8, unit: "NOS" },
+    { sr_no: 26, material: "CABLE TIE", specification: "KRIPSON 300 MM", qty: 1, unit: "PKT" },
+    { sr_no: 27, material: "CONDUIT PIPE 25 MM HMS", specification: "PRESS FIT", qty: 20, unit: "NOS" },
+    { sr_no: 28, material: "PVC ELBOW 25 MM", specification: "PRESS FIT", qty: 40, unit: "NOS" },
+    { sr_no: 29, material: "PVC TEE 25 MM", specification: "PRESS FIT", qty: 7, unit: "NOS" },
+    { sr_no: 30, material: "PVC CLIP 25 MM ", specification: "PRESS FIT", qty: 0.5, unit: "PKT" },
+  ],
+};
 
-  // Try to get panel details from req or prices
+export function generateBOM(req, prices = {}) {
+  const panelCount = parseInt(req.panelCount || req.panel_count || 4, 10);
+  
+  // Safe bounds check
+  let countKey = String(panelCount);
+  if (panelCount < 4) countKey = "4";
+  if (panelCount > 18) countKey = "18";
+  
+  const template = BOM_TEMPLATES[countKey] || BOM_TEMPLATES["4"];
+  
+  // Get panel details from req or prices
   let panelBrand = req.panelBrand || req.panel_brand;
   let panelWatt = req.panelWatt || req.panel_watt;
   let panelType = req.panelType || req.panel_type;
-
   if (req.panelId && prices?.panels) {
-    const p = prices.panels.find(x => x.id === req.panelId);
+    const p = prices.panels.find(x => x.id === String(req.panelId));
     if (p) {
       panelBrand = panelBrand || p.brand;
       panelWatt = panelWatt || p.watt;
       panelType = panelType || p.type;
     }
   }
-
-  // Defaults for panel details
   panelBrand = panelBrand || "Solar";
   panelWatt = panelWatt || 540;
   panelType = panelType || "Bifacial";
 
-  // Try to get inverter details from req or prices
+  // Get inverter details from req or prices
   let inverterBrand = req.inverterBrand || req.inverter_brand;
   let inverterKw = req.inverterKw || req.inverter_kw;
   let inverterType = req.inverterType || req.inverter_type;
-
   if (req.inverterId && prices?.inverters) {
-    const i = prices.inverters.find(x => x.id === req.inverterId);
+    const i = prices.inverters.find(x => x.id === String(req.inverterId));
     if (i) {
       inverterBrand = inverterBrand || i.brand;
       inverterKw = inverterKw || i.kw;
       inverterType = inverterType || i.type;
     }
   }
-
-  // Defaults for inverter details
   inverterBrand = inverterBrand || "Polycab";
   inverterType = inverterType || "On-Grid";
-
-  const panelCount = parseInt(req.panelCount || req.panel_count || (systemKw ? Math.ceil((systemKw * 1000) / getHighestWatt(panelWatt)) : 4), 10);
-
-  // 1. Determine inverter capacity (inverterKw) based on panelCount table
-  let calculatedInverterKw = "3.6";
-  if (panelCount <= 6) {
-    calculatedInverterKw = "3.6";
-  } else if (panelCount === 7) {
-    calculatedInverterKw = "4.2";
-  } else if (panelCount === 8) {
-    calculatedInverterKw = "5";
-  } else if (panelCount === 9) {
-    calculatedInverterKw = "5.4";
-  } else if (panelCount === 10) {
-    calculatedInverterKw = "6";
-  } else if (panelCount <= 12) {
-    calculatedInverterKw = "7";
-  } else if (panelCount <= 15) {
-    calculatedInverterKw = "8";
-  } else {
-    calculatedInverterKw = "10";
-  }
   
-  // Use user selected kw if available, otherwise fallback to calculated inverter Kw
-  inverterKw = inverterKw || calculatedInverterKw;
-
-  // Build BOM list exactly matching the spreadsheet layout:
-  const bom = [];
-
-  // Helper to add item
-  const addItem = (srNo, category, material, spec, qty, unit) => {
-    bom.push({
-      sr_no: srNo,
-      category: category,
-      item: material,
-      name: material,
-      specification: spec,
-      qty: qty,
-      unit: unit
-    });
-  };
-
-  // 1. SOLAR MODULE
-  addItem(1, "Panel", `${panelBrand} ${panelWatt}W ${panelType} Panel`, "BIFACIAL/TOPCON", panelCount, "pcs");
-
-  // 2. SOLAR INVERTER
-  addItem(2, "Inverter", `${inverterBrand} ${inverterKw}kW ${inverterType} Inverter`, "POLYCAB", 1, "pcs");
-
-  // 3. GI PIPE 60*40
-  let pipe60_40 = 2;
-  if (panelCount <= 3) pipe60_40 = 2;
-  else if (panelCount <= 5) pipe60_40 = 3;
-  else if (panelCount === 6) pipe60_40 = 4;
-  else if (panelCount <= 8) pipe60_40 = 5;
-  else if (panelCount <= 12) pipe60_40 = 6;
-  else if (panelCount <= 16) pipe60_40 = 7;
-  else pipe60_40 = 8;
-  addItem(3, "Structure", "GI HOT DIP PIPE 60*40", "HINDUSTAR 80 MIC", pipe60_40, "NOS");
-
-  // 4. GI PIPE 80*40
-  addItem(4, "Structure", "GI HOT DIP PIPE 80*40", "HINDUSTAR 80 MIC", 0, "NOS");
-
-  // 5. GI PIPE 40*40
-  let pipe40_40 = 1;
-  if (panelCount <= 2) pipe40_40 = 1;
-  else if (panelCount <= 4) pipe40_40 = 2;
-  else if (panelCount <= 8) pipe40_40 = 3;
-  else if (panelCount <= 10) pipe40_40 = 4;
-  else if (panelCount <= 12) pipe40_40 = 5;
-  else pipe40_40 = 6;
-  addItem(5, "Structure", "GI HOT DIP PIPE 40*40", "HINDUSTAR 80 MIC", pipe40_40, "NOS");
-
-  // 6. Zinc Stud
-  const zincStud = panelCount <= 11 ? 2 : 3;
-  addItem(6, "Structure", "12 MM ZINC STUD", "12*2 MTR", zincStud, "NOS");
-
-  // 7. Nut Washer
-  const nutWasher = panelCount <= 11 ? 12 : 18;
-  addItem(7, "Structure", "NUT WASHER ", "12 MM", nutWasher, "NOS");
-
-  // 8. J Bolt with Flange Nut
-  let jBolt = panelCount * 4;
-  if (panelCount === 12) jBolt = 44;
-  else if (panelCount === 17) jBolt = 64;
-  addItem(8, "Structure", "J BOLT WITH FLANGE NUT ", "SS 304", jBolt, "NOS");
-
-  // 9. Anchor Fastner
-  let anchor = 12;
-  if (panelCount <= 6) anchor = 12;
-  else if (panelCount <= 8) anchor = 18;
-  else if (panelCount <= 12) anchor = 24;
-  else if (panelCount <= 16) anchor = 30;
-  else anchor = 36;
-  addItem(9, "Structure", "ANCHOR FASTNER ", "STANDARD 10MM/3", anchor, "NOS");
-
-  // 10. L Angle
-  let lAngle = 6;
-  if (panelCount <= 6) lAngle = 6;
-  else if (panelCount <= 8) lAngle = 9;
-  else if (panelCount <= 12) lAngle = 12;
-  else if (panelCount <= 16) lAngle = 15;
-  else lAngle = 18;
-  addItem(10, "Structure", "L ANGLE ", "STANDARD ", lAngle, "NOS");
-
-  // 11. Zinc Spray
-  const zincSpray = panelCount <= 15 ? 1 : 2;
-  addItem(11, "Structure", "ZINC SPRAY ", "STANDARD", zincSpray, "NOS");
-
-  // 12. Concrete dry mix
-  addItem(12, "Structure", " FOUNDATION CONCRETE DRY MIX", "10 KG ", 1, "BAG ");
-
-  // 13. PP Sheet
-  addItem(13, "Structure", "FOUNDATION PP SHEET", "6 INCH", 2, "NOS ");
-
-  // 14 & 15. ACDB / DCDB (1 Phase / 3 Phase)
-  const is3Phase = panelCount >= 10;
-  const acdbName = is3Phase ? "ACDB - 3 PHASE" : "ACDB - 1 PHASE ";
-  const dcdbName = is3Phase ? "DCDB - 3 PHASE" : "DCDB - 1 PHASE ";
-  addItem(14, "Electrical", acdbName, "L&T ELMEX", 1, "NOS ");
-  addItem(15, "Electrical", dcdbName, "L&T ELMEX", 1, "NOS ");
-
-  // 16. Earthing LA Electrode
-  addItem(16, "Earthing", "EARTHINGC & LA ELECTRODE ", "STANDARD", 1, "SET");
-
-  // 17. Earthing Chemical
-  addItem(17, "Earthing", "EARTHING CHEMICAL", "STANDARD", 1, "BAG");
-
-  // 18. DC Cable Red
-  const dcCable = panelCount <= 10 ? 20 : (panelCount <= 15 ? 23 : 25);
-  addItem(18, "Wire", "POLYCAB DC CABLE 4 SQ MM", "RED", dcCable, "MTR");
-
-  // 19. DC Cable Black
-  addItem(19, "Wire", "POLYCAB DC CABLE 4 SQ MM", "BLACK", dcCable, "MTR");
-
-  // 20. AC Cable Red
-  const acCable = panelCount <= 10 ? 5 : 10;
-  addItem(20, "Wire", "POLYCAB AC CABLE 4 SQ MM", "RED", acCable, "MTR ");
-
-  // 21. AC Cable Black
-  addItem(21, "Wire", "POLYCAB AC CABLE 4 SQ MM", "BLACK", acCable, "MTR ");
-
-  // 22 & 23. AC Cable Blue and Yellow for 3-Phase Systems (Panel count >= 10)
-  if (is3Phase) {
-    addItem(22, "Wire", "POLYCAB AC CABLE 4 SQ MM", "BLUE", 10, "MTR");
-    addItem(23, "Wire", "POLYCAB AC CABLE 4 SQ MM", "YELLOW", 10, "MTR ");
+  // Auto-calculated inverter kw if not selected
+  if (!inverterKw) {
+    const kit = (prices?.kits || []).find(k => k.panels === panelCount && k.brand.toLowerCase() === panelBrand.toLowerCase() && k.type.toLowerCase() === panelType.toLowerCase());
+    if (kit) {
+      inverterKw = kit.invKw;
+    } else {
+      // fallback calculation
+      if (panelCount <= 6) inverterKw = "3.6";
+      else if (panelCount === 7) inverterKw = "4.2";
+      else if (panelCount === 8) inverterKw = "5.0";
+      else if (panelCount === 9) inverterKw = "5.4";
+      else if (panelCount === 10) inverterKw = "6.0";
+      else if (panelCount <= 12) inverterKw = "7.0";
+      else if (panelCount <= 15) inverterKw = "8.0";
+      else inverterKw = "10.0";
+    }
   }
 
-  // 24. Addison LA Cable
-  const laSrNo = is3Phase ? 24 : 22;
-  addItem(laSrNo, "Wire", "ADDISON LA CABLE 16 MM", "GREEN", 20, "MTR");
+  return template.map(item => {
+    let name = item.material;
+    let spec = item.specification;
+    let category = "Wire"; // fallback
 
-  // 25. Addison Earthing Green
-  const earthSrNo = is3Phase ? 25 : 23;
-  addItem(earthSrNo, "Wire", "ADDISON EARTHING GREE 2.5 SQ MM", "GREEN", 30, "MTR");
+    // Categorization
+    const matUpper = item.material.toUpperCase();
+    if (matUpper.includes("SOLAR MODULE")) {
+      category = "Panel";
+      name = `${panelBrand} ${panelWatt}W ${panelType} Panel`;
+      spec = panelType.toUpperCase();
+    } else if (matUpper.includes("SOLAR INVERTER")) {
+      category = "Inverter";
+      name = `${inverterBrand} ${Number(inverterKw)}kW ${inverterType} Inverter`;
+      spec = inverterBrand.toUpperCase();
+    } else if (
+      matUpper.includes("PIPE") || matUpper.includes("STUD") || matUpper.includes("RODE") ||
+      matUpper.includes("WASHER") || matUpper.includes("BOLT") || matUpper.includes("FASTNER") ||
+      matUpper.includes("ANGLE") || matUpper.includes("SPRAY") || matUpper.includes("CONCRETE") ||
+      matUpper.includes("SHEET")
+    ) {
+      category = "Structure";
+    } else if (matUpper.includes("ACDB") || matUpper.includes("DCDB")) {
+      category = "Electrical";
+    } else if (matUpper.includes("EARTHING") && (matUpper.includes("ELECTRODE") || matUpper.includes("CHEMICAL"))) {
+      category = "Earthing";
+    }
 
-  // 26. MC4 Connector
-  const mc4SrNo = is3Phase ? 26 : 24;
-  const mc4Qty = panelCount <= 15 ? 2 : 3;
-  addItem(mc4SrNo, "Wire", "MC4 CONNECTOR", "SIBAS-1500 VDC", mc4Qty, "NOS");
-
-  // 27. Cable Tie
-  const tieSrNo = is3Phase ? 27 : 25;
-  addItem(tieSrNo, "Wire", "CABLE TIE", "KRIPSON 300 MM", 1, "PKT");
-
-  // 28. Conduit Pipe
-  const condSrNo = is3Phase ? 28 : 26;
-  addItem(condSrNo, "Wire", "CONDUIT PIPE 25 MM HMS", "PRESS FIT ", 10, "NOS");
-
-  // 29. PVC Elbow
-  const elbSrNo = is3Phase ? 29 : 27;
-  addItem(elbSrNo, "Wire", "PVC ELBOW 25 MM", "PRESS FIT ", 25, "NOS");
-
-  // 30. PVC Tee
-  const teeSrNo = is3Phase ? 30 : 28;
-  addItem(teeSrNo, "Wire", "PVC TEE 25 MM", "PRESS FIT ", 5, "NOS");
-
-  // 31. PVC Clip
-  const clipSrNo = is3Phase ? 31 : 29;
-  addItem(clipSrNo, "Wire", "PVC CLIP 25 MM ", "PRESS FIT ", 0.5, "PKT");
-
-  return bom;
+    return {
+      sr_no: item.sr_no,
+      category,
+      item: name,
+      name,
+      specification: spec,
+      qty: item.qty,
+      unit: item.unit
+    };
+  });
 }
+
 
 export function calculateSubsidy(systemKw) {
   if (systemKw <= 0) return 0;
