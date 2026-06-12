@@ -4,11 +4,12 @@
 -- ═══════════════════════════════════════════════════════════════
 
 -- ─── ADMIN USER ──────────────────────────────────────────────
--- Password: admin@highlightpro (bcrypt hash)
--- Hash generated with: bcrypt.hashSync("admin@highlightpro", 10)
+-- Password: admin@hrpl (bcrypt hash)
+-- Hash generated with: bcrypt.hashSync("admin@hrpl", 10)
 INSERT INTO users (name, email, password_hash, role, mobile, is_active)
-SELECT 'System Admin', 'admin@highlightpro.in', '$2b$10$/ZnbUUvJcZcHGkONEzdRDOL/YpAe68lZ7.I8PI3KRF.YaUegVToUe', 'admin', NULL, 1
-WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = 'admin@highlightpro.in');
+SELECT 'System Admin', 'admin@hrpl.com', '$2b$10$mi6A7SoVY0QXHmJlWpn1x.0Dtfo40M7zwz2V/Q.lxJeUb7EIiJUXG', 'admin', NULL, 1
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = 'admin@hrpl.com');
+
 
 -- ─── SOLAR PANELS ────────────────────────────────────────────
 INSERT IGNORE INTO panels (brand, watt, type, price_per_panel) VALUES
