@@ -1029,7 +1029,7 @@ export default function LoginPage({ onLogin }) {
               <label>Email Address</label>
               <input
                 type="email"
-                placeholder={role === "admin" ? "admin@hrpl.com" : "dealer@example.com"}
+                placeholder={role === "admin" ? "" : "dealer@example.com"}
                 value={email}
                 disabled={isLoading}
                 autoComplete="email"
