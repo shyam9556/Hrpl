@@ -25,6 +25,14 @@ const pool = mysql.createPool({
   decimalNumbers: false,       // Return DECIMAL as strings to avoid float precision loss
 });
 
+// Ensure every connection explicitly sets session time_zone to '+00:00' (UTC)
+// so that database-native functions like NOW() and CURRENT_TIMESTAMP return UTC time,
+// matching the pool timezone option (+00:00) and preventing offset/double-shifting bugs in the UI.
+pool.on("connection", (connection) => {
+  connection.query("SET time_zone = '+00:00';");
+});
+
+
 /**
  * Normalise mysql2 results to match the old pg API shape:
  *   result.rows        — array of row objects
