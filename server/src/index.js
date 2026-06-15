@@ -89,6 +89,8 @@ const generalLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // Suppress ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on Railway (reverse proxy env)
+  validate: { xForwardedForHeader: false },
 });
 
 // Strict rate limit for auth routes: 30 attempts per 15 minutes per IP
@@ -102,6 +104,7 @@ const authLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
 });
 
 // Dedicated rate limiter for forgot-password endpoint.
@@ -119,6 +122,7 @@ const forgotPasswordLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  validate: { xForwardedForHeader: false },
 });
 
 // Strict login rate limit: 20 attempts per 15 minutes per IP
@@ -134,6 +138,7 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   // Don't count requests against the limit if they succeeded
   skipSuccessfulRequests: true,
+  validate: { xForwardedForHeader: false },
 });
 
 // Apply general rate limiter in all environments
