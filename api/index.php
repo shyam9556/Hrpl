@@ -103,11 +103,13 @@ curl_close($ch);
 $response_headers_text = substr($response, 0, $header_size);
 $response_body = substr($response, $header_size);
 
-// Send response headers
+// Send response headers (filtering out headers that cause the browser to force HTTPS)
 $header_lines = explode("\r\n", $response_headers_text);
 foreach ($header_lines as $line) {
     if (empty($line)) continue;
     if (stripos($line, 'Transfer-Encoding:') === 0) continue;
+    if (stripos($line, 'Strict-Transport-Security:') === 0) continue;
+    if (stripos($line, 'Content-Security-Policy:') === 0) continue;
     header($line);
 }
 
