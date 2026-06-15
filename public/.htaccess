@@ -1,0 +1,19 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # 1. Reverse Proxy for /api requests
+  # -------------------------------------------------------------
+  # Replace 'https://your-backend-url.up.railway.app' below with your actual Railway backend URL.
+  # Note: The '[P]' flag requires 'mod_proxy' enabled on your hosting server.
+  # If it causes a 500 error, your host has disabled mod_proxy. In that case, you can change 
+  # '[P,L]' to '[R=301,L]' to perform a redirect instead, or update the API_BASE in the frontend.
+  RewriteRule ^api/(.*)$ https://your-backend-url.up.railway.app/api/$1 [P,L]
+
+  # 2. SPA routing fallback
+  # -------------------------------------------------------------
+  # Redirects all other requests to index.html so React Router handles the pages.
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
