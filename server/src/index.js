@@ -38,6 +38,11 @@ const __dirname = path.dirname(__filename);
 // ─── Create Express App ──────────────────────────────────
 const app = express();
 
+// Trust Railway's reverse proxy (fixes ERR_ERL_UNEXPECTED_X_FORWARDED_FOR
+// from express-rate-limit and enables accurate client IP detection).
+// '1' means trust exactly one proxy hop — Railway's load balancer.
+app.set("trust proxy", 1);
+
 // ─── Security Middleware ─────────────────────────────────
 
 // Helmet: sets various secure HTTP headers
