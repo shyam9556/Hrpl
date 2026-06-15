@@ -29,15 +29,21 @@ const env = {
     expiresIn: process.env.JWT_EXPIRES_IN || "4h",
   },
 
-  // SMTP
+  // SMTP (fallback for local development when Resend is not configured)
   smtp: {
     host: process.env.SMTP_HOST || "",
     port: parseInt(process.env.SMTP_PORT, 10) || 587,
     user: process.env.SMTP_USER || "",
     password: process.env.SMTP_PASSWORD || "",
-    fromEmail: process.env.SMTP_FROM_EMAIL || "noreply@highlightpro.in",
+    fromEmail: process.env.SMTP_FROM_EMAIL || "noreply@hrplpro.com",
     fromName: process.env.SMTP_FROM_NAME || "Highlight Pro",
     isConfigured: !!(process.env.SMTP_HOST && process.env.SMTP_USER),
+  },
+
+  // Resend HTTP Email API (preferred in production — uses port 443, never blocked)
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || "",
+    isConfigured: !!process.env.RESEND_API_KEY,
   },
 
   // File uploads

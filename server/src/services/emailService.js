@@ -1,17 +1,18 @@
+import { Resend } from "resend";
 import nodemailer from "nodemailer";
 import env from "../config/env.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import dns from "dns";
 
-// Force Node.js to prioritize IPv4 over IPv6. 
+// Force Node.js to prioritize IPv4 over IPv6.
 // Prevents SMTP connection timeouts on networks with broken IPv6 routing.
 dns.setDefaultResultOrder("ipv4first");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Pre-define shared attachments (CID images) for all emails
+// Pre-define shared attachments (CID images) for SMTP fallback emails
 const SHARED_ATTACHMENTS = [
   {
     filename: 'logo.png',
@@ -19,6 +20,11 @@ const SHARED_ATTACHMENTS = [
     cid: 'company-logo' // Used as src="cid:company-logo" in HTML
   }
 ];
+
+// Logo source: hosted URL for Resend (CID not supported in HTTP API), CID for SMTP
+const logoSrc = env.resend.isConfigured
+  ? `${env.clientUrl}/logo.png`
+  : "cid:company-logo";
 
 /**
  * Escapes HTML characters in a string to prevent XSS.
@@ -35,17 +41,51 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
+// ─────────────────────────────────────────────────────────────
+// EMAIL PROVIDER SETUP
+// Priority: Resend HTTP API (port 443) > Nodemailer SMTP > Console (dev)
+// ─────────────────────────────────────────────────────────────
+
 /**
- * Email Service — Handles sending system emails.
- *
- * Uses Nodemailer with configurable SMTP.
- * Falls back to console logging if SMTP is not configured (development).
+ * Creates a nodemailer-compatible adapter around Resend's HTTP API.
+ * Implements sendMail() and verify() so ALL existing transporter calls work unchanged.
+ * Uses HTTPS port 443 — never blocked by any cloud platform.
  */
+function createResendAdapter(apiKey) {
+  const resend = new Resend(apiKey);
+  return {
+    /** @param {{ from: string, to: string, subject: string, html: string }} opts */
+    async sendMail({ from, to, subject, html }) {
+      // Strip quotes from name part: '"Highlight Pro" <x@y>' → 'Highlight Pro <x@y>'
+      const cleanFrom = from.replace(/"/g, "");
+      const { data, error } = await resend.emails.send({
+        from: cleanFrom,
+        to: Array.isArray(to) ? to : [to],
+        subject,
+        html,
+      });
+      if (error) {
+        throw new Error(error.message || "Resend API error");
+      }
+      return data;
+    },
+    /** Verify the API key is valid by listing domains. */
+    async verify() {
+      const { data, error } = await resend.domains.list();
+      if (error) throw new Error(error.message);
+      return true;
+    },
+  };
+}
 
 let transporter = null;
 
-// Only create transporter if SMTP is configured
-if (env.smtp.isConfigured) {
+if (env.resend.isConfigured) {
+  // PRIMARY: Resend HTTP API — uses port 443, works on Railway/Render/Vercel
+  transporter = createResendAdapter(env.resend.apiKey);
+  console.log("[EMAIL] Provider: Resend HTTP API (production)");
+} else if (env.smtp.isConfigured) {
+  // FALLBACK: Nodemailer SMTP — for local development
   transporter = nodemailer.createTransport({
     host: env.smtp.host,
     port: env.smtp.port,
@@ -63,6 +103,7 @@ if (env.smtp.isConfigured) {
     greetingTimeout: 10_000,
     socketTimeout: 15_000,
   });
+  console.log("[EMAIL] Provider: Nodemailer SMTP (fallback)");
 }
 
 /**
@@ -72,16 +113,21 @@ if (env.smtp.isConfigured) {
  */
 export async function verifySMTPConnection() {
   if (!transporter) {
-    console.warn("[SMTP] Skipping connection check — SMTP not configured.");
+    console.warn("[EMAIL] Skipping connection check — no email provider configured.");
     return false;
   }
+  const provider = env.resend.isConfigured ? "Resend API" : "SMTP";
   try {
     await transporter.verify();
-    console.log("[✅ SMTP] Connection verified successfully.");
+    console.log(`[✅ EMAIL] ${provider} connection verified successfully.`);
     return true;
   } catch (err) {
-    console.error("❌ [SMTP] Connection verification failed:", err.message);
-    console.error("   Check SMTP_HOST, SMTP_USER, SMTP_PASSWORD in server/.env");
+    console.error(`❌ [EMAIL] ${provider} connection verification failed:`, err.message);
+    if (env.resend.isConfigured) {
+      console.error("   Check RESEND_API_KEY in environment variables");
+    } else {
+      console.error("   Check SMTP_HOST, SMTP_USER, SMTP_PASSWORD in server/.env");
+    }
     return false;
   }
 }
@@ -124,8 +170,8 @@ function buildEmailHtml({ subtitle, bodyHtml }) {
           <!-- ─── Header ─── -->
           <tr>
             <td style="background:linear-gradient(135deg,#1C3A2A 0%,#2E7D52 100%);padding:36px 32px;text-align:center;">
-              <!-- Inline CID attachment logo — embedded directly in the email -->
-              <img src="cid:company-logo"
+              <!-- Logo: hosted URL for Resend, CID attachment for SMTP -->
+              <img src="${logoSrc}"
                    alt="Highlight Pro"
                    width="60" height="60"
                    style="display:block;margin:0 auto 16px auto;border-radius:12px;background-color:#ffffff;border:3px solid rgba(255,255,255,0.25);padding:4px;" />
@@ -1471,14 +1517,14 @@ export async function sendEmailOTPEmail(toEmail, otp) {
   }
 }
 
-// Startup warning if SMTP is not configured
-if (!env.smtp.isConfigured) {
+// Startup warning if no email provider is configured
+if (!env.resend.isConfigured && !env.smtp.isConfigured) {
   console.warn("");
   console.warn("╔══════════════════════════════════════════════════════════╗");
-  console.warn("║  ⚠️  SMTP NOT CONFIGURED                                ║");
+  console.warn("║  ⚠️  NO EMAIL PROVIDER CONFIGURED                       ║");
   console.warn("║  Password reset and dealer notification emails will      ║");
   console.warn("║  only be logged to console, not actually sent.           ║");
-  console.warn("║  Set SMTP_HOST and SMTP_USER in server/.env to enable.   ║");
+  console.warn("║  Set RESEND_API_KEY (preferred) or SMTP_HOST+SMTP_USER.  ║");
   console.warn("╚══════════════════════════════════════════════════════════╝");
   console.warn("");
 }
