@@ -2,13 +2,10 @@
   RewriteEngine On
   RewriteBase /
 
-  # 1. Reverse Proxy for /api requests
+  # 1. Route all /api requests to the PHP proxy script
   # -------------------------------------------------------------
-  # Replace 'https://your-backend-url.up.railway.app' below with your actual Railway backend URL.
-  # Note: The '[P]' flag requires 'mod_proxy' enabled on your hosting server.
-  # If it causes a 500 error, your host has disabled mod_proxy. In that case, you can change 
-  # '[P,L]' to '[R=301,L]' to perform a redirect instead, or update the API_BASE in the frontend.
-  RewriteRule ^api/(.*)$ https://hrpl-production.up.railway.app/api/$1 [P,L]
+  RewriteCond %{REQUEST_URI} ^/api/
+  RewriteRule ^api/(.*)$ api/index.php [QSA,L]
 
   # 2. SPA routing fallback
   # -------------------------------------------------------------
