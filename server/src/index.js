@@ -67,10 +67,35 @@ app.use(helmet({
   },
 }));
 
-// CORS: allow requests from the React frontend
+// CORS: allow requests from the React frontend (supporting both HTTP/HTTPS and subdomains)
+const allowedOrigins = [
+  env.clientUrl,
+  "https://hrplpro.com",
+  "http://hrplpro.com",
+  "https://www.hrplpro.com",
+  "http://www.hrplpro.com",
+  "http://localhost:5173",
+  "http://localhost:3000"
+];
+
 app.use(
   cors({
-    origin: env.clientUrl,
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      
+      // Direct match
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      
+      // Match domain or subdomains of hrplpro.com
+      const originDomain = origin.replace(/^https?:\/\//, "").split(":")[0];
+      if (originDomain === "hrplpro.com" || originDomain.endsWith(".hrplpro.com")) {
+        return callback(null, true);
+      }
+      
+      callback(null, false);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
