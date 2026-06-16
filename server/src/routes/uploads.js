@@ -119,7 +119,7 @@ router.get("/public/:token", publicTokenLimiter, async (req, res, next) => {
     // ── Remote storage: stream from cPanel if configured ─────────────────
     if (storageService.isConfigured()) {
       try {
-        const stream = await storageService.getFileStream(doc.file_path);
+        const stream = await storageService.getFileStream(doc.file_path, UPLOADS_DIR);
         res.setHeader("Content-Type", doc.mime_type);
         res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_name)}"`);
         stream.pipe(res);
@@ -520,7 +520,7 @@ router.get("/zip", authorize("admin"), async (req, res, next) => {
       // ── Remote storage: stream from cPanel if configured ─────────────
       if (storageService.isConfigured()) {
         try {
-          const stream = await storageService.getFileStream(doc.file_path);
+          const stream = await storageService.getFileStream(doc.file_path, UPLOADS_DIR);
           archive.append(stream, { name: archiveName });
           continue; // Skip local fallback below
         } catch (storageErr) {
@@ -586,7 +586,7 @@ router.get("/:id", async (req, res, next) => {
     // ── Remote storage: stream from cPanel if configured ─────────────────
     if (storageService.isConfigured()) {
       try {
-        const stream = await storageService.getFileStream(doc.file_path);
+        const stream = await storageService.getFileStream(doc.file_path, UPLOADS_DIR);
         const isDownload = req.query.download === "true";
         const safeFilename = encodeURIComponent(doc.original_name);
         res.setHeader("Content-Type", doc.mime_type);

@@ -1154,6 +1154,31 @@ router.post("/reupload/submit", async (req, res, next) => {
           ? [...requiredDocs.filter(d => d !== "aadhaar"), "aadhaar", "aadhaar_front", "aadhaar_back"]
           : requiredDocs;
         const placeholders = deleteTypes.map(() => "?").join(", ");
+
+        // Fetch old file paths before deleting DB records
+        const oldDocsResult = await client.query(
+          `SELECT id, file_path FROM documents
+           WHERE entity_type = 'dealer_registration' AND entity_id = ? AND doc_type IN (${placeholders})`,
+          [regId, ...deleteTypes]
+        );
+
+        // Resolve uploads directory for physical file deletion
+        const uploadsBase = path.isAbsolute(env.upload.dir)
+          ? env.upload.dir
+          : path.resolve(__dirname, "../..", env.upload.dir);
+
+        // Delete physical files (local disk + remote cPanel)
+        for (const doc of oldDocsResult.rows) {
+          const oldAbsPath = path.normalize(path.join(uploadsBase, doc.file_path));
+          if (oldAbsPath.startsWith(uploadsBase + path.sep)) {
+            try { await fs.unlink(oldAbsPath); } catch { /* file missing, ignore */ }
+          }
+          // Delete from remote storage (cPanel) — fire-and-forget
+          try { await storageService.deleteFile(doc.file_path); } catch (e) {
+            console.error(`[Storage] Failed to delete old dealer reg doc '${doc.file_path}':`, e.message);
+          }
+        }
+
         await client.query(
           `DELETE FROM documents
            WHERE entity_type = 'dealer_registration' AND entity_id = ? AND doc_type IN (${placeholders})`,

@@ -16,6 +16,9 @@ $STORAGE_DIR = __DIR__ . '/files';  // /storage/files/
 $maxSize = $config['max_file_size'];
 $allowedTypes = $config['allowed_types'];
 
+// All responses are JSON
+header('Content-Type: application/json');
+
 // ─── Security: Validate Secret ───────────────────────────────
 $secret = '';
 if (isset($_SERVER['HTTP_X_STORAGE_SECRET'])) {
@@ -108,7 +111,6 @@ if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
 }
 
 // ─── Success Response ────────────────────────────────────────
-header('Content-Type: application/json');
 echo json_encode([
     'success' => true,
     'path' => $relativePath,

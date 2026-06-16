@@ -57,14 +57,29 @@ if (strpos($relativePath, '..') !== false || strpos($relativePath, "\0") !== fal
 }
 
 $targetPath = $STORAGE_DIR . '/' . $relativePath;
+
+// Ensure storage directory exists
+if (!is_dir($STORAGE_DIR)) {
+    mkdir($STORAGE_DIR, 0755, true);
+}
+
 $realPath = realpath($targetPath);
 $realStorageDir = realpath($STORAGE_DIR);
+
+// Set JSON response header
+header('Content-Type: application/json');
+
+// Verify storage dir is resolvable
+if ($realStorageDir === false) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Storage directory not accessible']);
+    exit;
+}
 
 // ─── Delete File ─────────────────────────────────────────────
 
 // File doesn't exist — treat as success (idempotent)
 if ($realPath === false || !file_exists($realPath)) {
-    header('Content-Type: application/json');
     echo json_encode(['success' => true, 'message' => 'File already deleted']);
     exit;
 }

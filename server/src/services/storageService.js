@@ -90,7 +90,7 @@ async function persistFile(localAbsPath, relativePath) {
  *
  * @param {string} relativePath - Relative path of the file
  * @param {string} uploadsDir - Absolute path to local uploads directory
- * @returns {Promise<{stream: Readable, source: string}>}
+ * @returns {Promise<Readable>} Node.js readable stream
  */
 async function getFileStream(relativePath, uploadsDir) {
   if (isConfigured()) {
@@ -103,8 +103,7 @@ async function getFileStream(relativePath, uploadsDir) {
 
       if (response.ok && response.body) {
         // Convert web ReadableStream to Node.js Readable
-        const nodeStream = Readable.fromWeb(response.body);
-        return { stream: nodeStream, source: "remote" };
+        return Readable.fromWeb(response.body);
       }
 
       console.warn(
@@ -120,7 +119,7 @@ async function getFileStream(relativePath, uploadsDir) {
   // Local fallback
   const localPath = path.join(uploadsDir, relativePath);
   if (fs.existsSync(localPath)) {
-    return { stream: fs.createReadStream(localPath), source: "local" };
+    return fs.createReadStream(localPath);
   }
 
   throw new Error(`File not found: ${relativePath}`);

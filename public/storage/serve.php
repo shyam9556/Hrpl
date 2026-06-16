@@ -42,8 +42,21 @@ if (strpos($relativePath, '..') !== false || strpos($relativePath, "\0") !== fal
 }
 
 $targetPath = $STORAGE_DIR . '/' . $relativePath;
+
+// Ensure storage directory exists
+if (!is_dir($STORAGE_DIR)) {
+    mkdir($STORAGE_DIR, 0755, true);
+}
+
 $realPath = realpath($targetPath);
 $realStorageDir = realpath($STORAGE_DIR);
+
+// Verify storage dir is resolvable
+if ($realStorageDir === false) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Storage directory not accessible']);
+    exit;
+}
 
 // Verify file exists
 if ($realPath === false || !file_exists($realPath)) {
