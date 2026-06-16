@@ -23,6 +23,7 @@ import {
 } from "../validators/authSchema.js";
 import { sendPasswordResetEmail, sendDealerWelcomeEmail, sendReuploadConfirmationEmail, sendQuotationReuploadConfirmationEmail, sendAdminPasswordResetEmail, sendEmailOTPEmail } from "../services/emailService.js";
 import { broadcastToRole } from "../utils/sseManager.js";
+import storageService from "../services/storageService.js";
 
 const router = Router();
 
@@ -263,6 +264,13 @@ const saveBase64File = async (fileObj, entityType, entityId, docType, dbClient =
     "SELECT id, entity_type, entity_id, doc_type, original_name, mime_type, file_size_bytes, uploaded_at, public_token, latitude, longitude FROM documents WHERE id = ?",
     [insertResult.insertId]
   );
+
+  // Persist to remote storage (cPanel) — non-blocking, failure-safe
+  try {
+    await storageService.persistFile(filePath, relativePath);
+  } catch (e) {
+    console.error(`[Storage] persistFile failed for '${relativePath}':`, e.message);
+  }
 
   return docResult.rows[0];
 };
@@ -1494,6 +1502,10 @@ router.post("/reupload-quotation/submit", async (req, res, next) => {
             } catch (err) {
               // Ignore if file doesn't exist on disk
             }
+          }
+          // Delete from remote storage (cPanel) — fire-and-forget
+          try { await storageService.deleteFile(doc.file_path); } catch (e) {
+            console.error(`[Storage] Failed to delete old reupload doc '${doc.file_path}':`, e.message);
           }
         }
 

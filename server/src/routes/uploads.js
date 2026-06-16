@@ -11,6 +11,7 @@ import env from "../config/env.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { uploadSingle, uploadMultiple, handleUploadError } from "../middleware/upload.js";
 import { broadcastToRole, broadcastToUser } from "../utils/sseManager.js";
+import storageService from "../services/storageService.js";
 
 // ─── Uploads Directory ───────────────────────────────────
 // Resolved once at module load to an absolute, normalised path.
@@ -115,6 +116,21 @@ router.get("/public/:token", publicTokenLimiter, async (req, res, next) => {
 
     const doc = result.rows[0];
 
+    // ── Remote storage: stream from cPanel if configured ─────────────────
+    if (storageService.isConfigured()) {
+      try {
+        const stream = await storageService.getFileStream(doc.file_path);
+        res.setHeader("Content-Type", doc.mime_type);
+        res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_name)}"`);
+        stream.pipe(res);
+        return;
+      } catch (storageErr) {
+        console.error(`[Storage] getFileStream failed for public token '${token}':`, storageErr.message, "— trying local fallback.");
+        // Fall through to local file serving below
+      }
+    }
+
+    // ── Local fallback: serve from disk ──────────────────────────────────
     // file_path is a DB-stored relative path written by our server using a UUID filename.
     // safeResolvePath: normalises the path and validates it is inside UPLOADS_DIR.
     // The null-check on the next line ensures we never reach any fs call with an unsafe path.
@@ -214,6 +230,10 @@ router.post("/single", uploadSingle("file"), handleUploadError, async (req, res,
           // eslint-disable-next-line security/detect-non-literal-fs-filename
           fs.unlinkSync(oldAbsPath);
         }
+        // Delete from remote storage (cPanel) — fire-and-forget, never crashes
+        try { await storageService.deleteFile(oldDoc.file_path); } catch (e) {
+          console.error(`[Storage] Failed to delete old geotag '${oldDoc.file_path}':`, e.message);
+        }
         await db.query("DELETE FROM documents WHERE id = ?", [oldDoc.id]);
       }
     }
@@ -254,6 +274,13 @@ router.post("/single", uploadSingle("file"), handleUploadError, async (req, res,
         "UPDATE quotations SET geotag_uploaded = 1 WHERE id = ?",
         [qid]
       );
+    }
+
+    // Persist to remote storage (cPanel) — non-blocking, failure-safe
+    try {
+      await storageService.persistFile(req.file.path, relativePath);
+    } catch (e) {
+      console.error(`[Storage] persistFile failed for '${relativePath}':`, e.message);
     }
 
     res.status(201).json({ success: true, message: "File uploaded successfully.", document: result.rows[0] });
@@ -343,6 +370,13 @@ router.post("/multiple", uploadMultiple("files", 5), handleUploadError, async (r
         [insertResult.insertId]
       );
       documents.push(docResult.rows[0]);
+
+      // Persist to remote storage (cPanel) — non-blocking, failure-safe
+      try {
+        await storageService.persistFile(file.path, relativePath);
+      } catch (e) {
+        console.error(`[Storage] persistFile failed for '${relativePath}':`, e.message);
+      }
     }
 
     res.status(201).json({ success: true, message: `${documents.length} file(s) uploaded successfully.`, documents });
@@ -474,17 +508,31 @@ router.get("/zip", authorize("admin"), async (req, res, next) => {
     // Track used names to avoid collisions when two docs share the same doc_type.
     const nameCount = {};
     for (const doc of result.rows) {
+      const label = ZIP_DOC_LABELS[doc.doc_type] || "Document";
+      const ext = doc.original_name.includes(".")
+        ? doc.original_name.slice(doc.original_name.lastIndexOf(".")).toLowerCase()
+        : "";
+      const base = `${label}${ext}`;
+      nameCount[base] = (nameCount[base] ?? 0) + 1;
+      // First occurrence keeps the clean name; duplicates get a numeric suffix.
+      const archiveName = nameCount[base] === 1 ? base : `${label}_${nameCount[base]}${ext}`;
+
+      // ── Remote storage: stream from cPanel if configured ─────────────
+      if (storageService.isConfigured()) {
+        try {
+          const stream = await storageService.getFileStream(doc.file_path);
+          archive.append(stream, { name: archiveName });
+          continue; // Skip local fallback below
+        } catch (storageErr) {
+          console.error(`[Storage] ZIP stream failed for '${doc.file_path}':`, storageErr.message, "— trying local fallback.");
+          // Fall through to local file below
+        }
+      }
+
+      // ── Local fallback ────────────────────────────────────────────────
       const absolutePath = safeResolvePath(doc.file_path);
       // eslint-disable-next-line security/detect-non-literal-fs-filename
       if (absolutePath && fs.existsSync(absolutePath)) {
-        const label = ZIP_DOC_LABELS[doc.doc_type] || "Document";
-        const ext = doc.original_name.includes(".")
-          ? doc.original_name.slice(doc.original_name.lastIndexOf(".")).toLowerCase()
-          : "";
-        const base = `${label}${ext}`;
-        nameCount[base] = (nameCount[base] ?? 0) + 1;
-        // First occurrence keeps the clean name; duplicates get a numeric suffix.
-        const archiveName = nameCount[base] === 1 ? base : `${label}_${nameCount[base]}${ext}`;
         archive.file(absolutePath, { name: archiveName });
       }
     }
@@ -535,6 +583,23 @@ router.get("/:id", async (req, res, next) => {
       }
     }
 
+    // ── Remote storage: stream from cPanel if configured ─────────────────
+    if (storageService.isConfigured()) {
+      try {
+        const stream = await storageService.getFileStream(doc.file_path);
+        const isDownload = req.query.download === "true";
+        const safeFilename = encodeURIComponent(doc.original_name);
+        res.setHeader("Content-Type", doc.mime_type);
+        res.setHeader("Content-Disposition", `${isDownload ? "attachment" : "inline"}; filename="${safeFilename}"`);
+        stream.pipe(res);
+        return;
+      } catch (storageErr) {
+        console.error(`[Storage] getFileStream failed for doc ${docId}:`, storageErr.message, "— trying local fallback.");
+        // Fall through to local file serving below
+      }
+    }
+
+    // ── Local fallback: serve from disk ──────────────────────────────────
     // Resolve and validate path — safeResolvePath normalises and confirms containment in UPLOADS_DIR.
     // Null-check immediately after guarantees no fs call is made on an unvalidated path.
     const absolutePath = safeResolvePath(doc.file_path);
@@ -593,6 +658,11 @@ router.delete("/:id", authorize("admin"), async (req, res, next) => {
     if (absolutePath && fs.existsSync(absolutePath)) {
       // eslint-disable-next-line security/detect-non-literal-fs-filename
       fs.unlinkSync(absolutePath);
+    }
+
+    // Delete from remote storage (cPanel) — fire-and-forget, never crashes
+    try { await storageService.deleteFile(doc.file_path); } catch (e) {
+      console.error(`[Storage] Failed to delete '${doc.file_path}' from remote:`, e.message);
     }
 
     await db.query("DELETE FROM documents WHERE id = ?", [docId]);

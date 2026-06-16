@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import db from "../config/database.js";
 import env from "../config/env.js";
+import storageService from "../services/storageService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,6 +41,10 @@ export async function cleanupOrphanedDocuments() {
         } catch (unlinkErr) {
           console.error(`[CLEANUP] Failed to delete physical file ${fullPath}:`, unlinkErr.message);
         }
+      }
+      // Delete from remote storage (cPanel) — fire-and-forget
+      try { await storageService.deleteFile(doc.file_path); } catch (e) {
+        // Ignore — file may not exist on remote either
       }
       toDeleteDbIds.add(doc.id);
     }

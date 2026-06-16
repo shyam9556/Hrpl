@@ -46,6 +46,13 @@ const env = {
     isConfigured: !!process.env.RESEND_API_KEY,
   },
 
+  // Remote file storage (cPanel server for persistent uploads)
+  storage: {
+    url: process.env.STORAGE_URL || "",
+    secret: process.env.STORAGE_SECRET || "",
+    isConfigured: !!(process.env.STORAGE_URL && process.env.STORAGE_SECRET),
+  },
+
   // File uploads
   upload: {
     dir: process.env.UPLOAD_DIR || "uploads",

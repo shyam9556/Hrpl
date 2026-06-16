@@ -11,6 +11,7 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
 import { sendQuotationStatusEmail, sendDeliveryMilestoneEmail, sendPortalReuploadNotificationEmail, sendGeotagReuploadEmail, sendQuotationReuploadConfirmationEmail } from "../services/emailService.js";
 import { broadcastToRole, broadcastToUser } from "../utils/sseManager.js";
+import storageService from "../services/storageService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -685,6 +686,10 @@ router.delete("/:id", async (req, res, next) => {
         if (absPath.startsWith(UPLOADS_DIR + path.sep)) {
           await fs.unlink(absPath).catch(() => {});
         }
+        // Delete from remote storage (cPanel) — fire-and-forget
+        try { await storageService.deleteFile(doc.file_path); } catch (e) {
+          console.error(`[Storage] Failed to delete '${doc.file_path}':`, e.message);
+        }
       }
 
       // 3. Delete document records from database
@@ -932,6 +937,10 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
         if (oldAbsPath.startsWith(uploadsBase + path.sep)) {
           try { await fs.unlink(oldAbsPath); } catch { /* file missing, ignore */ }
         }
+        // Delete from remote storage (cPanel) — fire-and-forget
+        try { await storageService.deleteFile(doc.file_path); } catch (e) {
+          console.error(`[Storage] Failed to delete old portal reupload '${doc.file_path}':`, e.message);
+        }
       }
 
       await client.query(
@@ -994,6 +1003,13 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
 
         await fs.mkdir(path.dirname(absPath), { recursive: true });
         await fs.writeFile(absPath, buffer);
+
+        // Persist to remote storage (cPanel) — non-blocking, failure-safe
+        try {
+          await storageService.persistFile(absPath, relPath.replace(/\\/g, "/"));
+        } catch (e) {
+          console.error(`[Storage] persistFile failed for portal reupload '${relPath}':`, e.message);
+        }
 
         await client.query(
           `INSERT INTO documents (entity_type, entity_id, doc_type, original_name, file_path, mime_type, file_size_bytes, public_token, uploaded_by)
