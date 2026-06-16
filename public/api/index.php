@@ -12,7 +12,59 @@ $target_url = $backend_base . $path;
 
 // Get method, headers and body
 $method = $_SERVER['REQUEST_METHOD'];
-$body = file_get_contents('php://input');
+
+// Check if this is a multipart/form-data request (file upload)
+$content_type = isset($_SERVER['CONTENT_TYPE']) ? $_SERVER['CONTENT_TYPE'] : '';
+$is_multipart = (stripos($content_type, 'multipart/form-data') !== false);
+
+if ($is_multipart && !empty($_FILES)) {
+    // For multipart/form-data, PHP auto-parses into $_FILES/$_POST
+    // and php://input becomes EMPTY. We must reconstruct the body
+    // using CURLFile so cURL can forward the files to Railway.
+    $postfields = [];
+
+    // Add regular form fields
+    foreach ($_POST as $key => $value) {
+        if (is_array($value)) {
+            foreach ($value as $i => $v) {
+                $postfields[$key . '[' . $i . ']'] = $v;
+            }
+        } else {
+            $postfields[$key] = $value;
+        }
+    }
+
+    // Add uploaded files
+    foreach ($_FILES as $key => $file) {
+        if (is_array($file['tmp_name'])) {
+            // Multiple files with same field name
+            foreach ($file['tmp_name'] as $i => $tmp) {
+                if ($file['error'][$i] === UPLOAD_ERR_OK) {
+                    $postfields[$key . '[' . $i . ']'] = new CURLFile(
+                        $tmp,
+                        $file['type'][$i],
+                        $file['name'][$i]
+                    );
+                }
+            }
+        } else {
+            // Single file
+            if ($file['error'] === UPLOAD_ERR_OK) {
+                $postfields[$key] = new CURLFile(
+                    $file['tmp_name'],
+                    $file['type'],
+                    $file['name']
+                );
+            }
+        }
+    }
+    $body = $postfields; // CURLFile array — cURL handles multipart encoding
+    $is_curlfile = true;
+} else {
+    // For JSON / plain / other requests, read raw body
+    $body = file_get_contents('php://input');
+    $is_curlfile = false;
+}
 
 // Helper to get all headers
 if (!function_exists('getallheaders')) {
@@ -35,6 +87,8 @@ if (!function_exists('getallheaders')) {
 $headers = [];
 foreach (getallheaders() as $key => $value) {
     if (strtolower($key) === 'host') continue;
+    // When forwarding file uploads, let cURL set its own Content-Type with boundary
+    if ($is_curlfile && in_array(strtolower($key), ['content-type', 'content-length'])) continue;
     $headers[] = "$key: $value";
 }
 
