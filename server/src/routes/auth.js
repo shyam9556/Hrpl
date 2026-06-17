@@ -265,12 +265,10 @@ const saveBase64File = async (fileObj, entityType, entityId, docType, dbClient =
     [insertResult.insertId]
   );
 
-  // Persist to remote storage (cPanel) — non-blocking, failure-safe
-  try {
-    await storageService.persistFile(filePath, relativePath);
-  } catch (e) {
-    console.error(`[Storage] persistFile failed for '${relativePath}':`, e.message);
-  }
+  // Persist to remote storage (cPanel) — fire-and-forget in background
+  // File is already on Railway disk + DB record inserted. cPanel is a backup copy.
+  storageService.persistFile(filePath, relativePath)
+    .catch(e => console.error(`[Storage] persistFile failed for '${relativePath}':`, e.message));
 
   return docResult.rows[0];
 };
@@ -386,23 +384,26 @@ router.post("/register", validate(registerSchema), async (req, res, next) => {
     // Note: Any disk files written before the failure remain (filesystem is not transactional),
     // but they are non-functional without a DB record pointing to them.
     try {
-      // Aadhaar: save as single PDF/scan OR as front + back photos (mutually exclusive)
+      // Save all documents in parallel — each saveBase64File does an independent
+      // INSERT (no FK between them) so parallel execution is safe.
+      const savePromises = [];
       if (aadhaarPhoto) {
-        await saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar");
+        savePromises.push(saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar"));
       } else {
         // Two-photo mode: both front and back are guaranteed present (validated above)
-        await saveBase64File(aadhaarFront, "dealer_registration", regId, "aadhaar_front");
-        await saveBase64File(aadhaarBack, "dealer_registration", regId, "aadhaar_back");
+        savePromises.push(saveBase64File(aadhaarFront, "dealer_registration", regId, "aadhaar_front"));
+        savePromises.push(saveBase64File(aadhaarBack, "dealer_registration", regId, "aadhaar_back"));
       }
       if (panPhoto) {
-        await saveBase64File(panPhoto, "dealer_registration", regId, "pan");
+        savePromises.push(saveBase64File(panPhoto, "dealer_registration", regId, "pan"));
       }
       if (passportPhoto) {
-        await saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo");
+        savePromises.push(saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo"));
       }
       if (agreementPhoto) {
-        await saveBase64File(agreementPhoto, "dealer_registration", regId, "other");
+        savePromises.push(saveBase64File(agreementPhoto, "dealer_registration", regId, "other"));
       }
+      await Promise.all(savePromises);
     } catch (docErr) {
       // Compensating delete: remove the registration row so the dealer can retry cleanly
       try {
@@ -1143,6 +1144,7 @@ router.post("/reupload/submit", async (req, res, next) => {
     // (Orphaned files from failed writes are acceptable; the next re-upload request
     //  will DELETE the old DB records, and orphaned files can be cleaned up by a cron.)
     const client = await db.getClient();
+    const oldFilePaths = []; // declared outside try-block for background cPanel ops after finally
     try {
       await client.query("BEGIN");
 
@@ -1167,16 +1169,13 @@ router.post("/reupload/submit", async (req, res, next) => {
           ? env.upload.dir
           : path.resolve(__dirname, "../..", env.upload.dir);
 
-        // Delete physical files (local disk + remote cPanel)
+        // Delete physical files (local disk only — cPanel deletes are deferred to background)
         for (const doc of oldDocsResult.rows) {
           const oldAbsPath = path.normalize(path.join(uploadsBase, doc.file_path));
           if (oldAbsPath.startsWith(uploadsBase + path.sep)) {
             try { await fs.unlink(oldAbsPath); } catch { /* file missing, ignore */ }
           }
-          // Delete from remote storage (cPanel) — fire-and-forget
-          try { await storageService.deleteFile(doc.file_path); } catch (e) {
-            console.error(`[Storage] Failed to delete old dealer reg doc '${doc.file_path}':`, e.message);
-          }
+          oldFilePaths.push(doc.file_path);
         }
 
         await client.query(
@@ -1186,24 +1185,28 @@ router.post("/reupload/submit", async (req, res, next) => {
         );
       }
 
-      // Save new Aadhaar documents — format chosen by dealer (all stale variants deleted above)
+      // Save new documents with parallel disk I/O — each saveBase64File decodes
+      // base64 + writes to disk in parallel. DB INSERTs serialize automatically on
+      // the shared txn connection (mysql2 queues them), which is correct for txn safety.
+      const savePromises = [];
       if (aadhaarNeeded) {
         if (hasAadhaarPdf) {
-          await saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar", client);
+          savePromises.push(saveBase64File(aadhaarPhoto, "dealer_registration", regId, "aadhaar", client));
         } else if (hasAadhaarPhotos) {
-          await saveBase64File(aadhaarFront, "dealer_registration", regId, "aadhaar_front", client);
-          await saveBase64File(aadhaarBack,  "dealer_registration", regId, "aadhaar_back",  client);
+          savePromises.push(saveBase64File(aadhaarFront, "dealer_registration", regId, "aadhaar_front", client));
+          savePromises.push(saveBase64File(aadhaarBack,  "dealer_registration", regId, "aadhaar_back",  client));
         }
       }
       if (panPhoto && requiredDocs.includes("pan")) {
-        await saveBase64File(panPhoto, "dealer_registration", regId, "pan", client);
+        savePromises.push(saveBase64File(panPhoto, "dealer_registration", regId, "pan", client));
       }
       if (passportPhoto && requiredDocs.includes("passport_photo")) {
-        await saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo", client);
+        savePromises.push(saveBase64File(passportPhoto, "dealer_registration", regId, "passport_photo", client));
       }
       if (agreementPhoto && requiredDocs.includes("other")) {
-        await saveBase64File(agreementPhoto, "dealer_registration", regId, "other", client);
+        savePromises.push(saveBase64File(agreementPhoto, "dealer_registration", regId, "other", client));
       }
+      await Promise.all(savePromises);
 
       // Mark the re-upload token as used
       await client.query("UPDATE dealer_reupload_tokens SET used = 1 WHERE id = ?", [tokenId]);
@@ -1257,6 +1260,12 @@ router.post("/reupload/submit", async (req, res, next) => {
       entity_type: "dealer_registration",
       entity_id: regId,
     });
+
+    // Background: delete old files from cPanel — fire-and-forget, never blocks user
+    for (const fp of oldFilePaths) {
+      storageService.deleteFile(fp)
+        .catch(e => console.error(`[Storage] Failed to delete old dealer reg doc '${fp}':`, e.message));
+    }
   } catch (err) {
     next(err);
   }

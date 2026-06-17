@@ -916,6 +916,8 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
     };
 
     const client = await db.getClient();
+    let oldCpanelPaths = []; // declared outside try-block for background cPanel ops after finally
+    let preparedFiles = [];  // declared outside try-block for background cPanel ops after finally
     try {
       await client.query("BEGIN");
 
@@ -932,14 +934,13 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
         [quotationId, ...deleteTypes]
       );
 
+      // Collect old file paths for background cPanel delete after response
+      oldCpanelPaths = oldDocsResult.rows.map(d => d.file_path);
+
       for (const doc of oldDocsResult.rows) {
         const oldAbsPath = path.normalize(path.join(uploadsBase, doc.file_path));
         if (oldAbsPath.startsWith(uploadsBase + path.sep)) {
           try { await fs.unlink(oldAbsPath); } catch { /* file missing, ignore */ }
-        }
-        // Delete from remote storage (cPanel) — fire-and-forget
-        try { await storageService.deleteFile(doc.file_path); } catch (e) {
-          console.error(`[Storage] Failed to delete old portal reupload '${doc.file_path}':`, e.message);
         }
       }
 
@@ -948,7 +949,9 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
         [quotationId, ...deleteTypes]
       );
 
-      // Save new files (base64 payload: { data, name, type, size })
+      // ── Step 1: Prepare all new files (decode, validate, write to disk) ──
+      // This runs BEFORE any DB inserts so validation failures abort cleanly.
+      preparedFiles = [];
       for (const docType of effectiveDocs) {
         const fileObj = filesPayload[docType];
         if (!fileObj?.data || !fileObj?.name || !fileObj?.type) {
@@ -1004,13 +1007,11 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
         await fs.mkdir(path.dirname(absPath), { recursive: true });
         await fs.writeFile(absPath, buffer);
 
-        // Persist to remote storage (cPanel) — non-blocking, failure-safe
-        try {
-          await storageService.persistFile(absPath, relPath.replace(/\\/g, "/"));
-        } catch (e) {
-          console.error(`[Storage] persistFile failed for portal reupload '${relPath}':`, e.message);
-        }
+        preparedFiles.push({ docType, fileObj, relPath, absPath, buffer });
+      }
 
+      // ── Step 2: Insert all DB records sequentially in transaction ──
+      for (const { docType, fileObj, relPath, buffer } of preparedFiles) {
         await client.query(
           `INSERT INTO documents (entity_type, entity_id, doc_type, original_name, file_path, mime_type, file_size_bytes, public_token, uploaded_by)
            VALUES ('quotation', ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1068,6 +1069,18 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
       quotation_number: q.quotation_number,
       status: "Pending",
     });
+
+    // ── Background cPanel operations — fire-and-forget, never block user ──
+    // Persist new files to cPanel
+    for (const { absPath, relPath } of preparedFiles) {
+      storageService.persistFile(absPath, relPath.replace(/\\/g, "/"))
+        .catch(e => console.error(`[Storage] persistFile failed for portal reupload '${relPath}':`, e.message));
+    }
+    // Delete old files from cPanel
+    for (const fp of oldCpanelPaths) {
+      storageService.deleteFile(fp)
+        .catch(e => console.error(`[Storage] Failed to delete old portal reupload '${fp}':`, e.message));
+    }
   } catch (err) {
     next(err);
   }

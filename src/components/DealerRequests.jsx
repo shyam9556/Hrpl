@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { quotations as quotationsApi, uploads as uploadsApi } from "../utils/api";
-import { fmt, generatePdfQuotation } from "../utils/helpers";
+import { fmt, generatePdfQuotation, compressAndConvertToBase64 } from "../utils/helpers";
 import { Loader2, ClipboardList, MessageCircle, Mail, Copy, Check, Camera, MapPin, Upload, X, Eye, Download, Info, FileText, Truck, Package, Clock, ChevronLeft, ChevronRight, Plus, AlertCircle, RefreshCw, AlertTriangle, Phone, Zap, Cpu, Home, CreditCard, Search } from "lucide-react";
 
 import { t } from "../utils/i18n";
@@ -116,19 +116,21 @@ export default function DealerRequests() {
     house_photo_3:  "image/jpeg,image/png,image/webp,application/pdf",
   };
 
-  // Convert a File to a base64 payload for portal reupload submission
-  const fileToBase64 = (file) =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve({
-        data: reader.result,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-      });
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  // Convert a File to a base64 payload for portal reupload submission.
+  // Uses compressAndConvertToBase64: images are resized + JPEG-compressed (22× smaller),
+  // PDFs pass through unchanged. Returns { data, name, type, size } matching server expectations.
+  const fileToCompressedBase64 = async (file) => {
+    const dataUri = await compressAndConvertToBase64(file);
+    // Extract actual MIME from data URI (may differ from file.type after compression)
+    const mimeMatch = dataUri.match(/^data:([^;]+);base64,/);
+    const actualMime = mimeMatch ? mimeMatch[1] : file.type;
+    return {
+      data: dataUri,
+      name: file.name,
+      type: actualMime,
+      size: file.size,
+    };
+  };
 
   const openPortalReuploadModal = (q) => {
     setPortalReuploadModal(q);
@@ -139,6 +141,8 @@ export default function DealerRequests() {
   };
 
   const ALL_DOC_TYPES = Object.keys(DOC_LABELS);
+
+  const [portalUploadStage, setPortalUploadStage] = useState(null); // null | 'compressing' | 'uploading'
 
   const handlePortalReuploadSubmit = async () => {
     const requiredDocs = portalReuploadModal.reupload_required_docs
@@ -182,20 +186,28 @@ export default function DealerRequests() {
 
     setPortalReuploadLoading(true);
     setPortalReuploadError("");
+    setPortalUploadStage("compressing");
     try {
-      // Build payload — Aadhaar expands based on mode chosen by dealer
-      const payload = {};
-      for (const docType of otherDocs) {
-        payload[docType] = await fileToBase64(portalReuploadFiles[docType]);
-      }
+      // Compress + convert all files in parallel (images get 22× smaller, PDFs pass through)
+      const conversionTasks = otherDocs.map(async (docType) =>
+        [docType, await fileToCompressedBase64(portalReuploadFiles[docType])]
+      );
       if (aadhaarNeeded) {
         if (portalAadhaarMode === "photos") {
-          payload.aadhaar_front = await fileToBase64(portalReuploadFiles.aadhaar_front);
-          payload.aadhaar_back  = await fileToBase64(portalReuploadFiles.aadhaar_back);
+          conversionTasks.push(
+            (async () => ["aadhaar_front", await fileToCompressedBase64(portalReuploadFiles.aadhaar_front)])(),
+            (async () => ["aadhaar_back",  await fileToCompressedBase64(portalReuploadFiles.aadhaar_back)])()
+          );
         } else {
-          payload.aadhaar = await fileToBase64(portalReuploadFiles.aadhaar);
+          conversionTasks.push(
+            (async () => ["aadhaar", await fileToCompressedBase64(portalReuploadFiles.aadhaar)])()
+          );
         }
       }
+      const entries = await Promise.all(conversionTasks);
+      const payload = Object.fromEntries(entries);
+
+      setPortalUploadStage("uploading");
       await quotationsApi.submitPortalReupload(portalReuploadModal.id, payload);
       setPortalReuploadSuccess(true);
       setList(prev => prev.map(q =>
@@ -209,6 +221,7 @@ export default function DealerRequests() {
       setPortalReuploadError(err.message || "Failed to submit documents. Please try again.");
     } finally {
       setPortalReuploadLoading(false);
+      setPortalUploadStage(null);
     }
   };
 
@@ -2132,7 +2145,7 @@ ${pdfLine}`;
                     }}
                   >
                     {portalReuploadLoading ? (
-                      <><Loader2 size={14} className="animate-spin" /> Submitting...</>
+                      <><Loader2 size={14} className="animate-spin" /> {portalUploadStage === "compressing" ? "Compressing files..." : "Uploading documents..."}</>
                     ) : (
                       <><Check size={14} /> Submit Documents</>
                     )}

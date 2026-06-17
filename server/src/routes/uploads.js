@@ -230,10 +230,9 @@ router.post("/single", uploadSingle("file"), handleUploadError, async (req, res,
           // eslint-disable-next-line security/detect-non-literal-fs-filename
           fs.unlinkSync(oldAbsPath);
         }
-        // Delete from remote storage (cPanel) — fire-and-forget, never crashes
-        try { await storageService.deleteFile(oldDoc.file_path); } catch (e) {
-          console.error(`[Storage] Failed to delete old geotag '${oldDoc.file_path}':`, e.message);
-        }
+        // Delete from remote storage (cPanel) — fire-and-forget in background
+        storageService.deleteFile(oldDoc.file_path)
+          .catch(e => console.error(`[Storage] Failed to delete old geotag '${oldDoc.file_path}':`, e.message));
         await db.query("DELETE FROM documents WHERE id = ?", [oldDoc.id]);
       }
     }
@@ -276,14 +275,12 @@ router.post("/single", uploadSingle("file"), handleUploadError, async (req, res,
       );
     }
 
-    // Persist to remote storage (cPanel) — non-blocking, failure-safe
-    try {
-      await storageService.persistFile(req.file.path, relativePath);
-    } catch (e) {
-      console.error(`[Storage] persistFile failed for '${relativePath}':`, e.message);
-    }
-
+    // Send response BEFORE cPanel persist — user should never wait for remote storage
     res.status(201).json({ success: true, message: "File uploaded successfully.", document: result.rows[0] });
+
+    // Persist to remote storage (cPanel) — fire-and-forget in background
+    storageService.persistFile(req.file.path, relativePath)
+      .catch(e => console.error(`[Storage] persistFile failed for '${relativePath}':`, e.message));
 
     // Notify admin panels watching this entity that a new document was uploaded
     broadcastToRole("admin", "document:uploaded", {
@@ -345,6 +342,7 @@ router.post("/multiple", uploadMultiple("files", 5), handleUploadError, async (r
     }
 
     const documents = [];
+    const persistPaths = []; // collect for background persist after response
 
     for (const file of req.files) {
       const relativePath = path.relative(UPLOADS_DIR, file.path).replace(/\\/g, "/");
@@ -370,16 +368,17 @@ router.post("/multiple", uploadMultiple("files", 5), handleUploadError, async (r
         [insertResult.insertId]
       );
       documents.push(docResult.rows[0]);
-
-      // Persist to remote storage (cPanel) — non-blocking, failure-safe
-      try {
-        await storageService.persistFile(file.path, relativePath);
-      } catch (e) {
-        console.error(`[Storage] persistFile failed for '${relativePath}':`, e.message);
-      }
+      persistPaths.push({ absPath: file.path, relPath: relativePath });
     }
 
+    // Send response BEFORE cPanel persist — user should never wait for remote storage
     res.status(201).json({ success: true, message: `${documents.length} file(s) uploaded successfully.`, documents });
+
+    // Persist all files to remote storage (cPanel) — fire-and-forget in background
+    for (const { absPath, relPath } of persistPaths) {
+      storageService.persistFile(absPath, relPath)
+        .catch(e => console.error(`[Storage] persistFile failed for '${relPath}':`, e.message));
+    }
 
     // Notify admin panels watching this entity that new documents were uploaded
     broadcastToRole("admin", "document:uploaded", {

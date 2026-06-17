@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { reupload as reuploadApi } from "../utils/api";
+import { compressAndConvertToBase64 } from "../utils/helpers";
 import {
   Lock, Eye, EyeOff, Upload, CheckCircle2, AlertTriangle,
   FileText, X, Image, ArrowRight, RefreshCw, ShieldCheck,
@@ -166,17 +167,14 @@ function DocumentZone({ docType, file, onChange }) {
   );
 }
 
-// ─── File → base64 ──────────────────────────────────────────
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      resolve({ data: result, name: file.name, type: file.type, size: file.size });
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+// ─── File → compressed base64 ───────────────────────────────
+// Images are resized + JPEG-compressed (22× smaller), PDFs pass through unchanged.
+async function fileToBase64(file) {
+  const dataUri = await compressAndConvertToBase64(file);
+  // Extract actual MIME from data URI (may differ from file.type after compression)
+  const mimeMatch = dataUri.match(/^data:([^;]+);base64,/);
+  const actualMime = mimeMatch ? mimeMatch[1] : file.type;
+  return { data: dataUri, name: file.name, type: actualMime, size: file.size };
 }
 
 // ─── Expired / Invalid Link Screen ──────────────────────────
@@ -357,31 +355,38 @@ export default function DealerReuploadPage({ token, onDone }) {
     setConverting(true);
     setSubmitError("");
     try {
-      // Build payload — Aadhaar key depends on dealer's chosen mode
-      const payload = {};
-
-      // Other docs use backend payload keys
+      // ── Stage 1: Compress + convert all files in parallel ──
+      // Images get 22× smaller, PDFs pass through unchanged.
       const DOC_TYPE_TO_PAYLOAD_KEY = {
         pan:            "panPhoto",
         passport_photo: "passportPhoto",
         other:          "agreementPhoto",
       };
-      for (const docType of otherDocs) {
+
+      const conversionTasks = otherDocs.map(async (docType) => {
         const payloadKey = DOC_TYPE_TO_PAYLOAD_KEY[docType];
         if (!payloadKey) throw new Error(`Unknown document type: ${docType}. Please contact support.`);
-        payload[payloadKey] = await fileToBase64(files[docType]);
-      }
+        return [payloadKey, await fileToBase64(files[docType])];
+      });
 
       // Aadhaar — expand to correct keys
       if (aadhaarNeeded) {
         if (aadhaarMode === "photos") {
-          payload.aadhaarFront = await fileToBase64(files.aadhaar_front);
-          payload.aadhaarBack  = await fileToBase64(files.aadhaar_back);
+          conversionTasks.push(
+            (async () => ["aadhaarFront", await fileToBase64(files.aadhaar_front)])(),
+            (async () => ["aadhaarBack",  await fileToBase64(files.aadhaar_back)])()
+          );
         } else {
-          payload.aadhaarPhoto = await fileToBase64(files.aadhaar);
+          conversionTasks.push(
+            (async () => ["aadhaarPhoto", await fileToBase64(files.aadhaar)])()
+          );
         }
       }
 
+      const entries = await Promise.all(conversionTasks);
+      const payload = Object.fromEntries(entries);
+
+      // ── Stage 2: Upload to server ──
       setConverting(false);
       await reuploadApi.submit(reuploadJwt, payload);
       setStep("success");
@@ -737,7 +742,7 @@ export default function DealerReuploadPage({ token, onDone }) {
                 }}
               >
                 {submitting ? (
-                  <><RefreshCw size={16} style={{ animation: "spin 1s linear infinite" }} /> {converting ? "Preparing..." : "Uploading documents..."}</>
+                  <><RefreshCw size={16} style={{ animation: "spin 1s linear infinite" }} /> {converting ? "Compressing files..." : "Uploading documents..."}</>
                 ) : (
                   <><Upload size={16} /> Submit Documents</>
                 )}

@@ -618,9 +618,12 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
     }
   };
 
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
+
   const handleSubmit = async () => {
     if (!quote) return;
     setSubmitting(true);
+    setUploadProgress({ current: 0, total: 0 });
 
     try {
       const { quotationId } = await ensureQuotationCreated();
@@ -651,18 +654,30 @@ export default function DealerQuotation({ user, initialForm, onClearInitialForm 
         { file: form.housePhoto2, type: "house_photo_2" },
         { file: form.housePhoto3, type: "house_photo_3" },
       ];
-      for (const { file, type } of filesToUpload) {
-        if (file && !uploadedTypes.has(type)) {
-          const f = base64ToFile(file);
-          if (f) await uploadsApi.single(f, "quotation", quotationId, type);
-        }
-      }
+
+      // Upload all files in parallel — each is independent
+      const pending = filesToUpload.filter(({ file, type }) => file && !uploadedTypes.has(type));
+      const total = pending.length;
+      let completed = 0;
+      setUploadProgress({ current: 0, total });
+
+      const uploadTasks = pending.map(({ file, type }) => {
+        const f = base64ToFile(file);
+        if (!f) return Promise.resolve();
+        return uploadsApi.single(f, "quotation", quotationId, type).then(res => {
+          completed++;
+          setUploadProgress({ current: completed, total });
+          return res;
+        });
+      });
+      await Promise.all(uploadTasks);
 
       setSubmitted(true);
     } catch (err) {
       setDialogState({ open: true, title: "Submission Failed", message: err.message || "Failed to submit quotation. You can safely retry — already uploaded documents will not be duplicated.", variant: "danger" });
     } finally {
       setSubmitting(false);
+      setUploadProgress({ current: 0, total: 0 });
     }
   };
 
@@ -1692,7 +1707,7 @@ ${pdfLine}`;
               style={{ opacity: (!submitting && canSubmit) ? 1 : 0.5 }}
             >
               {submitting
-                ? <><Loader2 size={16} className="animate-spin" /> Submitting...</>
+                ? <><Loader2 size={16} className="animate-spin" /> {uploadProgress.total > 0 ? `Uploading documents (${uploadProgress.current}/${uploadProgress.total})...` : "Preparing..."}</>
                 : <><Send size={16} /> {"Submit Request"}</>
               }
             </button>
