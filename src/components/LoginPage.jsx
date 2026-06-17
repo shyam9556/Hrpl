@@ -965,12 +965,14 @@ export default function LoginPage({ onLogin }) {
                           icon={<IdCard size={22} />}
                           file={aadhaarFront}
                           onChange={setAadhaarFront}
+                          disabled={isLoading}
                         />
                         <UploadZone
                           label="Back Side"
                           icon={<IdCard size={22} />}
                           file={aadhaarBack}
                           onChange={setAadhaarBack}
+                          disabled={isLoading}
                         />
                       </div>
                     ) : (
@@ -979,6 +981,7 @@ export default function LoginPage({ onLogin }) {
                         icon={<IdCard size={22} />}
                         file={aadhaarPhoto}
                         onChange={setAadhaarPhoto}
+                        disabled={isLoading}
                       />
                     )}
                   </div>
@@ -991,18 +994,21 @@ export default function LoginPage({ onLogin }) {
                   icon={<CreditCard size={22} />}
                   file={panPhoto}
                   onChange={setPanPhoto}
+                  disabled={isLoading}
                 />
                 <UploadZone
                   label="Passport Photo"
                   icon={<User size={22} />}
                   file={passportPhoto}
                   onChange={setPassportPhoto}
+                  disabled={isLoading}
                 />
                 <UploadZone
                   label="Dealership Agreement"
                   icon={<FileText size={22} />}
                   file={agreementPhoto}
                   onChange={setAgreementPhoto}
+                  disabled={isLoading}
                 />
               </div>
             </div>

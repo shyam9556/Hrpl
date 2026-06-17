@@ -1086,6 +1086,200 @@ router.post("/:id/submit-portal-reupload", authorize("dealer"), async (req, res,
   }
 });
 
+// ─── POST /api/quotations/:id/complete-portal-reupload ────────
+// Dealer only — Finalize a portal re-upload after files were uploaded
+// individually via POST /api/uploads/single.
+//
+// This is the lightweight second step:
+//   Step 1: Frontend uploads each file via uploads.single() (FormData, fast)
+//   Step 2: Frontend calls this endpoint to finalise (no files, just status change)
+//
+// It verifies all admin-required documents exist in the documents table,
+// removes stale duplicates (old docs for the same types), updates status,
+// and sends confirmation notifications.
+router.post("/:id/complete-portal-reupload", authorize("dealer"), async (req, res, next) => {
+  try {
+    const quotationId = parseInt(req.params.id, 10);
+    if (isNaN(quotationId)) {
+      return res.status(400).json({ success: false, error: "Invalid quotation ID." });
+    }
+
+    // Verify the quotation belongs to this dealer and is in ReuploadRequested status
+    const qResult = await db.query(
+      `SELECT q.id, q.quotation_number, q.status, q.reupload_required_docs, q.customer_id,
+              u.name AS dealer_name, u.email AS dealer_email,
+              c.name AS customer_name
+       FROM quotations q
+       JOIN users u ON u.id = q.dealer_id
+       LEFT JOIN customers c ON c.id = q.customer_id
+       WHERE q.id = ? AND q.dealer_id = ? AND q.status = 'ReuploadRequested'`,
+      [quotationId, req.user.id]
+    );
+
+    if (qResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Quotation not found, does not belong to you, or is not in re-upload requested state.",
+      });
+    }
+
+    const q = qResult.rows[0];
+
+    if (!q.reupload_required_docs) {
+      return res.status(400).json({
+        success: false,
+        error: "No specific documents have been flagged for re-upload.",
+      });
+    }
+
+    const docsToProcess = q.reupload_required_docs.split(",").filter(Boolean);
+
+    // ── Expand aadhaar → check for front/back or single PDF ──────────────
+    const aadhaarNeeded = docsToProcess.includes("aadhaar");
+    const otherDocs = docsToProcess.filter(d => d !== "aadhaar");
+
+    // Fetch all current documents for this quotation to check completeness
+    const existingDocs = await db.query(
+      `SELECT id, doc_type, uploaded_at FROM documents
+       WHERE entity_type = 'quotation' AND entity_id = ?
+       ORDER BY uploaded_at DESC`,
+      [quotationId]
+    );
+
+    const docsByType = {};
+    for (const doc of existingDocs.rows) {
+      if (!docsByType[doc.doc_type]) docsByType[doc.doc_type] = [];
+      docsByType[doc.doc_type].push(doc);
+    }
+
+    // Check completeness — all required docs must exist
+    const missing = [];
+    for (const docType of otherDocs) {
+      if (!docsByType[docType] || docsByType[docType].length === 0) {
+        missing.push(docType);
+      }
+    }
+    if (aadhaarNeeded) {
+      const hasAadhaarPdf = docsByType["aadhaar"]?.length > 0;
+      const hasAadhaarPhotos = docsByType["aadhaar_front"]?.length > 0 && docsByType["aadhaar_back"]?.length > 0;
+      if (!hasAadhaarPdf && !hasAadhaarPhotos) {
+        missing.push("aadhaar");
+      }
+    }
+
+    if (missing.length > 0) {
+      const docLabels = {
+        aadhaar: "Aadhaar Card", pan: "PAN Card", passbook: "Bank Passbook",
+        light_bill: "Latest Light Bill", vera_bill: "Vera Bill",
+        house_photo_1: "House Photo 1", house_photo_2: "House Photo 2", house_photo_3: "House Photo 3",
+        passport_photo: "Passport Photo", other: "Dealership Agreement",
+      };
+      return res.status(400).json({
+        success: false,
+        error: `Some required documents are still missing: ${missing.map(d => docLabels[d] || d).join(", ")}. Please upload them before completing.`,
+      });
+    }
+
+    // ── Remove old duplicate documents for re-uploaded types ─────────────
+    // For each required doc type, keep only the most recent document and
+    // delete older ones. This cleans up the pre-existing (rejected) files.
+    const uploadsBase = path.isAbsolute(env.upload.dir)
+      ? env.upload.dir
+      : path.resolve(__dirname, "../..", env.upload.dir);
+
+    // Build list of all doc types that were re-uploaded
+    const allReuploadTypes = [...otherDocs];
+    if (aadhaarNeeded) {
+      allReuploadTypes.push("aadhaar", "aadhaar_front", "aadhaar_back");
+    }
+
+    const client = await db.getClient();
+    try {
+      await client.query("BEGIN");
+
+      for (const docType of allReuploadTypes) {
+        const docs = docsByType[docType];
+        if (!docs || docs.length <= 1) continue;
+
+        // Keep the newest, delete the rest
+        const idsToDelete = docs.slice(1).map(d => d.id);
+        if (idsToDelete.length > 0) {
+          // Fetch file paths for disk + cPanel cleanup
+          const placeholders = idsToDelete.map(() => "?").join(", ");
+          const oldFiles = await client.query(
+            `SELECT id, file_path FROM documents WHERE id IN (${placeholders})`,
+            idsToDelete
+          );
+
+          // Delete disk files
+          for (const old of oldFiles.rows) {
+            const oldAbsPath = path.normalize(path.join(uploadsBase, old.file_path));
+            if (oldAbsPath.startsWith(uploadsBase + path.sep)) {
+              try { await fs.unlink(oldAbsPath); } catch { /* file missing, ignore */ }
+            }
+            // cPanel delete — fire and forget after transaction
+            storageService.deleteFile(old.file_path)
+              .catch(e => console.error(`[Storage] cleanup old doc:`, e.message));
+          }
+
+          await client.query(
+            `DELETE FROM documents WHERE id IN (${placeholders})`,
+            idsToDelete
+          );
+        }
+      }
+
+      // Clear reupload flag and set status back to Pending
+      await client.query(
+        `UPDATE quotations SET status = 'Pending', reupload_required_docs = NULL, reupload_reason = NULL, needs_review_after_reupload = 1 WHERE id = ?`,
+        [quotationId]
+      );
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Send confirmation email (fire-and-forget)
+    sendQuotationReuploadConfirmationEmail(
+      q.dealer_email,
+      q.dealer_name,
+      q.customer_name || "Valued Customer",
+      q.quotation_number
+    ).catch(err => console.error(`[EMAIL] Failed to send re-upload confirmation:`, err.message));
+
+    console.log(`[AUDIT] Portal doc re-upload completed: dealer ${req.user.id} → quotation ${quotationId} (${q.quotation_number})`);
+
+    res.json({
+      success: true,
+      message: "Documents re-uploaded successfully. Your quotation is now back under review.",
+    });
+
+    // Notify all admins that a quotation came back to Pending
+    broadcastToRole("admin", "quotation:status_changed", {
+      id: quotationId,
+      quotation_number: q.quotation_number,
+      status: "Pending",
+      needs_review: true,
+    });
+    broadcastToRole("admin", "document:uploaded", {
+      entity_type: "quotation",
+      entity_id: quotationId,
+      uploaded_by: req.user.id,
+    });
+    broadcastToUser(req.user.id, "quotation:status_changed", {
+      id: quotationId,
+      quotation_number: q.quotation_number,
+      status: "Pending",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── POST /api/quotations/:id/request-geotag-reupload ─────────
 // Admin only — Flag that specific geo-tag photo slots need re-upload.
 // Body: { reason: string, slots: ["geotag_1","geotag_2","geotag_3"] }

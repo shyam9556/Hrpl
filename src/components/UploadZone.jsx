@@ -7,7 +7,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 // HEIC is excluded — the backend does not accept it.
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 
-export default function UploadZone({ label, icon, file, onChange }) {
+export default function UploadZone({ label, icon, file, onChange, disabled = false }) {
   const ref = useRef();
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -102,26 +102,26 @@ export default function UploadZone({ label, icon, file, onChange }) {
   };
 
   return (
-    <div>
+    <div style={{ pointerEvents: disabled ? "none" : "auto", opacity: disabled ? 0.55 : 1, transition: "opacity 0.2s" }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: "flex", alignItems: "center", gap: 6, minHeight: 38 }}>
         {icon} {label}
       </div>
       <div
         className={`upload-zone ${file ? "has-file" : ""} ${loading ? "loading" : ""} ${dragOver ? "drag-over" : ""}`}
-        onClick={() => !loading && ref.current.click()}
+        onClick={() => !loading && !disabled && ref.current.click()}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         role="button"
-        tabIndex={loading ? -1 : 0}
+        tabIndex={loading || disabled ? -1 : 0}
         aria-label={file ? `${label}: ${file.name} selected. Click to change.` : `${label}: Click or drag a file to upload`}
         onKeyDown={(e) => {
-          if (!loading && (e.key === "Enter" || e.key === " ")) {
+          if (!loading && !disabled && (e.key === "Enter" || e.key === " ")) {
             e.preventDefault();
             ref.current.click();
           }
         }}
-        style={{ pointerEvents: loading ? "none" : "auto", position: "relative" }}
+        style={{ pointerEvents: loading || disabled ? "none" : "auto", position: "relative" }}
       >
         <input
           ref={ref}
@@ -129,11 +129,11 @@ export default function UploadZone({ label, icon, file, onChange }) {
           accept="image/jpeg,image/png,image/webp,.pdf"
           style={{ display: "none" }}
           onChange={handleFileChange}
-          disabled={loading}
+          disabled={loading || disabled}
         />
 
         {/* Clear button when file is selected */}
-        {file && !loading && (
+        {file && !loading && !disabled && (
           <button
             onClick={handleClear}
             style={{

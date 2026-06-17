@@ -6,6 +6,7 @@ const API_BASE = "/api";
 
 // Default request timeout (30 seconds). Prevents infinite hangs on slow/dead servers.
 const REQUEST_TIMEOUT_MS = 30000;
+const UPLOAD_TIMEOUT_MS = 120000; // 2 min for upload-heavy requests (reupload submits with base64)
 
 // ─── Token Management ────────────────────────────────────
 function getToken() {
@@ -54,7 +55,8 @@ async function request(endpoint, options = {}) {
   // ── Timeout via AbortController ──────────────────────
   // Prevents requests from hanging indefinitely on slow/unreachable server.
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutMs = options.timeout || REQUEST_TIMEOUT_MS;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   config.signal = controller.signal;
 
   try {
@@ -149,7 +151,7 @@ export const auth = {
     request("/auth/login", { method: "POST", body: { email, password, role } }),
 
   register: (data) =>
-    request("/auth/register", { method: "POST", body: data }),
+    request("/auth/register", { method: "POST", body: data, timeout: UPLOAD_TIMEOUT_MS }),
 
   getProfile: () =>
     request("/auth/me"),
@@ -245,6 +247,9 @@ export const quotations = {
 
   submitPortalReupload: (id, filesPayload) =>
     request(`/quotations/${id}/submit-portal-reupload`, { method: "POST", body: filesPayload }),
+
+  completePortalReupload: (id) =>
+    request(`/quotations/${id}/complete-portal-reupload`, { method: "POST" }),
 
   requestGeotagReupload: (id, reason, slots) =>
     request(`/quotations/${id}/request-geotag-reupload`, { method: "POST", body: { reason, slots } }),
@@ -470,7 +475,8 @@ async function requestIsolated(endpoint, options = {}) {
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutMs = options.timeout || REQUEST_TIMEOUT_MS;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   config.signal = controller.signal;
 
   try {
@@ -540,6 +546,7 @@ export const reupload = {
       method: "POST",
       headers: { Authorization: `Bearer ${reuploadJwt}` },
       body: documents,
+      timeout: UPLOAD_TIMEOUT_MS,
     }),
 };
 
@@ -558,6 +565,7 @@ export const reuploadQuotation = {
       method: "POST",
       headers: { Authorization: `Bearer ${reuploadJwt}` },
       body: documents,
+      timeout: UPLOAD_TIMEOUT_MS,
     }),
 };
 

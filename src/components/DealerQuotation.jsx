@@ -1555,11 +1555,11 @@ ${pdfLine}`;
                   {/* Upload zones */}
                   {form.aadhaarMode === "photos" ? (
                     <div className="aadhaar-photo-grid">
-                      <UploadZone label="Front Side" icon={<IdCard size={22} />} file={form.aadhaarFront} onChange={f => set("aadhaarFront", f)} />
-                      <UploadZone label="Back Side"  icon={<IdCard size={22} />} file={form.aadhaarBack}  onChange={f => set("aadhaarBack",  f)} />
+                      <UploadZone label="Front Side" icon={<IdCard size={22} />} file={form.aadhaarFront} onChange={f => set("aadhaarFront", f)} disabled={submitting} />
+                      <UploadZone label="Back Side"  icon={<IdCard size={22} />} file={form.aadhaarBack}  onChange={f => set("aadhaarBack",  f)} disabled={submitting} />
                     </div>
                   ) : (
-                    <UploadZone label="Aadhaar Card" icon={<IdCard size={22} />} file={form.aadhaar} onChange={f => set("aadhaar", f)} />
+                    <UploadZone label="Aadhaar Card" icon={<IdCard size={22} />} file={form.aadhaar} onChange={f => set("aadhaar", f)} disabled={submitting} />
                   )}
                 </div>
               </div>
@@ -1576,7 +1576,7 @@ ${pdfLine}`;
                   { key: "housePhoto3", label: "House Photo 3", icon: <Home size={20} />,     value: form.housePhoto3 },
                 ] : [])
               ].map(({ key, label, icon, value }) => (
-                <UploadZone key={key} label={label} icon={icon} file={value} onChange={f => set(key, f)} />
+                <UploadZone key={key} label={label} icon={icon} file={value} onChange={f => set(key, f)} disabled={submitting} />
               ))}
 
             </div>

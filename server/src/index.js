@@ -22,6 +22,7 @@ import dashboardRoutes from "./routes/dashboard.js";
 import reportRoutes from "./routes/reports.js";
 import inquiryRoutes from "./routes/inquiries.js";
 import { verifySMTPConnection } from "./services/emailService.js";
+import storageService from "./services/storageService.js";
 import { cleanupOrphanedDocuments } from "./utils/cleanup.js";
 import { addClient, removeClient, broadcastToRole, broadcastToUser, getClientCount } from "./utils/sseManager.js";
 import jwt from "jsonwebtoken";
@@ -444,6 +445,9 @@ const startServer = async () => {
 
     // Verify SMTP connection after server starts — non-fatal if it fails
     verifySMTPConnection().catch(() => {});
+
+    // Probe cPanel storage health — trips circuit breaker early if unreachable
+    storageService.probeHealth().catch(() => {});
   });
 };
 

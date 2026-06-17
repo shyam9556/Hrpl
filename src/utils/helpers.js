@@ -967,7 +967,7 @@ export function compressAndConvertToBase64(file) {
         const canvas = document.createElement("canvas");
         let width = img.width;
         let height = img.height;
-        const maxDim = 1024;
+        const maxDim = 800;
 
         if (width > maxDim || height > maxDim) {
           if (width > height) {
@@ -984,7 +984,7 @@ export function compressAndConvertToBase64(file) {
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, width, height);
 
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.5);
         resolve(dataUrl);
       };
       img.onerror = (err) => reject(err);

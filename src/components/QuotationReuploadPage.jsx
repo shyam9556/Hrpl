@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { reuploadQuotation as reuploadApi } from "../utils/api";
+import { compressAndConvertToBase64 } from "../utils/helpers";
 import {
   Lock, Eye, EyeOff, Upload, CheckCircle2, AlertTriangle,
   FileText, X, Image, ArrowRight, RefreshCw, ShieldCheck,
@@ -28,7 +29,7 @@ const ALLOWED_MIMES = ["image/jpeg", "image/png", "image/webp", "application/pdf
 const MAX_SIZE_MB = 10;
 
 // ─── File dropzone for a single document ────────────────────
-function DocumentZone({ docType, file, onChange, onCoords }) {
+function DocumentZone({ docType, file, onChange, onCoords, disabled = false }) {
   const inputRef = useRef(null);
   const [drag, setDrag] = useState(false);
   const [typeError, setTypeError] = useState("");
@@ -115,7 +116,7 @@ function DocumentZone({ docType, file, onChange, onCoords }) {
   };
 
   return (
-    <div>
+    <div style={{ pointerEvents: disabled ? "none" : "auto", opacity: disabled ? 0.6 : 1, transition: "opacity 0.2s" }}>
       <div
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
         onDragLeave={() => setDrag(false)}
@@ -235,25 +236,23 @@ function DocumentZone({ docType, file, onChange, onCoords }) {
 // Accepts optional explicit latitude/longitude rather than reading
 // them from the File object (File objects are native browser objects
 // and should not be mutated — see BUG 3 fix).
-function fileToBase64(file, latitude, longitude) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const payload = {
-        data: reader.result,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-      };
-      if (latitude !== undefined && latitude !== null) {
-        payload.latitude = latitude;
-        payload.longitude = longitude;
-      }
-      resolve(payload);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+async function fileToBase64(file, latitude, longitude) {
+  // Compress images (resize + lower JPEG quality), pass PDFs through
+  const dataUri = await compressAndConvertToBase64(file);
+  // Extract actual MIME from data URI (may differ after compression)
+  const mimeMatch = dataUri.match(/^data:([^;]+);base64,/);
+  const actualMime = mimeMatch ? mimeMatch[1] : file.type;
+  const payload = {
+    data: dataUri,
+    name: file.name,
+    type: actualMime,
+    size: file.size,
+  };
+  if (latitude !== undefined && latitude !== null) {
+    payload.latitude = latitude;
+    payload.longitude = longitude;
+  }
+  return payload;
 }
 
 // ─── Expired Link Screen ────────────────────────────────────
@@ -336,6 +335,19 @@ export default function QuotationReuploadPage({ token, onDone }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [converting, setConverting] = useState(false);
+  // Per-file progress tracking
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0, currentDoc: "" });
+  const [uploadStartTime, setUploadStartTime] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Elapsed time ticker
+  useEffect(() => {
+    if (!uploadStartTime) return;
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - uploadStartTime) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [uploadStartTime]);
 
   // Probe the token on mount
   useEffect(() => {
@@ -405,11 +417,19 @@ export default function QuotationReuploadPage({ token, onDone }) {
     setSubmitting(true);
     setConverting(true);
     setSubmitError("");
+    setUploadStartTime(Date.now());
+    setElapsed(0);
     try {
-      // Package files into base64 payload, injecting GPS coords from geoCoords
-      // state (not from File object properties — see BUG 3 fix).
+      // Package files into base64 payload sequentially with progress tracking
+      const totalFiles = sessionInfo.requiredDocs.length;
+      setUploadProgress({ current: 0, total: totalFiles, currentDoc: "" });
+
       const payload = {};
-      for (const docType of sessionInfo.requiredDocs) {
+      for (let i = 0; i < sessionInfo.requiredDocs.length; i++) {
+        const docType = sessionInfo.requiredDocs[i];
+        const label = DOC_LABELS[docType] || docType;
+        setUploadProgress({ current: i + 1, total: totalFiles, currentDoc: label });
+
         const coords = geoCoords[docType];
         payload[docType] = await fileToBase64(
           files[docType],
@@ -419,6 +439,7 @@ export default function QuotationReuploadPage({ token, onDone }) {
       }
 
       setConverting(false);
+      setUploadProgress(prev => ({ ...prev, currentDoc: "Uploading to server..." }));
       await reuploadApi.submit(reuploadJwt, payload);
       setStep("success");
     } catch (err) {
@@ -433,6 +454,7 @@ export default function QuotationReuploadPage({ token, onDone }) {
     } finally {
       setSubmitting(false);
       setConverting(false);
+      setUploadStartTime(null);
     }
   }, [reuploadJwt, sessionInfo, files, geoCoords]);
 
@@ -640,6 +662,7 @@ export default function QuotationReuploadPage({ token, onDone }) {
                       onCoords={(dt, lat, lng) =>
                         setGeoCoords(prev => ({ ...prev, [dt]: { lat, lng } }))
                       }
+                      disabled={submitting}
                     />
                   ))}
                 </div>
@@ -677,13 +700,14 @@ export default function QuotationReuploadPage({ token, onDone }) {
               )}
 
               <button
+                type="button"
                 onClick={handleSubmit}
                 disabled={submitting || !allDocsProvided}
                 style={{
                   width: "100%",
                   padding: "14px",
                   background: submitting || !allDocsProvided
-                    ? "#9ca3af"
+                    ? (submitting ? "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)" : "#9ca3af")
                     : "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
                   color: "white",
                   border: "none",
@@ -692,15 +716,31 @@ export default function QuotationReuploadPage({ token, onDone }) {
                   fontWeight: 600,
                   cursor: submitting || !allDocsProvided ? "not-allowed" : "pointer",
                   display: "flex",
+                  flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
-                  gap: 8,
+                  gap: 6,
                   transition: "all 0.2s",
                   boxShadow: submitting || !allDocsProvided ? "none" : "0 4px 12px rgba(46,125,82,0.3)",
+                  opacity: submitting ? 0.9 : 1,
                 }}
               >
                 {submitting ? (
-                  <><RefreshCw size={16} style={{ animation: "spin 1s linear infinite" }} /> {converting ? "Tagging..." : "Uploading files..."}</>
+                  <>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <RefreshCw size={16} style={{ animation: "spin 1s linear infinite" }} />
+                      {uploadProgress.total > 0
+                        ? `Processing ${uploadProgress.current} of ${uploadProgress.total} — ${uploadProgress.currentDoc}`
+                        : converting ? "Tagging..." : "Uploading files..."
+                      }
+                    </span>
+                    {uploadProgress.total > 0 && (
+                      <div style={{ width: "100%", height: 4, background: "rgba(255,255,255,0.2)", borderRadius: 3, overflow: "hidden", marginTop: 4 }}>
+                        <div style={{ height: "100%", width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%`, background: "rgba(255,255,255,0.8)", borderRadius: 3, transition: "width 0.4s ease" }} />
+                      </div>
+                    )}
+                    {elapsed > 2 && <span style={{ fontSize: 11, opacity: 0.7 }}>{elapsed}s elapsed</span>}
+                  </>
                 ) : (
                   <><Upload size={16} /> Submit Replacement Files</>
                 )}

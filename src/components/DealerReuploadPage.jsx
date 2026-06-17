@@ -22,7 +22,7 @@ const ALLOWED_MIMES = ["image/jpeg", "image/png", "image/webp", "application/pdf
 const MAX_SIZE_MB = 10;
 
 // ─── File dropzone for a single document ────────────────────
-function DocumentZone({ docType, file, onChange }) {
+function DocumentZone({ docType, file, onChange, disabled = false }) {
   const inputRef = useRef(null);
   const [drag, setDrag] = useState(false);
   const [typeError, setTypeError] = useState("");
@@ -65,7 +65,7 @@ function DocumentZone({ docType, file, onChange }) {
   };
 
   return (
-    <div>
+    <div style={{ pointerEvents: disabled ? "none" : "auto", opacity: disabled ? 0.6 : 1, transition: "opacity 0.2s" }}>
       <div
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
         onDragLeave={() => setDrag(false)}
@@ -255,6 +255,19 @@ export default function DealerReuploadPage({ token, onDone }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [converting, setConverting] = useState(false);
+  // Per-file progress tracking
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0, currentDoc: "" });
+  const [uploadStartTime, setUploadStartTime] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Elapsed time ticker
+  useEffect(() => {
+    if (!uploadStartTime) return;
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - uploadStartTime) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [uploadStartTime]);
 
   // ── On mount: probe the token to check if it's already expired/used.
   // Uses the dedicated GET /api/auth/reupload/probe endpoint which checks
@@ -354,40 +367,45 @@ export default function DealerReuploadPage({ token, onDone }) {
     setSubmitting(true);
     setConverting(true);
     setSubmitError("");
+    setUploadStartTime(Date.now());
+    setElapsed(0);
     try {
-      // ── Stage 1: Compress + convert all files in parallel ──
-      // Images get 22× smaller, PDFs pass through unchanged.
+      // ── Stage 1: Compress + convert all files sequentially with progress ──
       const DOC_TYPE_TO_PAYLOAD_KEY = {
         pan:            "panPhoto",
         passport_photo: "passportPhoto",
         other:          "agreementPhoto",
       };
 
-      const conversionTasks = otherDocs.map(async (docType) => {
+      // Build ordered list of files to process
+      const filesToProcess = [];
+      for (const docType of otherDocs) {
         const payloadKey = DOC_TYPE_TO_PAYLOAD_KEY[docType];
         if (!payloadKey) throw new Error(`Unknown document type: ${docType}. Please contact support.`);
-        return [payloadKey, await fileToBase64(files[docType])];
-      });
-
-      // Aadhaar — expand to correct keys
+        filesToProcess.push({ docType, payloadKey, file: files[docType], label: DOC_LABELS[docType] || docType });
+      }
       if (aadhaarNeeded) {
         if (aadhaarMode === "photos") {
-          conversionTasks.push(
-            (async () => ["aadhaarFront", await fileToBase64(files.aadhaar_front)])(),
-            (async () => ["aadhaarBack",  await fileToBase64(files.aadhaar_back)])()
-          );
+          filesToProcess.push({ docType: "aadhaar_front", payloadKey: "aadhaarFront", file: files.aadhaar_front, label: "Aadhaar Front" });
+          filesToProcess.push({ docType: "aadhaar_back", payloadKey: "aadhaarBack", file: files.aadhaar_back, label: "Aadhaar Back" });
         } else {
-          conversionTasks.push(
-            (async () => ["aadhaarPhoto", await fileToBase64(files.aadhaar)])()
-          );
+          filesToProcess.push({ docType: "aadhaar", payloadKey: "aadhaarPhoto", file: files.aadhaar, label: "Aadhaar Card" });
         }
       }
 
-      const entries = await Promise.all(conversionTasks);
-      const payload = Object.fromEntries(entries);
+      const totalFiles = filesToProcess.length;
+      setUploadProgress({ current: 0, total: totalFiles, currentDoc: "" });
+
+      const payload = {};
+      for (let i = 0; i < filesToProcess.length; i++) {
+        const { payloadKey, file, label } = filesToProcess[i];
+        setUploadProgress({ current: i + 1, total: totalFiles, currentDoc: label });
+        payload[payloadKey] = await fileToBase64(file);
+      }
 
       // ── Stage 2: Upload to server ──
       setConverting(false);
+      setUploadProgress(prev => ({ ...prev, currentDoc: "Uploading to server..." }));
       await reuploadApi.submit(reuploadJwt, payload);
       setStep("success");
     } catch (err) {
@@ -400,6 +418,7 @@ export default function DealerReuploadPage({ token, onDone }) {
     } finally {
       setSubmitting(false);
       setConverting(false);
+      setUploadStartTime(null);
     }
   }, [reuploadJwt, sessionInfo, files, aadhaarMode]);
 
@@ -663,13 +682,13 @@ export default function DealerReuploadPage({ token, onDone }) {
                       {aadhaarMode === "photos" ? (
                         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                           <DocumentZone docType="aadhaar_front" file={files.aadhaar_front || null}
-                            onChange={(f) => setFiles(prev => ({ ...prev, aadhaar_front: f }))} />
+                            onChange={(f) => setFiles(prev => ({ ...prev, aadhaar_front: f }))} disabled={submitting} />
                           <DocumentZone docType="aadhaar_back" file={files.aadhaar_back || null}
-                            onChange={(f) => setFiles(prev => ({ ...prev, aadhaar_back: f }))} />
+                            onChange={(f) => setFiles(prev => ({ ...prev, aadhaar_back: f }))} disabled={submitting} />
                         </div>
                       ) : (
                         <DocumentZone docType="aadhaar" file={files.aadhaar || null}
-                          onChange={(f) => setFiles(prev => ({ ...prev, aadhaar: f }))} />
+                          onChange={(f) => setFiles(prev => ({ ...prev, aadhaar: f }))} disabled={submitting} />
                       )}
                     </div>
                   )}
@@ -681,6 +700,7 @@ export default function DealerReuploadPage({ token, onDone }) {
                       docType={docType}
                       file={files[docType]}
                       onChange={(f) => setFiles(prev => ({ ...prev, [docType]: f }))}
+                      disabled={submitting}
                     />
                   ))}
                 </div>
@@ -719,13 +739,14 @@ export default function DealerReuploadPage({ token, onDone }) {
               )}
 
               <button
+                type="button"
                 onClick={handleSubmit}
                 disabled={submitting || !allDocsProvided}
                 style={{
                   width: "100%",
                   padding: "14px",
                   background: submitting || !allDocsProvided
-                    ? "#9ca3af"
+                    ? (submitting ? "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)" : "#9ca3af")
                     : "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
                   color: "white",
                   border: "none",
@@ -734,15 +755,31 @@ export default function DealerReuploadPage({ token, onDone }) {
                   fontWeight: 600,
                   cursor: submitting || !allDocsProvided ? "not-allowed" : "pointer",
                   display: "flex",
+                  flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
-                  gap: 8,
+                  gap: 6,
                   transition: "all 0.2s",
                   boxShadow: submitting || !allDocsProvided ? "none" : "0 4px 12px rgba(46,125,82,0.3)",
+                  opacity: submitting ? 0.9 : 1,
                 }}
               >
                 {submitting ? (
-                  <><RefreshCw size={16} style={{ animation: "spin 1s linear infinite" }} /> {converting ? "Compressing files..." : "Uploading documents..."}</>
+                  <>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <RefreshCw size={16} style={{ animation: "spin 1s linear infinite" }} />
+                      {uploadProgress.total > 0
+                        ? `Processing ${uploadProgress.current} of ${uploadProgress.total} — ${uploadProgress.currentDoc}`
+                        : converting ? "Compressing files..." : "Uploading documents..."
+                      }
+                    </span>
+                    {uploadProgress.total > 0 && (
+                      <div style={{ width: "100%", height: 4, background: "rgba(255,255,255,0.2)", borderRadius: 3, overflow: "hidden", marginTop: 4 }}>
+                        <div style={{ height: "100%", width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%`, background: "rgba(255,255,255,0.8)", borderRadius: 3, transition: "width 0.4s ease" }} />
+                      </div>
+                    )}
+                    {elapsed > 2 && <span style={{ fontSize: 11, opacity: 0.7 }}>{elapsed}s elapsed</span>}
+                  </>
                 ) : (
                   <><Upload size={16} /> Submit Documents</>
                 )}
