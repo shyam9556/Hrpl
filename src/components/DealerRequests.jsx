@@ -1207,22 +1207,6 @@ ${pdfLine}`;
                         style={q.status === "ReuploadRequested" ? { fontSize: "11px", padding: "3px 8px", borderRadius: "6px", background: "#b45309", color: "#fff", fontWeight: 700, alignSelf: "flex-start" } : { fontSize: "11px", padding: "3px 8px", borderRadius: "6px", alignSelf: "flex-start" }}>
                         {q.status === "ReuploadRequested" ? "Re-upload Requested" : q.status}
                       </span>
-                      {q.status === "ReuploadRequested" && (
-                        <button
-                          onClick={() => openPortalReuploadModal(q)}
-                          style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: "rgba(220,38,38,0.08)", color: "#dc2626", border: "1px solid rgba(220,38,38,0.2)", cursor: "pointer", whiteSpace: "nowrap" }}
-                        >
-                          <RefreshCw size={9} /> Re-upload Documents
-                        </button>
-                      )}
-                      {q.status === "Approved" && q.geotag_reupload_requested ? (
-                        <button
-                          onClick={() => openGeotagModal(q)}
-                          style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: "rgba(234,88,12,0.08)", color: "#ea580c", border: "1px solid rgba(234,88,12,0.2)", cursor: "pointer", whiteSpace: "nowrap" }}
-                        >
-                          <Camera size={9} /> Re-upload Geo-Tags
-                        </button>
-                      ) : null}
                     </div>
                   </td>
                   )}
@@ -1313,15 +1297,6 @@ ${pdfLine}`;
                         onMouseOut={e => { if (sharingEmailId !== q.id) { e.currentTarget.style.background = "rgba(46, 125, 82, 0.08)"; e.currentTarget.style.color = "var(--green)"; } }}
                       >
                         {sharingEmailId === q.id ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
-                      </button>
-                      {/* ── Copy ── */}
-                      <button
-                        onClick={() => copyToClipboard(q)}
-                        disabled={sharingCopyId === q.id}
-                        title="Copy to Clipboard"
-                        style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "6px", borderRadius: 8, background: copiedId === q.id ? "rgba(46, 125, 82, 0.1)" : "rgba(107, 101, 96, 0.06)", color: copiedId === q.id ? "var(--green)" : "var(--muted)", border: copiedId === q.id ? "1px solid var(--green)" : "1px solid rgba(107, 101, 96, 0.12)", cursor: sharingCopyId === q.id ? "not-allowed" : "pointer", opacity: sharingCopyId === q.id ? 0.6 : 1, transition: "all 0.2s" }}
-                      >
-                        {sharingCopyId === q.id ? <Loader2 size={13} className="animate-spin" /> : copiedId === q.id ? <Check size={13} /> : <Copy size={13} />}
                       </button>
                       </>)}
                     </div>
@@ -1482,10 +1457,6 @@ ${pdfLine}`;
                       <button onClick={e => { e.stopPropagation(); shareEmail(q); }} disabled={sharingEmailId === q.id} title="Share via Email"
                         style={{ padding: "7px", borderRadius: 8, background: "rgba(46,125,82,0.08)", color: "var(--green)", border: "1px solid rgba(46,125,82,0.15)", cursor: "pointer", display: "flex", alignItems: "center" }}>
                         {sharingEmailId === q.id ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
-                      </button>
-                      <button onClick={e => { e.stopPropagation(); copyToClipboard(q); }} title="Copy"
-                        style={{ padding: "7px", borderRadius: 8, background: copiedId === q.id ? "rgba(46,125,82,0.1)" : "rgba(107,101,96,0.06)", color: copiedId === q.id ? "var(--green)" : "var(--muted)", border: copiedId === q.id ? "1px solid var(--green)" : "1px solid rgba(107,101,96,0.12)", cursor: "pointer", display: "flex", alignItems: "center" }}>
-                        {sharingCopyId === q.id ? <Loader2 size={14} className="animate-spin" /> : copiedId === q.id ? <Check size={14} /> : <Copy size={14} />}
                       </button>
                     </div>
                   </div>
@@ -2152,18 +2123,19 @@ ${pdfLine}`;
 
                         {/* ── Other documents ── */}
                         {otherDocs.length > 0 && (
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
+                          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 16 }}>
                             {otherDocs.map(docType => {
                               const file = portalReuploadFiles[docType];
                               const isUploaded = portalUploadedDocs.has(docType);
                               const isLocked = portalReuploadLoading || isUploaded;
                               return (
                                 <div key={docType} style={{
+                                  flex: "1 1 150px", maxWidth: 190, minWidth: 150,
                                   border: `1.5px dashed ${isUploaded ? "#16a34a" : file ? "#2E7D52" : "rgba(0,0,0,0.18)"}`,
-                                  borderRadius: 14, padding: "14px 14px 12px",
+                                  borderRadius: 14, padding: "16px 14px 14px",
                                   background: isUploaded ? "rgba(22,163,74,0.06)" : file ? "rgba(46,125,82,0.03)" : "#fafafa",
                                   display: "flex", flexDirection: "column", alignItems: "center",
-                                  gap: 10, transition: "all 0.2s",
+                                  gap: 12, transition: "all 0.2s",
                                   pointerEvents: isLocked ? "none" : "auto",
                                   opacity: isLocked ? 0.7 : 1,
                                   position: "relative",
@@ -2278,36 +2250,31 @@ ${pdfLine}`;
                   </div>
                 )}
 
-                <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
-                  <button
-                    onClick={() => setPortalReuploadModal(null)}
-                    className="btn-sm"
-                    style={{ background: "white", color: "var(--text)", border: "1px solid rgba(0,0,0,0.1)", borderRadius: 8, padding: "8px 16px", cursor: portalReuploadLoading ? "not-allowed" : "pointer" }}
-                    disabled={portalReuploadLoading}
-                  >
-                    Cancel
-                  </button>
+                <div style={{ display: "flex", justifyContent: "center", marginTop: 6, marginBottom: 4 }}>
                   <button
                     onClick={handlePortalReuploadSubmit}
                     disabled={portalReuploadLoading}
                     style={{
-                      display: "flex", alignItems: "center", gap: 6,
-                      padding: "8px 20px", borderRadius: 8, border: "none",
+                      display: "flex", alignItems: "center", gap: 8,
+                      padding: "10px 28px", borderRadius: 10, border: "none",
                       cursor: portalReuploadLoading ? "not-allowed" : "pointer",
                       background: portalReuploadLoading
                         ? "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)"
                         : "linear-gradient(135deg, #1C3A2A 0%, #2E7D52 100%)",
-                      color: "white", fontWeight: 700, fontSize: 13,
+                      color: "white", fontWeight: 700, fontSize: 14,
                       boxShadow: "0 4px 12px rgba(46,125,82,0.25)",
                       opacity: portalReuploadLoading ? 0.85 : 1,
+                      transition: "transform 0.1s, box-shadow 0.1s",
                     }}
+                    onMouseOver={e => !portalReuploadLoading && (e.currentTarget.style.transform = "translateY(-1px)", e.currentTarget.style.boxShadow = "0 6px 16px rgba(46,125,82,0.3)")}
+                    onMouseOut={e => !portalReuploadLoading && (e.currentTarget.style.transform = "translateY(0)", e.currentTarget.style.boxShadow = "0 4px 12px rgba(46,125,82,0.25)")}
                   >
                     {portalReuploadLoading ? (
-                      <><Loader2 size={14} className="animate-spin" /> Uploading...</>
+                      <><Loader2 size={16} className="animate-spin" /> Uploading...</>
                     ) : portalUploadedDocs.size > 0 ? (
-                      <><RefreshCw size={14} /> Retry Upload ({portalUploadedDocs.size} done)</>
+                      <><RefreshCw size={16} /> Retry Upload ({portalUploadedDocs.size} done)</>
                     ) : (
-                      <><Check size={14} /> Submit Documents</>
+                      <><Check size={16} strokeWidth={2.5} /> Submit Documents</>
                     )}
                   </button>
                 </div>
