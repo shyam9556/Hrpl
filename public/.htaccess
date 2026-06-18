@@ -1,12 +1,3 @@
-# ── PHP Limits for File Uploads ────────────────────────────────
-# Registration sends all document photos as base64 in one JSON payload,
-# which can be 5-15MB. These limits ensure PHP doesn't silently truncate.
-php_value upload_max_filesize 50M
-php_value post_max_size 55M
-php_value max_execution_time 300
-php_value max_input_time 300
-php_value memory_limit 256M
-
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
