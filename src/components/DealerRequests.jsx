@@ -925,7 +925,7 @@ ${pdfLine}`;
   }, [list, search]);
 
   // ── Column visibility per active tab (mirrors admin logic) ───────────────
-  const showStatus   = filter === "";                              // redundant on single-status tabs
+  const showStatus   = filter === "" || filter === "ReuploadRequested"; // Show on All tab and Re-upload tab
   const showDelivery = filter === "" || filter === "Approved";    // only meaningful post-approval
   const showGeoTags  = filter === "" || filter === "Approved";    // only meaningful post-approval
   const showActions  = filter !== "Rejected";                     // share buttons hidden for Rejected
@@ -1187,7 +1187,8 @@ ${pdfLine}`;
                   {showStatus && (
                   <td style={{ padding: "14px 16px", verticalAlign: "middle" }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      <span className={`badge ${q.status === "Approved" ? "badge-green" : q.status === "Rejected" ? "badge-red" : "badge-sun"}`} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", alignSelf: "flex-start" }}>
+                      <span className={`badge ${q.status === "Approved" ? "badge-green" : q.status === "Rejected" ? "badge-red" : q.status === "ReuploadRequested" ? "" : "badge-sun"}`}
+                        style={q.status === "ReuploadRequested" ? { fontSize: "11px", padding: "3px 8px", borderRadius: "6px", background: "#b45309", color: "#fff", fontWeight: 700, alignSelf: "flex-start" } : { fontSize: "11px", padding: "3px 8px", borderRadius: "6px", alignSelf: "flex-start" }}>
                         {q.status === "ReuploadRequested" ? "Re-upload Requested" : q.status}
                       </span>
                       {q.status === "ReuploadRequested" && (
@@ -1319,8 +1320,9 @@ ${pdfLine}`;
           {/* ── Mobile Card List (< 768px) ─────────────────────────────────── */}
           <div className="q-card-list">
             {filteredList.map(q => {
-              const statusLabel = q.status === "ReuploadRequested" ? "Re-upload" : q.status;
-              const statusClass = q.status === "Approved" ? "badge-green" : q.status === "Rejected" ? "badge-red" : "badge-sun";
+              const statusLabel = q.status === "ReuploadRequested" ? "Re-upload Requested" : q.status;
+              const statusClass = q.status === "Approved" ? "badge-green" : q.status === "Rejected" ? "badge-red" : q.status === "ReuploadRequested" ? "" : "badge-sun";
+              const statusStyle = q.status === "ReuploadRequested" ? { background: "#b45309", color: "#fff", fontWeight: 700 } : {};
               const needsDocReupload  = q.status === "ReuploadRequested";
               const needsGeoReupload  = q.status === "Approved" && !!q.geotag_reupload_requested;
               const geoCount = ["geotag_1","geotag_2","geotag_3"].filter(t => q.documents?.some(d => d.doc_type === t)).length;
@@ -1343,7 +1345,7 @@ ${pdfLine}`;
                         )}
                       </div>
                     </div>
-                    <span className={`badge ${statusClass}`} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", flexShrink: 0 }}>
+                    <span className={`badge ${statusClass}`} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", flexShrink: 0, ...statusStyle }}>
                       {statusLabel}
                     </span>
                   </div>

@@ -774,7 +774,7 @@ export default function DealerRequestsAdmin() {
   const approvedGeotagCount = reviewItems.filter(r => r.geotag_needs_review           && r.status === "Approved").length;
 
   // ── Column visibility per active tab ──────────────────────────────────────────
-  const showStatus   = filter === "";                             // Only All tab has mixed statuses
+  const showStatus   = filter === "" || filter === "ReuploadRequested"; // Show status on All tab and Re-upload tab
   const showDelivery = filter === "" || filter === "Approved";    // Only meaningful post-approval
   const showGeoTags  = filter === "" || filter === "Approved";    // Only meaningful post-approval
   const showActions  = filter !== "Rejected";                     // No actions exist for Rejected
@@ -1216,7 +1216,8 @@ export default function DealerRequestsAdmin() {
                   </td>
                   {showStatus && (
                   <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
-                    <span className={`badge ${q.status === "Approved" ? "badge-green" : q.status === "Rejected" ? "badge-red" : "badge-sun"}`} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px" }}>
+                    <span className={`badge ${q.status === "Approved" ? "badge-green" : q.status === "Rejected" ? "badge-red" : q.status === "ReuploadRequested" ? "" : "badge-sun"}`}
+                      style={q.status === "ReuploadRequested" ? { fontSize: "11px", padding: "3px 8px", borderRadius: "6px", background: "#b45309", color: "#fff", fontWeight: 700 } : { fontSize: "11px", padding: "3px 8px", borderRadius: "6px" }}>
                       {q.status === "ReuploadRequested" ? "Re-upload" : q.status}
                     </span>
                   </td>
@@ -1652,7 +1653,8 @@ export default function DealerRequestsAdmin() {
                       ? <Check size={14} style={{ color: "var(--green)" }} />
                       : <Copy size={12} style={{ color: "var(--muted)", opacity: 0.6 }} />}
                   </span>
-                  <span className={`badge ${selectedQuotation.status === "Approved" ? "badge-green" : selectedQuotation.status === "Rejected" ? "badge-red" : "badge-sun"}`}>
+                  <span className={`badge ${selectedQuotation.status === "Approved" ? "badge-green" : selectedQuotation.status === "Rejected" ? "badge-red" : selectedQuotation.status === "ReuploadRequested" ? "" : "badge-sun"}`}
+                    style={selectedQuotation.status === "ReuploadRequested" ? { background: "#b45309", color: "#fff", fontWeight: 700 } : {}}>
                     {selectedQuotation.status}
                   </span>
                 </div>
