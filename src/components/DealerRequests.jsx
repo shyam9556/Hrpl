@@ -433,19 +433,11 @@ export default function DealerRequests() {
   useEffect(() => { setPage(1); }, [search]);
   // fetchQuotations re-runs on filter or page change (paginated, filter-sensitive)
   useEffect(() => { fetchQuotations(); }, [filter, page]);
-  // fetchGlobalData runs once on mount and then every 30s to catch
-  // status changes pushed by admin (reupload requests, approvals, etc.)
-  // without needing a WebSocket connection. Also refreshes when the
-  // dealer switches back to this browser tab.
+  // fetchGlobalData runs once on mount — SSE keeps it updated in real time.
+  // Visibility change ensures banner refreshes when dealer returns to the tab.
   useEffect(() => { fetchGlobalData(); }, []);
 
-  // 30-second polling — keeps Action Required banners up to date
-  useEffect(() => {
-    const id = setInterval(() => { fetchGlobalData(); }, 30_000);
-    return () => clearInterval(id);
-  }, [fetchGlobalData]);
-
-  // Refresh immediately when dealer returns to this tab (visibility change)
+  // Refresh immediately when dealer returns to this browser tab
   useEffect(() => {
     const onVisible = () => { if (document.visibilityState === "visible") fetchGlobalData(); };
     document.addEventListener("visibilitychange", onVisible);
