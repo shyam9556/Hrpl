@@ -1492,6 +1492,34 @@ ${pdfLine}`;
                 </div>
               );
             })}
+            {/* ── Dealer mobile: Re-upload tab — inject Awaiting Review cards ── */}
+            {filter === "ReuploadRequested" && awaitingReviewItems.length > 0 && (
+              <>
+                <div style={{ padding: "7px 16px", fontSize: 11, fontWeight: 700, color: "#065f46", background: "rgba(16,185,129,0.06)", borderTop: "1px solid rgba(16,185,129,0.18)", borderBottom: "1px solid rgba(16,185,129,0.18)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  ✓ Submitted — Awaiting Admin Review ({awaitingReviewItems.length})
+                </div>
+                {awaitingReviewItems.map(q => (
+                  <div key={`mob-ar-${q.id}`} className="q-card"
+                    style={{ borderLeft: "3px solid #10b981", background: "rgba(16,185,129,0.03)" }}
+                    onClick={() => setSelectedQuotation(q)}
+                  >
+                    <div className="q-card-header">
+                      <div>
+                        <div className="q-card-number">{q.quotation_number}</div>
+                      </div>
+                      <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", background: "rgba(16,185,129,0.12)", color: "#065f46", fontWeight: 700, border: "1px solid rgba(16,185,129,0.25)", flexShrink: 0 }}>✓ Awaiting Review</span>
+                    </div>
+                    <div className="q-card-body">
+                      <div className="q-card-field"><span className="q-card-field-label">Date</span><span className="q-card-field-value muted">{new Date(q.created_at).toLocaleDateString("en-IN")}</span></div>
+                      <div className="q-card-field"><span className="q-card-field-label">Customer</span><span className="q-card-field-value">{q.customer_name || "—"}</span></div>
+                      <div className="q-card-field"><span className="q-card-field-label">Capacity</span><span className="q-card-field-value">{Number(q.system_kw).toFixed(2)} kW</span></div>
+                      <div className="q-card-field"><span className="q-card-field-label">Price</span><span className="q-card-field-value mono">{fmt(q.effective_price)}</span></div>
+                    </div>
+                    <div className="q-card-footer"><span style={{ fontSize: 11, color: "var(--muted)" }}>Tap to view details</span></div>
+                  </div>
+                ))}
+              </>
+            )}
           </div>{/* end q-card-list */}
 
           {pagination.totalPages > 1 && (

@@ -1180,7 +1180,8 @@ export default function DealerRequestsAdmin() {
                   // Row background tint: amber for urgent items (re-uploaded docs, geo-tag review, responded re-upload)
                   const rowNeedsAmberTint =
                     (filter === "Pending"           && isDocsReview) ||
-                    (filter === "Approved"          && isGeotagReview);
+                    (filter === "Approved"          && isGeotagReview) ||
+                    (filter === "ReuploadRequested" && isResponded);
 
                   rows.push((
                 <tr
@@ -1573,6 +1574,52 @@ export default function DealerRequestsAdmin() {
                 </div>
               );
             })}
+            {/* ── Admin mobile: Re-upload tab — inject Dealer Responded cards ── */}
+            {filter === "ReuploadRequested" && respondedRows.length > 0 && (
+              <>
+                <div style={{ padding: "7px 16px", fontSize: 11, fontWeight: 700, color: "#b45309", background: "rgba(245,158,11,0.06)", borderTop: "1px solid rgba(245,158,11,0.18)", borderBottom: "1px solid rgba(245,158,11,0.18)", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 6 }}>
+                  <CheckCircle size={11} /> Dealer Responded — Review Required ({respondedRows.length})
+                </div>
+                {respondedRows.map(q => {
+                  const statusLabel = q.status;
+                  return (
+                    <div key={`mob-ar-${q.id}`} className="q-card" onClick={() => setSelectedQuotation(q)}
+                      style={{ borderLeft: "3px solid #f59e0b", background: "rgba(245,158,11,0.025)" }}>
+                      <div className="q-card-header">
+                        <div>
+                          <div className="q-card-number">{q.quotation_number}</div>
+                          <div className="q-card-badges">
+                            <span style={{ display: "inline-block", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: "rgba(245,158,11,0.15)", color: "#b45309", border: "1px solid rgba(245,158,11,0.3)" }}>
+                              ✓ Docs Submitted
+                            </span>
+                          </div>
+                        </div>
+                        <span className="badge badge-sun" style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", flexShrink: 0 }}>{statusLabel}</span>
+                      </div>
+                      <div className="q-card-body">
+                        <div className="q-card-field"><span className="q-card-field-label">Date</span><span className="q-card-field-value muted">{new Date(q.created_at).toLocaleDateString("en-IN")}</span></div>
+                        <div className="q-card-field"><span className="q-card-field-label">Dealer</span><span className="q-card-field-value">{q.dealer_name || "—"}</span></div>
+                        <div className="q-card-field"><span className="q-card-field-label">Customer</span><span className="q-card-field-value">{q.customer_name || "—"}</span></div>
+                        <div className="q-card-field"><span className="q-card-field-label">Capacity</span><span className="q-card-field-value">{Number(q.system_kw).toFixed(2)} kW</span></div>
+                      </div>
+                      <div className="q-card-footer" onClick={e => e.stopPropagation()}>
+                        <span style={{ fontSize: 11, color: "var(--muted)" }}>Tap to review</span>
+                        <div className="q-card-actions">
+                          <button className="btn-sm" style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(46,125,82,0.08)", color: "var(--green)", border: "1px solid rgba(46,125,82,0.15)", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+                            onClick={e => { e.stopPropagation(); setStatusConfirm({ id: q.id, status: "Approved", number: q.quotation_number }); }}>
+                            <CheckCircle size={13} /> Approve
+                          </button>
+                          <button className="btn-sm danger" style={{ padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+                            onClick={e => { e.stopPropagation(); setStatusConfirm({ id: q.id, status: "Rejected", number: q.quotation_number }); }}>
+                            <XCircle size={13} /> Reject
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
           </div>{/* end q-card-list */}
 
           {/* Pagination Controls */}
