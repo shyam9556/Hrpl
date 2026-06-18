@@ -1021,7 +1021,7 @@ export default function DealerRequestsAdmin() {
 
           <div className="q-table-wrap">
           <div className="table-scroll-wrap">
-          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", minWidth: filter === "" ? "900px" : filter === "Approved" ? "820px" : "640px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", minWidth: filter === "" ? "900px" : filter === "Approved" ? "820px" : filter === "ReuploadRequested" ? "760px" : "640px" }}>
             <thead>
               <tr>
                 <th style={{ padding: "12px 16px", fontWeight: 600, fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", textAlign: "left", width: "170px", whiteSpace: "nowrap" }}>Quotation #</th>
@@ -1655,7 +1655,7 @@ export default function DealerRequestsAdmin() {
                   </span>
                   <span className={`badge ${selectedQuotation.status === "Approved" ? "badge-green" : selectedQuotation.status === "Rejected" ? "badge-red" : selectedQuotation.status === "ReuploadRequested" ? "" : "badge-sun"}`}
                     style={selectedQuotation.status === "ReuploadRequested" ? { background: "#b45309", color: "#fff", fontWeight: 700 } : {}}>
-                    {selectedQuotation.status}
+                    {selectedQuotation.status === "ReuploadRequested" ? "Re-upload Requested" : selectedQuotation.status}
                   </span>
                 </div>
                 <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
