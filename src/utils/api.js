@@ -450,15 +450,15 @@ export const uploads = {
   updateCoordinates: (id, latitude, longitude) =>
     request(`/uploads/${id}/coordinates`, { method: "PATCH", body: { latitude, longitude } }),
 
-  // Download multiple documents as a single ZIP archive (IMP-8).
-  // ids: array of document IDs.
+  // Download multiple documents as a single ZIP archive.
+  // Goes directly to Railway — bypasses PHP proxy to avoid buffering a large ZIP.
   downloadZip: async (ids, zipFilename = "documents.zip") => {
     const token = getToken();
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60_000); // 60s for large downloads
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
     try {
       const qs = ids.join(",");
-      const response = await fetch(`${API_BASE}/uploads/zip?ids=${qs}`, {
+      const response = await fetch(`${RAILWAY_BASE}/uploads/zip?ids=${qs}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         signal: controller.signal,
       });
@@ -488,26 +488,30 @@ export const uploads = {
 // Used for reupload API calls that have their own short-lived JWT.
 // Prevents the main app token from being sent alongside the reupload JWT,
 // which would cause spurious session-expired events on 401 errors.
+// @param {boolean} options.direct — if true, sends to RAILWAY_BASE instead of API_BASE
 async function requestIsolated(endpoint, options = {}) {
+  const base = options.direct ? RAILWAY_BASE : API_BASE;
+  const { direct: _direct, ...restOptions } = options; // strip the 'direct' flag
+
   const config = {
-    ...options,
+    ...restOptions,
     headers: {
-      ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...options.headers, // caller provides Authorization: Bearer <reuploadJwt>
+      ...(restOptions.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+      ...restOptions.headers,
     },
   };
 
-  if (options.body && !(options.body instanceof FormData)) {
-    config.body = JSON.stringify(options.body);
+  if (restOptions.body && !(restOptions.body instanceof FormData)) {
+    config.body = JSON.stringify(restOptions.body);
   }
 
   const controller = new AbortController();
-  const timeoutMs = options.timeout || REQUEST_TIMEOUT_MS;
+  const timeoutMs = restOptions.timeout || REQUEST_TIMEOUT_MS;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   config.signal = controller.signal;
 
   try {
-    const response = await fetch(`${API_BASE}${endpoint}`, config);
+    const response = await fetch(`${base}${endpoint}`, config);
     clearTimeout(timeoutId);
 
     const contentType = response.headers.get("content-type");
@@ -552,25 +556,21 @@ async function requestIsolated(endpoint, options = {}) {
 // the reupload session and any active main-app session.
 // ═══════════════════════════════════════════════════════════
 export const reupload = {
-  // Lightweight validity probe — checks if the raw URL token is still valid.
-  // Returns { valid: true } on success, throws on 400 (expired/used/not found).
-  // Does NOT require a password.
   probe: (token) =>
     requestIsolated(`/auth/reupload/probe?token=${encodeURIComponent(token)}`),
 
-  // Step 1: Verify token + registration password, get back a short-lived re-upload JWT
-  // No auth header needed — this is a public endpoint (rate-limited on server)
   verify: (token, password) =>
     requestIsolated("/auth/reupload/verify", { method: "POST", body: { token, password } }),
 
-  // Get info about the re-upload session (dealer name, reason, required docs)
   getInfo: (reuploadJwt) =>
     requestIsolated("/auth/reupload/info", { headers: { Authorization: `Bearer ${reuploadJwt}` } }),
 
-  // Step 2: Submit new documents
+  // submit sends large base64-encoded documents — MUST bypass PHP proxy
+  // (PHP post_max_size limit + double-buffering would cause failures on large docs)
   submit: (reuploadJwt, documents) =>
     requestIsolated("/auth/reupload/submit", {
       method: "POST",
+      direct: true, // → goes to RAILWAY_BASE instead of API_BASE
       headers: { Authorization: `Bearer ${reuploadJwt}` },
       body: documents,
       timeout: UPLOAD_TIMEOUT_MS,
@@ -587,9 +587,11 @@ export const reuploadQuotation = {
   getInfo: (reuploadJwt) =>
     requestIsolated("/auth/reupload-quotation/info", { headers: { Authorization: `Bearer ${reuploadJwt}` } }),
 
+  // submit sends large base64-encoded documents — MUST bypass PHP proxy
   submit: (reuploadJwt, documents) =>
     requestIsolated("/auth/reupload-quotation/submit", {
       method: "POST",
+      direct: true, // → goes to RAILWAY_BASE instead of API_BASE
       headers: { Authorization: `Bearer ${reuploadJwt}` },
       body: documents,
       timeout: UPLOAD_TIMEOUT_MS,
