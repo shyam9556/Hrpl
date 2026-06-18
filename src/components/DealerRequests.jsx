@@ -945,8 +945,15 @@ ${pdfLine}`;
   const reviewItems   = globalList.filter(q =>
     q.status === "ReuploadRequested" || (q.status === "Approved" && !!q.geotag_reupload_requested)
   );
+  // Items dealer already submitted but admin hasn't reviewed yet
+  const awaitingReviewItems = globalList.filter(q =>
+    q.status === "Pending" && !!q.needs_review_after_reupload
+  );
   // Tab badge counts ("Admin needs action FROM me")
   const reuploadBadge = globalList.filter(q => q.status === "ReuploadRequested").length;
+  // Re-upload tab badge also counts submitted-awaiting-review items so the tab
+  // stays highlighted until admin finishes reviewing.
+  const awaitingReviewBadge = awaitingReviewItems.length;
   const geotagBadge   = globalList.filter(q => q.status === "Approved" && !!q.geotag_reupload_requested).length;
   // Stats — accurate global counts across all pages and tabs
   const statsTotal    = globalList.length;
@@ -996,7 +1003,7 @@ ${pdfLine}`;
         <div className="hide-scrollbar" style={{ display: "flex", overflowX: "auto", gap: 8, WebkitOverflowScrolling: "touch", paddingBottom: 4, flex: 1, minWidth: 0 }}>
           {["", "Pending", "Approved", "Rejected", "ReuploadRequested"].map(s => {
             const badge =
-              s === "ReuploadRequested" ? reuploadBadge :
+              s === "ReuploadRequested" ? (reuploadBadge + awaitingReviewBadge) :
               s === "Approved"          ? geotagBadge   : 0;
             return (
               <button
@@ -1055,7 +1062,7 @@ ${pdfLine}`;
           message="Something went wrong while fetching your requests. Please try again."
           onRetry={() => { setFetchError(false); fetchQuotations(true); }}
         />
-      ) : list.length === 0 ? (
+      ) : list.length === 0 && !(filter === "ReuploadRequested" && awaitingReviewItems.length > 0) ? (
         <div className="card" style={{ textAlign: "center", padding: "3rem", color: "var(--muted)" }}>
           <div style={{ marginBottom: 12 }}><ClipboardList size={40} strokeWidth={1} /></div>
           <div style={{ fontSize: 16, fontWeight: 600 }}>
@@ -1321,6 +1328,54 @@ ${pdfLine}`;
                   </td>
                 </tr>
               ))}
+              {/* ── Awaiting Admin Review section — dealer submitted, admin hasn't reviewed yet ── */}
+              {filter === "ReuploadRequested" && awaitingReviewItems.length > 0 && (() => {
+                const colCount = 5 + (showStatus ? 1 : 0) + (showDelivery ? 1 : 0) + (showGeoTags ? 1 : 0) + 1;
+                return (
+                  <>
+                    <tr style={{ background: "rgba(16,185,129,0.06)", pointerEvents: "none" }}>
+                      <td colSpan={colCount} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "#065f46", borderBottom: "1px solid rgba(16,185,129,0.18)", borderTop: "1px solid rgba(16,185,129,0.18)", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                        ✓ Submitted — Awaiting Admin Review ({awaitingReviewItems.length})
+                      </td>
+                    </tr>
+                    {awaitingReviewItems.map(q => (
+                      <tr key={`ar-${q.id}`}
+                        style={{ borderBottom: "1px solid rgba(0,0,0,0.04)", background: "rgba(16,185,129,0.03)", transition: "background 0.2s", cursor: "pointer" }}
+                        className="table-row-hover"
+                        onClick={() => setSelectedQuotation(q)}
+                      >
+                        <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
+                          <div style={{ fontWeight: 600, fontFamily: "var(--mono)", color: "var(--text)", fontSize: "13px" }}>{q.quotation_number}</div>
+                        </td>
+                        <td style={{ padding: "14px 16px", verticalAlign: "middle", color: "var(--muted)", fontSize: "13px" }}>
+                          {new Date(q.created_at).toLocaleDateString("en-IN")}
+                        </td>
+                        <td style={{ padding: "14px 16px", verticalAlign: "middle", fontWeight: 600, color: "var(--text)", fontSize: "13px" }}>
+                          {q.customer_name || "-"}
+                        </td>
+                        <td style={{ padding: "14px 16px", verticalAlign: "middle", color: "var(--text)", fontSize: "13px" }}>
+                          {Number(q.system_kw).toFixed(2)} kW
+                        </td>
+                        <td style={{ padding: "14px 16px", verticalAlign: "middle", fontFamily: "var(--mono)", color: "var(--green)", fontWeight: 700, fontSize: "14px" }}>
+                          {fmt(q.effective_price)}
+                        </td>
+                        {showStatus && (
+                          <td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
+                            <span style={{ fontSize: "11px", padding: "3px 10px", borderRadius: "6px", background: "rgba(16,185,129,0.12)", color: "#065f46", fontWeight: 700, border: "1px solid rgba(16,185,129,0.25)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                              ✓ Submitted — Awaiting Review
+                            </span>
+                          </td>
+                        )}
+                        {showDelivery && <td style={{ padding: "14px 16px", verticalAlign: "middle", textAlign: "center" }}><span style={{ color: "var(--muted)", fontSize: "12px" }}>-</span></td>}
+                        {showGeoTags  && <td style={{ padding: "14px 16px", verticalAlign: "middle", textAlign: "center" }}><span style={{ color: "var(--muted)", fontSize: "12px" }}>-</span></td>}
+                        <td style={{ padding: "14px 16px", verticalAlign: "middle", textAlign: "center" }}>
+                          <span style={{ fontSize: 11, color: "var(--muted)" }}>—</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </>
+                );
+              })()}
             </tbody>
           </table>
           </div>{/* end table-scroll-wrap */}

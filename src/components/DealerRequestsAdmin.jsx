@@ -1061,11 +1061,23 @@ export default function DealerRequestsAdmin() {
                 // Re-upload tab : responded (flag=1) first, waiting second
                 // Pending tab   : re-uploaded docs (flag=1) first, new quotations second
                 // Approved tab  : geo-tag review (flag=1) first, normal approved second
+                // For the Re-upload tab we need TWO groups:
+                //   1. "Dealer Responded" — status=Pending, needs_review_after_reupload=1
+                //      These are NOT in `list` (which only has ReuploadRequested rows).
+                //      We pull them from reviewItems and merge them in.
+                //   2. "Awaiting Dealer Response" — status=ReuploadRequested in `list`
+                //      (dealer hasn't submitted yet)
+                const respondedRows = filter === "ReuploadRequested"
+                  ? reviewItems.filter(r => r.needs_review_after_reupload)
+                  : [];
+                // Avoid duplicates in case a row appears in both (shouldn't, but defensive)
+                const respondedRowIds = new Set(respondedRows.map(r => r.id));
+
                 const displayList =
                   filter === "ReuploadRequested"
                     ? [
-                        ...baseList.filter(q =>  respondedIds.has(q.id)),
-                        ...baseList.filter(q => !respondedIds.has(q.id)),
+                        ...respondedRows,
+                        ...baseList.filter(q => !respondedRowIds.has(q.id)),
                       ]
                   : filter === "Pending"
                     ? [
@@ -1081,7 +1093,7 @@ export default function DealerRequestsAdmin() {
 
                 // Counts used to position section headers correctly
                 const respondedCount = filter === "ReuploadRequested"
-                  ? baseList.filter(q => respondedIds.has(q.id)).length : 0;
+                  ? respondedRows.length : 0;
                 const pendingDocsCount = filter === "Pending"
                   ? baseList.filter(q => q.needs_review_after_reupload).length : 0;
                 const pendingNewCount  = filter === "Pending"
@@ -1092,7 +1104,7 @@ export default function DealerRequestsAdmin() {
                   ? baseList.filter(q => !q.geotag_needs_review).length : 0;
 
                 return displayList.flatMap((q, idx) => {
-                  const isResponded   = respondedIds.has(q.id);
+                  const isResponded   = respondedRowIds.has(q.id);
                   const isDocsReview  = !!q.needs_review_after_reupload;
                   const isGeotagReview = !!q.geotag_needs_review;
                   const rows = [];
