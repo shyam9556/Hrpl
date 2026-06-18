@@ -1575,12 +1575,14 @@ export default function DealerRequestsAdmin() {
               );
             })}
             {/* ── Admin mobile: Re-upload tab — inject Dealer Responded cards ── */}
-            {filter === "ReuploadRequested" && respondedRows.length > 0 && (
+            {filter === "ReuploadRequested" && reviewItems.some(r => r.needs_review_after_reupload) && (() => {
+              const mobileRespondedRows = reviewItems.filter(r => r.needs_review_after_reupload);
+              return (
               <>
                 <div style={{ padding: "7px 16px", fontSize: 11, fontWeight: 700, color: "#b45309", background: "rgba(245,158,11,0.06)", borderTop: "1px solid rgba(245,158,11,0.18)", borderBottom: "1px solid rgba(245,158,11,0.18)", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 6 }}>
-                  <CheckCircle size={11} /> Dealer Responded — Review Required ({respondedRows.length})
+                  <CheckCircle size={11} /> Dealer Responded — Review Required ({mobileRespondedRows.length})
                 </div>
-                {respondedRows.map(q => {
+                {mobileRespondedRows.map(q => {
                   const statusLabel = q.status;
                   return (
                     <div key={`mob-ar-${q.id}`} className="q-card" onClick={() => setSelectedQuotation(q)}
@@ -1619,7 +1621,7 @@ export default function DealerRequestsAdmin() {
                   );
                 })}
               </>
-            )}
+            )})()}
           </div>{/* end q-card-list */}
 
           {/* Pagination Controls */}
