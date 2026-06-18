@@ -4,6 +4,13 @@
 
 const API_BASE = "/api";
 
+// File uploads and document fetches bypass the cPanel PHP proxy DIRECTLY to Railway.
+// Reason: PHP must buffer the entire multipart file before forwarding via cURL — this
+// doubles the upload work and causes visible hangs (stuck at "0/1").
+// CORS is already configured on Railway to allow hrplpro.com.
+// All other API calls (auth, quotations, customers etc.) still go through /api.
+const RAILWAY_BASE = "https://hrpl-production.up.railway.app/api";
+
 // Default request timeout (30 seconds). Prevents infinite hangs on slow/dead servers.
 const REQUEST_TIMEOUT_MS = 30000;
 const UPLOAD_TIMEOUT_MS = 120000; // 2 min for upload-heavy requests (reupload submits with base64)
@@ -348,26 +355,48 @@ export const dealers = {
 // UPLOADS API
 // ═══════════════════════════════════════════════════════════
 export const uploads = {
+  // Uploads go DIRECTLY to Railway — bypasses PHP proxy to avoid double-buffering.
   single: (file, entityType, entityId, docType, latitude = null, longitude = null) => {
+    const token = getToken();
     const formData = new FormData();
     formData.append("file", file);
     formData.append("entityType", entityType);
-    formData.append("entityId", entityId);
+    formData.append("entityId", String(entityId));
     formData.append("docType", docType);
-    if (latitude !== null) formData.append("latitude", latitude);
-    if (longitude !== null) formData.append("longitude", longitude);
-    return request("/uploads/single", { method: "POST", body: formData });
+    if (latitude !== null) formData.append("latitude", String(latitude));
+    if (longitude !== null) formData.append("longitude", String(longitude));
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+
+    return fetch(`${RAILWAY_BASE}/uploads/single`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+      signal: controller.signal,
+    }).then(async (res) => {
+      clearTimeout(timeoutId);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 401) dispatchSessionExpired();
+        throw new Error(data.error || `Upload failed (${res.status})`);
+      }
+      return data;
+    }).catch((err) => {
+      clearTimeout(timeoutId);
+      if (err.name === "AbortError") throw new Error("Upload timed out. Please try again.");
+      throw err;
+    });
   },
 
-  // Secure file fetch — uses Authorization header, returns a blob URL.
-  // Use this for <img src> and programmatic view operations.
+  // Secure file fetch — goes directly to Railway (bypasses PHP proxy).
   getSecureBlobUrl: async (id) => {
     const token = getToken();
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
-      const response = await fetch(`${API_BASE}/uploads/${id}`, {
+      const response = await fetch(`${RAILWAY_BASE}/uploads/${id}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         signal: controller.signal,
       });
@@ -382,16 +411,14 @@ export const uploads = {
     }
   },
 
-  // Secure file download — fetches with Authorization header and triggers
-  // a browser download with the correct filename. Revokes the blob URL after
-  // click so there are no memory leaks.
+  // Secure file download — goes directly to Railway (bypasses PHP proxy).
   downloadSecure: async (id, filename) => {
     const token = getToken();
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
-      const response = await fetch(`${API_BASE}/uploads/${id}?download=true`, {
+      const response = await fetch(`${RAILWAY_BASE}/uploads/${id}?download=true`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         signal: controller.signal,
       });
