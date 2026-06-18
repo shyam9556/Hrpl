@@ -984,7 +984,7 @@ export function compressAndConvertToBase64(file) {
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, width, height);
 
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.5);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.4);
         resolve(dataUrl);
       };
       img.onerror = (err) => reject(err);
