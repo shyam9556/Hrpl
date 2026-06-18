@@ -564,8 +564,18 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
 
         // ── Sort by urgency for Pending and Re-upload tabs ────────────────────────────
         // Pending   : re-uploaded docs (flag=1) float to top, new applications below
-        // Re-upload : expired links float to top (need resend), active links below
+        // Re-upload : responded (submitted docs) first, expired links second, active last
         const isExpiredFn = r => r.reupload_expires_at && new Date(r.reupload_expires_at) < new Date();
+
+        // For the Re-upload tab, responded registrations have status=Pending
+        // (needs_review_after_reupload=1) so they are NOT in filteredList
+        // (which only contains status=ReuploadRequested rows).
+        // Pull them from reviewItems and merge in as the first section.
+        const respondedRegRows = tab === "ReuploadRequested"
+          ? reviewItems.filter(r => r.needs_review_after_reupload)
+          : [];
+        const respondedRegIds = new Set(respondedRegRows.map(r => r.id));
+
         const displayList =
           tab === "Pending"
             ? [
@@ -574,16 +584,18 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
               ]
           : tab === "ReuploadRequested"
             ? [
-                ...filteredList.filter(r =>  isExpiredFn(r)),
-                ...filteredList.filter(r => !isExpiredFn(r)),
+                ...respondedRegRows,
+                ...filteredList.filter(r => isExpiredFn(r) && !respondedRegIds.has(r.id)),
+                ...filteredList.filter(r => !isExpiredFn(r) && !respondedRegIds.has(r.id)),
               ]
           : filteredList;
 
         // Counts used to position section headers at the right index
         const regPendingDocsCount = tab === "Pending"           ? filteredList.filter(r =>  r.needs_review_after_reupload).length : 0;
         const regPendingNewCount  = tab === "Pending"           ? filteredList.filter(r => !r.needs_review_after_reupload).length : 0;
-        const expiredCount        = tab === "ReuploadRequested" ? filteredList.filter(r =>  isExpiredFn(r)).length               : 0;
-        const activeCount         = tab === "ReuploadRequested" ? filteredList.filter(r => !isExpiredFn(r)).length               : 0;
+        const respondedRegCount   = tab === "ReuploadRequested" ? respondedRegRows.length : 0;
+        const expiredCount        = tab === "ReuploadRequested" ? filteredList.filter(r =>  isExpiredFn(r) && !respondedRegIds.has(r.id)).length : 0;
+        const activeCount         = tab === "ReuploadRequested" ? filteredList.filter(r => !isExpiredFn(r) && !respondedRegIds.has(r.id)).length : 0;
 
         // Dynamic colSpan: 4 fixed cols + conditional cols per tab
         const regColSpan = 4
@@ -685,10 +697,11 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
               {displayList.flatMap((reg, idx) => {
                 const isDocsReview = !!reg.needs_review_after_reupload;
                 const isExpired    = isExpiredFn(reg);
-                // Amber tint for urgent rows: re-uploaded on Pending, expired on Re-upload
+                const isResponded  = respondedRegIds.has(reg.id);
+                // Amber tint for urgent rows: re-uploaded on Pending, expired on Re-upload, or responded on Re-upload
                 const regRowNeedsAmberTint =
                   (tab === "Pending"           && isDocsReview) ||
-                  (tab === "ReuploadRequested" && isExpired);
+                  (tab === "ReuploadRequested" && (isExpired || isResponded));
                 const rows = [];
 
                 // ── Pending tab sections ─────────────────────────────────────────
@@ -719,7 +732,20 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
 
                 // ── Re-upload tab sections ──────────────────────────────────────
                 if (tab === "ReuploadRequested") {
-                  if (idx === 0 && expiredCount > 0) {
+                  // 1. Dealer Responded — submitted docs, awaiting admin review
+                  if (idx === 0 && respondedRegCount > 0) {
+                    rows.push(
+                      <tr key="hdr-reg-responded" style={{ background: "rgba(245,158,11,0.06)", pointerEvents: "none" }}>
+                        <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "#b45309", borderBottom: "1px solid rgba(245,158,11,0.18)", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <CheckCircle size={12} /> Dealer Responded — Review Required ({respondedRegCount})
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  // 2. Expired links — dealer hasn't submitted, link expired
+                  if (!isResponded && idx === respondedRegCount && expiredCount > 0) {
                     rows.push(
                       <tr key="hdr-reg-expired" style={{ background: "rgba(220,38,38,0.04)", pointerEvents: "none" }}>
                         <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "#b91c1c", borderBottom: "1px solid rgba(220,38,38,0.15)", letterSpacing: "0.05em", textTransform: "uppercase" }}>
@@ -730,7 +756,8 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
                       </tr>
                     );
                   }
-                  if (!isExpired && idx === expiredCount && activeCount > 0 && expiredCount > 0) {
+                  // 3. Active links — dealer hasn't submitted yet
+                  if (!isResponded && !isExpired && idx === (respondedRegCount + expiredCount) && activeCount > 0 && (respondedRegCount > 0 || expiredCount > 0)) {
                     rows.push(
                       <tr key="hdr-reg-active" style={{ background: "var(--bg, #f8fafc)", pointerEvents: "none" }}>
                         <td colSpan={regColSpan} style={{ padding: "7px 18px", fontSize: 11, fontWeight: 700, color: "var(--muted)", borderBottom: "1px solid var(--border)", letterSpacing: "0.05em", textTransform: "uppercase" }}>
