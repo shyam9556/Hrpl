@@ -168,7 +168,7 @@ export default function DealerRequestsAdmin() {
       await quotationsApi.requestReupload(reuploadModal.id, reuploadReason.trim(), selectedDocs);
       setReuploadSuccess(true);
       
-      // Update local state in the list & selectedQuotation
+      // Update local state in the list & selectedQuotation optimistically
       setList(prev => prev.map(q => {
         if (q.id === reuploadModal.id) {
           return {
@@ -198,6 +198,12 @@ export default function DealerRequestsAdmin() {
         }
         return prev;
       });
+
+      // BUG FIX: Refresh stats and review banners — these were never refreshed after
+      // a reupload request, so the stat boxes and banners stayed stale until next
+      // navigation or manual reload.
+      fetchStats();
+      fetchReviewItems();
     } catch (err) {
       setErrorDialog({ open: true, message: err.message || "Failed to send re-upload request." });
     } finally {
@@ -278,8 +284,9 @@ export default function DealerRequestsAdmin() {
         q => q.needs_review_after_reupload || q.geotag_needs_review
       );
       setReviewItems(items);
-    } catch {
-      // Non-critical — silently ignore
+    } catch (err) {
+      // Log so production issues (e.g. missing DB columns) are visible in DevTools
+      console.error("[fetchReviewItems] Failed to load review items:", err?.message || err);
     }
   }, []);
 
@@ -348,6 +355,9 @@ export default function DealerRequestsAdmin() {
       "hp:sse:quotation:status_changed",
       "hp:sse:quotation:delivery_changed",
       "hp:sse:quotation:deleted",
+      // BUG FIX: Admin sent a reupload request from another tab — refresh so other
+      // admin tabs see the updated status, actions, and stat boxes immediately.
+      "hp:sse:quotation:reupload_requested",
       // Dealer submitted geotag photos — admin needs to review
       "hp:sse:quotation:geotag_submitted",
       // Admin deleted a document — refresh the document panel in the modal

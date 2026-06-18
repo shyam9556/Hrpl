@@ -159,7 +159,10 @@ export default function DealerRegistrationsAdmin({ onClearBadge }) {
       // registrations — avoids loading full document joins just for banners.
       const res = await dealersApi.needsReview();
       setReviewItems(res.registrations || []);
-    } catch { /* non-critical — banners degrade gracefully */ }
+    } catch (err) {
+      // Log so production issues (e.g. missing DB tables/columns) are visible in DevTools
+      console.error("[fetchReviewItems:registrations] Failed:", err?.message || err);
+    }
   }, []);
 
   const fetchRegistrations = useCallback(async (silent = false) => {

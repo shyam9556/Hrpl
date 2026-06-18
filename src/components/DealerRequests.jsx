@@ -425,7 +425,10 @@ export default function DealerRequests() {
     try {
       const res = await quotationsApi.list({ limit: 500 });
       setGlobalList(res.quotations || []);
-    } catch { /* non-critical — stats and banners are UX enhancements */ }
+    } catch (err) {
+      // Log so production issues (e.g. missing DB columns) are visible in DevTools
+      console.error("[fetchGlobalData] Failed to load global list:", err?.message || err);
+    }
   }, []);
 
   // Reset to page 1 whenever filter or search changes
