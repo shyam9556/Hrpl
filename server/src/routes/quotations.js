@@ -420,24 +420,14 @@ router.get("/:id", async (req, res, next) => {
               c.city as customer_city, c.address as customer_address,
               p.brand as panel_brand, p.watt as panel_watt, p.type as panel_type,
               i.brand as inverter_brand, i.kw as inverter_kw, i.type as inverter_type,
-              rt.reason        AS reupload_reason,
-              rt.required_docs AS reupload_required_docs,
-              rt.created_at    AS reupload_requested_at,
-              rt.expires_at    AS reupload_expires_at,
-              rt.used          AS reupload_used,
+              q.rejection_reason       AS reupload_reason,
+              q.reupload_required_docs AS reupload_required_docs,
               (SELECT COUNT(*) FROM quotation_reupload_tokens WHERE quotation_id = q.id AND used = 1) AS reupload_count
        FROM quotations q
        JOIN users u ON u.id = q.dealer_id
        LEFT JOIN customers c ON c.id = q.customer_id
        JOIN panels p ON p.id = q.panel_id
        JOIN inverters i ON i.id = q.inverter_id
-       LEFT JOIN quotation_reupload_tokens rt
-         ON rt.quotation_id = q.id
-         AND rt.id = (
-           SELECT id FROM quotation_reupload_tokens
-           WHERE quotation_id = q.id
-           ORDER BY created_at DESC LIMIT 1
-         )
        WHERE q.id = ?`,
       [quotationId]
     );
@@ -1231,7 +1221,7 @@ router.post("/:id/complete-portal-reupload", authorize("dealer"), async (req, re
 
       // Clear reupload flag and set status back to Pending
       await client.query(
-        `UPDATE quotations SET status = 'Pending', reupload_required_docs = NULL, reupload_reason = NULL, needs_review_after_reupload = 1 WHERE id = ?`,
+        `UPDATE quotations SET status = 'Pending', reupload_required_docs = NULL, rejection_reason = NULL, needs_review_after_reupload = 1 WHERE id = ?`,
         [quotationId]
       );
 

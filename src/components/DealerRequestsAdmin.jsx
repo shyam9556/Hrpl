@@ -1157,7 +1157,6 @@ export default function DealerRequestsAdmin() {
 
                   // Row background tint: amber for urgent items (re-uploaded docs, geo-tag review, responded re-upload)
                   const rowNeedsAmberTint =
-                    (filter === "ReuploadRequested" && isResponded) ||
                     (filter === "Pending"           && isDocsReview) ||
                     (filter === "Approved"          && isGeotagReview);
 
@@ -1347,8 +1346,8 @@ export default function DealerRequestsAdmin() {
                   {showActions && (<td style={{ padding: "14px 16px", verticalAlign: "middle" }}>
                     <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>
 
-                      {/* Pending OR ReuploadRequested where dealer already responded → Approve + Reject */}
-                      {(q.status === "Pending" || (q.status === "ReuploadRequested" && isResponded)) && (
+                      {/* Pending → Approve + Reject */}
+                      {q.status === "Pending" && (
                         <>
                           <button
                             className="btn-sm"
@@ -1371,8 +1370,8 @@ export default function DealerRequestsAdmin() {
                         </>
                       )}
 
-                      {/* ReuploadRequested waiting for dealer → Send Link Again + Reject */}
-                      {q.status === "ReuploadRequested" && !isResponded && (
+                      {/* ReuploadRequested waiting for dealer */}
+                      {q.status === "ReuploadRequested" && (
                         <>
                           <button
                             className="btn-sm"
@@ -1510,7 +1509,7 @@ export default function DealerRequestsAdmin() {
                   <div className="q-card-footer">
                     <span style={{ fontSize: 11, color: "var(--muted)" }}>Tap to view details</span>
                     <div className="q-card-actions">
-                      {(q.status === "Pending" || (q.status === "ReuploadRequested" && isResponded)) && (
+                      {q.status === "Pending" && (
                         <>
                           <button className="btn-sm" style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(46,125,82,0.08)", color: "var(--green)", border: "1px solid rgba(46,125,82,0.15)", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
                             onClick={(e) => { e.stopPropagation(); setStatusConfirm({ id: q.id, status: "Approved", number: q.quotation_number }); }}>
@@ -1522,7 +1521,7 @@ export default function DealerRequestsAdmin() {
                           </button>
                         </>
                       )}
-                      {q.status === "ReuploadRequested" && !isResponded && (
+                      {q.status === "ReuploadRequested" && (
                         <>
                           <button className="btn-sm" style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(249,115,22,0.08)", color: "#f97316", border: "1px solid rgba(249,115,22,0.2)", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
                             onClick={(e) => { e.stopPropagation(); openReuploadModal(q); }}>
