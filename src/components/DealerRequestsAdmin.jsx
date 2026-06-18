@@ -2524,9 +2524,7 @@ export default function DealerRequestsAdmin() {
                   >
                     <XCircle size={14} /> Reject Request
                   </button>
-                  {/* Only show reupload request if dealer has already submitted documents */}
-                  {selectedQuotation.documents && selectedQuotation.documents.length > 0 && (
-                    <button
+                  <button
                       className="btn-sm"
                       style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600, flex: "1 1 auto", justifyContent: "center", minWidth: 0, whiteSpace: "nowrap" }}
                       disabled={actionLoading === selectedQuotation.id}
@@ -2534,12 +2532,10 @@ export default function DealerRequestsAdmin() {
                     >
                       <RefreshCw size={14} /> Request Re-upload
                     </button>
-                  )}
                 </div>
               )}
 
-              {selectedQuotation.status === "Rejected" &&
-                selectedQuotation.documents && selectedQuotation.documents.length > 0 && (
+              {selectedQuotation.status === "Rejected" && (
                 <button
                   className="btn-sm"
                   style={{ background: "#fff3cd", color: "#856404", border: "1px solid #fcd34d", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600, width: "100%", justifyContent: "center" }}
