@@ -1464,7 +1464,7 @@ export default function DealerRequestsAdmin() {
                 })
               : list
             ).map(q => {
-              const isResponded = respondedIds.has(q.id);
+              const isResponded = Boolean(q.needs_review_after_reupload);
               const statusLabel = q.status === "ReuploadRequested" ? "Re-upload" : q.status;
               const statusClass = q.status === "Approved" ? "badge-green" : q.status === "Rejected" ? "badge-red" : "badge-sun";
 
