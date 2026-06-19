@@ -93,6 +93,17 @@ export default function App() {
   });
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Prevent body scroll when mobile sidebar is open
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.classList.add('sidebar-open');
+    } else {
+      document.body.classList.remove('sidebar-open');
+    }
+    return () => document.body.classList.remove('sidebar-open');
+  }, [sidebarOpen]);
+
   const [inquiryDataForQuote, setInquiryDataForQuote] = useState(null);
 
   // ── Change Password Modal state ───────────────────────────────────────────
