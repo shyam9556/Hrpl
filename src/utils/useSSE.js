@@ -26,7 +26,7 @@ import { useEffect, useRef } from "react";
 // Reason: Hostinger shared hosting kills PHP processes after ~60s,
 // which terminates long-lived SSE connections and breaks real-time updates.
 // Only SSE goes direct; all other API calls still use /api (via PHP proxy).
-const SSE_URL          = "https://hrpl-production.up.railway.app/api/events";
+const SSE_URL          = "https://hrpl-production-37ec.up.railway.app/api/events";
 const MAX_RETRY_MS     = 30_000; // Maximum backoff cap: 30 seconds
 const INITIAL_RETRY_MS =  1_000; // First retry after 1 second
 

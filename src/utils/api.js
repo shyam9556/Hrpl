@@ -9,7 +9,7 @@ const API_BASE = "/api";
 // doubles the upload work and causes visible hangs (stuck at "0/1").
 // CORS is already configured on Railway to allow hrplpro.com.
 // All other API calls (auth, quotations, customers etc.) still go through /api.
-const RAILWAY_BASE = "https://hrpl-production.up.railway.app/api";
+const RAILWAY_BASE = "https://hrpl-production-37ec.up.railway.app/api";
 
 // Default request timeout (30 seconds). Prevents infinite hangs on slow/dead servers.
 const REQUEST_TIMEOUT_MS = 30000;
