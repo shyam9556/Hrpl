@@ -3,7 +3,7 @@
 set_time_limit(0);
 
 // Target backend base URL
-$backend_base = "https://hrpl-production.up.railway.app/api";
+$backend_base = "https://hrpl-production-37ec.up.railway.app/api";
 
 // Get request path
 $request_uri = $_SERVER['REQUEST_URI']; // e.g. /api/auth/login
