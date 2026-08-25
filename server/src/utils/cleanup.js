@@ -50,14 +50,22 @@ export async function cleanupOrphanedDocuments() {
     }
 
     // 2. Scan remaining documents to check if their physical files are missing on disk
-    const allDocsResult = await db.query("SELECT id, file_path FROM documents");
-    for (const doc of allDocsResult.rows) {
-      if (toDeleteDbIds.has(doc.id)) continue;
-      const fullPath = path.normalize(path.join(UPLOADS_DIR, doc.file_path));
-      if (!fs.existsSync(fullPath)) {
-        toDeleteDbIds.add(doc.id);
-        console.log(`[CLEANUP] Found database record for ID ${doc.id} with missing physical file on disk: ${doc.file_path}`);
+    //    SKIP this check when remote storage (cPanel) is configured — Railway's
+    //    ephemeral filesystem is wiped on every redeploy, so local files will always
+    //    be missing. The actual files live safely on cPanel (STORAGE_URL).
+    //    Without this guard, every redeploy deletes ALL document records from the DB.
+    if (!storageService.isConfigured()) {
+      const allDocsResult = await db.query("SELECT id, file_path FROM documents");
+      for (const doc of allDocsResult.rows) {
+        if (toDeleteDbIds.has(doc.id)) continue;
+        const fullPath = path.normalize(path.join(UPLOADS_DIR, doc.file_path));
+        if (!fs.existsSync(fullPath)) {
+          toDeleteDbIds.add(doc.id);
+          console.log(`[CLEANUP] Found database record for ID ${doc.id} with missing physical file on disk: ${doc.file_path}`);
+        }
       }
+    } else {
+      console.log("[CLEANUP] Remote storage configured — skipping local disk existence check (Railway ephemeral FS).");
     }
 
     // 3. Delete all accumulated orphaned records from database
