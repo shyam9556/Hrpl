@@ -2,6 +2,10 @@
   RewriteEngine On
   RewriteBase /
 
+  # Force HTTPS — redirect all http:// requests to https://
+  RewriteCond %{HTTPS} off
+  RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
+
   # 1. Route all /api requests to the PHP proxy script
   # -------------------------------------------------------------
   RewriteCond %{REQUEST_URI} ^/api/
