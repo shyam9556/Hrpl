@@ -275,18 +275,55 @@ export const quotations = {
 // STOCK API
 // ═══════════════════════════════════════════════════════════
 export const stock = {
+  // ── Fetch all stock items (with auto panel/inverter sync) ──
   getAll: () =>
     request("/stock"),
 
+  // ── Daily report: accepts { date } or { from, to } ─────────
+  getDaily: (params = {}) => {
+    if (params.date) return request(`/stock/daily?date=${params.date}`);
+    if (params.from && params.to) return request(`/stock/daily?from=${params.from}&to=${params.to}`);
+    return request("/stock/daily");
+  },
+
+  // ── Ledger summary for a date range ────────────────────────
+  getTransactions: (from, to) =>
+    request(`/stock/transactions?from=${from}&to=${to}`),
+
+  // ── Drill-down: transaction history for one item ────────────
+  getItemTransactions: (itemId, { from, to, page = 1, limit = 50 } = {}) => {
+    const qs = new URLSearchParams({ from, to, page, limit }).toString();
+    return request(`/stock/transactions/${itemId}?${qs}`);
+  },
+
+  // ── Add a new stock item (manual; panels/inverters sync automatically) ──
   add: (data) =>
     request("/stock", { method: "POST", body: data }),
 
-  update: (id, quantity, unitPrice) => {
-    const body = {};
-    if (quantity !== undefined) body.quantity = quantity;
-    if (unitPrice !== undefined) body.unitPrice = unitPrice;
-    return request(`/stock/${id}`, { method: "PATCH", body });
-  },
+  // ── Stock movement: add quantity in ────────────────────────
+  addStock: (id, quantity, reasonCategory, reasonNote) =>
+    request(`/stock/${id}/add`, {
+      method: "POST",
+      body: { quantity, reasonCategory: reasonCategory || null, reasonNote: reasonNote || null },
+    }),
+
+  // ── Stock movement: deduct quantity out ─────────────────────
+  deductStock: (id, quantity, reasonCategory, reasonNote) =>
+    request(`/stock/${id}/deduct`, {
+      method: "POST",
+      body: { quantity, reasonCategory: reasonCategory || null, reasonNote: reasonNote || null },
+    }),
+
+  // ── Physical count override: set exact quantity ─────────────
+  adjustStock: (id, quantity, reasonCategory, reasonNote) =>
+    request(`/stock/${id}/adjust`, {
+      method: "POST",
+      body: { quantity, reasonCategory, reasonNote: reasonNote || null },
+    }),
+
+  // ── Update unit price only (quantity via movements above) ───
+  updatePrice: (id, unitPrice) =>
+    request(`/stock/${id}`, { method: "PATCH", body: { unitPrice } }),
 
   remove: (id) =>
     request(`/stock/${id}`, { method: "DELETE" }),

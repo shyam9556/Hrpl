@@ -9,6 +9,7 @@ import {
 import ResetPasswordPage from "./components/ResetPasswordPage";
 import DealerReuploadPage from "./components/DealerReuploadPage";
 import QuotationReuploadPage from "./components/QuotationReuploadPage";
+import ConfirmDialog from "./components/ConfirmDialog";
 
 // Components
 import LoginPage from "./components/LoginPage";
@@ -93,6 +94,15 @@ export default function App() {
   });
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // ── Global nav guard — intercepts all navigation when StockManager ─
+  // has unsaved staged stock changes. StockManager sets the window flag
+  // window.__stockHasStagedChanges; we read it here before any navigation.
+  const [navGuardOpen, setNavGuardOpen] = useState(false);
+  const pendingNavAction = useRef(null); // { type: 'navigate'|'logout', pageId? }
+  // Ref to always-current navigateTo — used by the hp:navigate event handler
+  // (whose useEffect has [] deps) to avoid stale closure issues.
+  const navigateToRef = useRef(null);
 
   // Prevent body scroll when mobile sidebar is open
   useEffect(() => {
@@ -216,13 +226,18 @@ export default function App() {
   // GAP-2: DealerRequests dispatches hp:navigate to navigate to a page
   // without needing a prop-drilled callback. This keeps the navigation
   // bus decoupled from component hierarchy.
+  // Uses navigateToRef so the nav guard is applied even from event-driven navigation,
+  // without adding navigateTo as a dep (which would re-subscribe on every user change).
   useEffect(() => {
     const handleNavigate = (e) => {
       if (e.detail) {
-        // "new-quotation" is an alias for the dealer quotation form page
         const target = e.detail === "new-quotation" ? "quote" : e.detail;
-        setPage(target);
-        pageRef.current = target;
+        if (navigateToRef.current) {
+          navigateToRef.current(target); // goes through nav guard
+        } else {
+          setPage(target);
+          pageRef.current = target;
+        }
       }
       setSidebarOpen(false);
     };
@@ -300,18 +315,55 @@ export default function App() {
     return () => events.forEach(e => window.removeEventListener(e, handler));
   }, [user, fetchPendingCounts]);
 
-  const navigateTo = useCallback((pageId) => {
+  // ── Actual navigation — no guard check ──────────────────────────────
+  // This is the internal function. navigateTo (below) wraps it with the guard.
+  const performNavigateTo = useCallback((pageId) => {
     setPage(pageId);
     setSidebarOpen(false);
     // CRITICAL: update ref SYNCHRONOUSLY before the async fetchPendingCounts call.
-    // If we don't do this, fetchPendingCounts runs with the stale (old) pageRef
-    // and overwrites the zeroed badge count before React has re-rendered.
     pageRef.current = pageId;
-    // Zero out the badge for the page admin is opening
     if (pageId === "dealer_registrations") setPendingDealersCount(0);
     if (pageId === "requests") setPendingQuotationsCount(0);
     fetchPendingCounts();
   }, [fetchPendingCounts]);
+
+  // ── Guarded navigation — intercepts if stock has unsaved changes ─────
+  const navigateTo = useCallback((pageId) => {
+    if (window.__stockHasStagedChanges) {
+      pendingNavAction.current = { type: 'navigate', pageId };
+      setNavGuardOpen(true);
+      return;
+    }
+    performNavigateTo(pageId);
+  }, [performNavigateTo]);
+
+  // Keep navigateToRef current so the hp:navigate event handler always
+  // calls the guarded version (ref avoids stale closure without extra deps).
+  useEffect(() => { navigateToRef.current = navigateTo; }, [navigateTo]);
+
+  // ── Nav guard handlers ───────────────────────────────────────────────
+  // Called when user clicks "Leave Anyway" in the nav guard dialog.
+  // Clears the dialog, then executes the pending action (navigate or logout).
+  // NOTE: `logout` is intentionally omitted from deps — it has [] deps itself
+  // and never changes. Including it caused a TDZ error because logout is declared
+  // after this callback in the file and const deps arrays are evaluated immediately.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const handleNavGuardConfirm = useCallback(() => {
+    setNavGuardOpen(false);
+    const action = pendingNavAction.current;
+    pendingNavAction.current = null;
+    if (!action) return;
+    if (action.type === 'navigate') performNavigateTo(action.pageId);
+    if (action.type === 'logout')   logout();
+  }, [performNavigateTo]);
+
+  // Called when user clicks "Stay Here" in the nav guard dialog.
+  const handleNavGuardCancel = useCallback(() => {
+    setNavGuardOpen(false);
+    pendingNavAction.current = null;
+  }, []);
+
+
 
   const login = useCallback((userObj, token) => {
     // Write to localStorage SYNCHRONOUSLY before setting React state.
@@ -340,7 +392,20 @@ export default function App() {
     setPendingDealersCount(0);
   }, []);
 
-  // ── Change Password handlers (MUST be after logout — they reference it) ───
+  // ── Guarded logout — used by the sidebar Logout button ──────────────
+  // Shows the nav guard dialog if StockManager has unsaved staged changes.
+  // The internal logout() (above) is used directly by session-expired and
+  // change-password flows where we should NOT block the user.
+  const handleLogoutClick = useCallback(() => {
+    if (window.__stockHasStagedChanges) {
+      pendingNavAction.current = { type: 'logout' };
+      setNavGuardOpen(true);
+      return;
+    }
+    logout();
+  }, [logout]);
+
+
   const openChangePwd = useCallback(() => {
     setCpCurrent(""); setCpNew(""); setCpConfirm("");
     setCpShowCurrent(false); setCpShowNew(false); setCpShowConfirm(false);
@@ -575,7 +640,7 @@ export default function App() {
               <KeyRound size={16} />
               <span className="nav-label">Change Password</span>
             </button>
-            <button className="logout-btn" onClick={logout}>
+            <button className="logout-btn" onClick={handleLogoutClick}>
               <LogOut size={16} />
               <span className="nav-label">Logout</span>
             </button>
@@ -793,6 +858,21 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ── Global Stock Nav Guard ───────────────────────────────────────────
+          Shown when the user tries to navigate away from Stock Manager while
+          there are unsaved staged changes. Triggered by sidebar clicks, logout,
+          or any hp:navigate event. z-index 10000 so it sits above all modals.  */}
+      <ConfirmDialog
+        open={navGuardOpen}
+        title="Unsaved Stock Changes"
+        message="You have unsaved stock changes (quantity adjustments or price edits) that will be permanently lost if you leave this page. Are you sure you want to leave?"
+        confirmText="Leave Anyway"
+        cancelText="Stay & Review"
+        variant="danger"
+        onConfirm={handleNavGuardConfirm}
+        onCancel={handleNavGuardCancel}
+      />
     </div>
   );
 }

@@ -1,338 +1,422 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { stock as stockApi, settings as settingsApi } from "../utils/api";
-import { 
-  Loader2, Save, X, Coins, TrendingUp, Sun, Zap, Package, 
-  Layers, Info, AlertCircle, FileSpreadsheet, ShieldAlert, LockKeyhole, Delete, ArrowRight
-} from "lucide-react";
-import ConfirmDialog from "./ConfirmDialog";
-import ErrorState from "./ErrorState";
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  Loader2, Save, X, Sun, Zap, Package, Layers, Info,
+  AlertCircle, FileSpreadsheet, LockKeyhole, Trash2, ArrowRight,
+  Plus, Minus, RefreshCw, BarChart2, Delete, Coins, TrendingUp
+} from 'lucide-react';
+import { stock, settings } from '../utils/api';
+import ConfirmDialog from './ConfirmDialog';
+import StockLedger from './StockLedger';
+import DailyStockLogs from './DailyStockLogs';
+
+// ── Reason presets ───────────────────────────────────────────
+const ADD_REASONS = ['Received from supplier', 'Returned from installation site', 'Manual stock correction', 'Other'];
+const DEDUCT_REASONS = ['Installed at customer site', 'Damaged / Write-off', 'Returned to supplier', 'Manual stock correction', 'Other'];
+
+// ── Category config ──────────────────────────────────────────
+const categoryConfig = {
+  Panel:     { bg: 'rgba(245,166,35,0.06)',  color: '#f5a623', icon: Sun,    label: 'Solar Panels' },
+  Inverter:  { bg: 'rgba(37,99,235,0.06)',   color: '#2563eb', icon: Zap,    label: 'Inverters' },
+  Accessory: { bg: 'rgba(16,185,129,0.06)', color: '#10b981', icon: Layers, label: 'Accessories' },
+  Wire:      { bg: 'rgba(139,92,246,0.06)', color: '#7c3aed', icon: Layers, label: 'Wires & Cables' },
+};
+
+// ── Currency helper ──────────────────────────────────────────
+const fmtCurrency = (n) =>
+  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 
 export default function StockManager() {
+  // ── State ────────────────────────────────────────────────
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [edited, setEdited] = useState({}); // Stores { [id]: { quantity, unitPrice } }
+  const [staged, setStaged] = useState({}); // { [itemId]: { addQty, deductQty, unitPrice } }
+  const [stagedReasons, setStagedReasons] = useState({}); // { [itemId]: { reasonCategory, reasonNote } }
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [errorDialog, setErrorDialog] = useState({ open: false, message: "" });
+  const [errorDialog, setErrorDialog] = useState({ open: false, message: '' });
   const [thresholds, setThresholds] = useState({ high: 20, low: 5 });
-  const [pin, setPin] = useState("1234");
+  const [pin, setPin] = useState('1234');
   const [isUnlocked, setIsUnlocked] = useState(false);
-  const [enteredPin, setEnteredPin] = useState("");
+  const [enteredPin, setEnteredPin] = useState('');
   const [shake, setShake] = useState(false);
   const [pinError, setPinError] = useState(false);
+  const [activeTab, setActiveTab] = useState('live');
+  const [qtyModal, setQtyModal] = useState({ open: false, itemId: null, action: null, qty: '' });
+  const [tabSwitchDialog, setTabSwitchDialog] = useState({ open: false, targetTab: null });
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, itemId: null, itemName: '' });
+  const [addItemModal, setAddItemModal] = useState({ open: false, category: 'Accessory', itemName: '', quantity: 0, unit: 'pcs', saving: false });
 
-  const fetchStock = useCallback(() => {
-    setLoading(true);
-    setFetchError(false);
-    Promise.all([
-      stockApi.getAll().then(res => setItems(res.stock || [])),
-      settingsApi.getPublic().then(res => {
-        const s = res.settings || {};
-        setThresholds({
-          high: parseInt(s.stock_threshold_high) || 20,
-          low: parseInt(s.stock_threshold_low) || 5,
-        });
-      }).catch(() => {}), // Silently use defaults if settings fail
-      settingsApi.getAll().then(res => {
-        const s = res.settings || {};
-        if (s.stock_manager_pin) {
-          setPin(s.stock_manager_pin);
-        }
-      }).catch(() => {}),
-    ])
-      .catch(() => {
-        setFetchError(true);
-      })
-      .finally(() => setLoading(false));
+  // ── fetchStock ───────────────────────────────────────────
+  const fetchStock = useCallback(async () => {
+    try {
+      setFetchError(false);
+      const res = await stock.getAll();
+      setItems(res.stock || []);
+    } catch {
+      setFetchError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { fetchStock(); }, [fetchStock]);
 
-  // ── SSE: Refresh when another admin changes stock or settings ───────────────
+  // ── Load thresholds & PIN from settings ──────────────────
+  useEffect(() => {
+    settings.getAll().then(s => {
+      if (s?.settings) {
+        const sMap = {};
+        s.settings.forEach(row => { sMap[row.key] = row.value; });
+        if (sMap.stock_threshold_high) setThresholds(prev => ({ ...prev, high: parseInt(sMap.stock_threshold_high) }));
+        if (sMap.stock_threshold_low)  setThresholds(prev => ({ ...prev, low:  parseInt(sMap.stock_threshold_low) }));
+        if (sMap.stock_pin) setPin(sMap.stock_pin);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // ── SSE listener ─────────────────────────────────────────
   useEffect(() => {
     const handler = () => fetchStock();
-    window.addEventListener("hp:sse:stock:changed", handler);
-    window.addEventListener("hp:sse:settings:changed", handler);
-    return () => {
-      window.removeEventListener("hp:sse:stock:changed", handler);
-      window.removeEventListener("hp:sse:settings:changed", handler);
-    };
+    window.addEventListener('hp:sse:stock:changed', handler);
+    return () => window.removeEventListener('hp:sse:stock:changed', handler);
   }, [fetchStock]);
 
-
-  const handleKeyPress = (num) => {
-    if (enteredPin.length < pin.length) {
-      const nextPin = enteredPin + num;
-      setEnteredPin(nextPin);
-      setPinError(false);
-      
-      if (nextPin.length === pin.length) {
-        verifyPin(nextPin);
-      }
-    }
-  };
-
-  const handleBackspace = () => {
-    setEnteredPin(prev => prev.slice(0, -1));
-    setPinError(false);
-  };
-
-  const verifyPin = (currentPin) => {
-    if (currentPin === pin) {
-      setIsUnlocked(true);
-    } else {
-      setShake(true);
-      setPinError(true);
-      setTimeout(() => {
-        setShake(false);
-        setEnteredPin("");
-      }, 400);
-    }
-  };
-
+  // ── Drawer scroll lock ────────────────────────────────────
   useEffect(() => {
-    if (isUnlocked) return;
-    
-    const handleKeyDown = (e) => {
-      if (e.key >= "0" && e.key <= "9") {
-        handleKeyPress(e.key);
-      } else if (e.key === "Backspace") {
-        handleBackspace();
-      }
-    };
-    
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [enteredPin, isUnlocked, pin]);
-
-  useEffect(() => {
-    if (drawerOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
+    document.body.style.overflow = drawerOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
   }, [drawerOpen]);
 
-  const handleChange = (id, field, value) => {
-    setEdited(prev => {
-      const current = prev[id] || {};
+  // ── PIN handlers ──────────────────────────────────────────
+  const handlePinDigit = (digit) => {
+    const newPin = enteredPin + digit;
+    setEnteredPin(newPin);
+    if (newPin.length === pin.length) {
+      if (newPin === pin) {
+        setIsUnlocked(true);
+        setPinError(false);
+      } else {
+        setShake(true);
+        setPinError(true);
+        setTimeout(() => { setShake(false); setEnteredPin(''); setPinError(false); }, 600);
+      }
+    }
+  };
+  const handlePinBackspace = () => setEnteredPin(p => p.slice(0, -1));
+  const handlePinClear = () => setEnteredPin('');
+
+  // Keyboard support for PIN
+  useEffect(() => {
+    if (isUnlocked) return;
+    const handleKeyDown = (e) => {
+      if (e.key >= '0' && e.key <= '9') handlePinDigit(e.key);
+      else if (e.key === 'Backspace') handlePinBackspace();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enteredPin, isUnlocked, pin]);
+
+  // ── Helper computations ───────────────────────────────────
+  const hasPriceChange = useCallback((item) => {
+    const s = staged[item.id];
+    if (s?.unitPrice === undefined || s?.unitPrice === '') return false;
+    return parseFloat(s.unitPrice) !== parseFloat(item.unit_price);
+  }, [staged]);
+
+  const getStagedPrice = (item) => {
+    const s = staged[item.id];
+    return (s?.unitPrice !== undefined && s?.unitPrice !== '') ? s.unitPrice : item.unit_price;
+  };
+
+  const getStagedQtyAction = (itemId) => {
+    const s = staged[itemId];
+    if (!s) return null;
+    if (s.addQty > 0) return { action: 'add', qty: s.addQty };
+    if (s.deductQty > 0) return { action: 'deduct', qty: s.deductQty };
+    return null;
+  };
+
+  const hasStagedChanges = useMemo(() => {
+    return Object.keys(staged).some(id => {
+      const item = items.find(i => i.id === parseInt(id, 10));
+      if (!item) return false;
+      const s = staged[id];
+      return (s?.addQty > 0) || (s?.deductQty > 0) || hasPriceChange(item);
+    });
+  }, [staged, items, hasPriceChange]);
+
+  // ── Global nav guard — syncs hasStagedChanges to a window flag ────
+  // App.jsx reads this flag before any sidebar navigation, logout, or
+  // hp:navigate event, and shows a confirmation dialog if it is true.
+  // The cleanup ensures the flag is cleared when StockManager unmounts.
+  useEffect(() => {
+    window.__stockHasStagedChanges = hasStagedChanges;
+    return () => { window.__stockHasStagedChanges = false; };
+  }, [hasStagedChanges]);
+
+  // ── Browser close / reload guard ─────────────────────────────────
+  // Shows the browser's native "Leave site?" prompt when there are
+  // staged changes and the user tries to close the tab or reload.
+  useEffect(() => {
+    if (!hasStagedChanges) return;
+    const onBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = ''; // Required for Chrome to show the dialog
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasStagedChanges]);
+
+  const getModifiedItems = () => {
+    return items.filter(item => {
+      const s = staged[item.id];
+      return (s?.addQty > 0) || (s?.deductQty > 0) || hasPriceChange(item);
+    }).map(item => {
+      const s = staged[item.id] || {};
+      const qtyAction = getStagedQtyAction(item.id);
       return {
-        ...prev,
-        [id]: {
-          ...current,
-          [field]: value === "" ? "" : value
-        }
+        ...item,
+        hasQtyChange: qtyAction !== null,
+        qtyAction: qtyAction?.action,
+        qtyDelta: qtyAction?.qty,
+        newQty: qtyAction ? (qtyAction.action === 'add' ? item.quantity + qtyAction.qty : item.quantity - qtyAction.qty) : item.quantity,
+        hasPriceChanged: hasPriceChange(item),
+        oldPrice: item.unit_price,
+        newPrice: hasPriceChange(item) ? parseFloat(s.unitPrice) : item.unit_price,
       };
     });
   };
 
-  const getQty = (item) => {
-    return edited[item.id]?.quantity !== undefined ? edited[item.id].quantity : item.quantity;
-  };
-
-  const getPrice = (item) => {
-    return edited[item.id]?.unitPrice !== undefined ? edited[item.id].unitPrice : item.unit_price;
-  };
-
-  const isModified = (item) => {
-    const edit = edited[item.id];
-    if (!edit) return false;
+  // ── Valuation metrics (uses item.quantity directly, NOT staged) ──
+  const valuationMetrics = useMemo(() => {
+    let totalValue = 0;
+    const categories = {
+      Accessory: { value: 0, count: 0 },
+      Inverter:  { value: 0, count: 0 },
+      Panel:     { value: 0, count: 0 },
+      Wire:      { value: 0, count: 0 }
+    };
     
-    const qtyChanged = edit.quantity !== undefined && edit.quantity !== "" && parseInt(edit.quantity) !== parseInt(item.quantity);
-    const priceChanged = edit.unitPrice !== undefined && edit.unitPrice !== "" && parseFloat(edit.unitPrice) !== parseFloat(item.unit_price);
-    
-    return qtyChanged || priceChanged;
-  };
-
-  const isQtyModified = (item) => {
-    const edit = edited[item.id];
-    return edit?.quantity !== undefined && edit.quantity !== "" && parseInt(edit.quantity) !== parseInt(item.quantity);
-  };
-
-  const isPriceModified = (item) => {
-    const edit = edited[item.id];
-    return edit?.unitPrice !== undefined && edit.unitPrice !== "" && parseFloat(edit.unitPrice) !== parseFloat(item.unit_price);
-  };
-
-  const handleSave = async () => {
-    const toUpdate = Object.keys(edited).filter(id => {
-      const item = items.find(i => i.id === parseInt(id));
-      if (!item) return false;
-      const edit = edited[id];
-      const qtyChanged = edit.quantity !== undefined && edit.quantity !== "" && parseInt(edit.quantity) !== parseInt(item.quantity);
-      const priceChanged = edit.unitPrice !== undefined && edit.unitPrice !== "" && parseFloat(edit.unitPrice) !== parseFloat(item.unit_price);
-      return qtyChanged || priceChanged;
+    items.forEach(i => {
+      const v = (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_price) || 0);
+      totalValue += v;
+      if (categories[i.category]) {
+        categories[i.category].value += v;
+        categories[i.category].count += 1;
+      }
     });
 
-    if (toUpdate.length === 0) return;
+    const criticalCount = items.filter(i => i.quantity <= thresholds.low).length;
+    const lowCount = items.filter(i => i.quantity > thresholds.low && i.quantity <= thresholds.high).length;
+    return { totalValue, categories, criticalCount, lowCount, totalItems: items.length };
+  }, [items, thresholds]);
 
+  // ── Modal handlers ────────────────────────────────────────
+  const handleOpenModal = (itemId, action) => {
+    const s = staged[itemId];
+    let preQty = '';
+    if (action === 'add' && s?.addQty > 0) preQty = String(s.addQty);
+    if (action === 'deduct' && s?.deductQty > 0) preQty = String(s.deductQty);
+    setQtyModal({ open: true, itemId, action, qty: preQty });
+  };
+
+  const handleStageQty = () => {
+    const { itemId, action, qty } = qtyModal;
+    const parsedQty = parseInt(qty, 10);
+    if (isNaN(parsedQty) || parsedQty < 1) return;
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+    if (action === 'deduct' && parsedQty > item.quantity) return;
+    setStaged(prev => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] || {}),
+        addQty: action === 'add' ? parsedQty : null,
+        deductQty: action === 'deduct' ? parsedQty : null,
+      }
+    }));
+    // Clear previous reason when qty changes
+    setStagedReasons(prev => ({ ...prev, [itemId]: { reasonCategory: '', reasonNote: '' } }));
+    setQtyModal({ open: false, itemId: null, action: null, qty: '' });
+  };
+
+  const handleClearStagedQty = (itemId) => {
+    setStaged(prev => {
+      const next = { ...prev };
+      if (next[itemId]) {
+        const { unitPrice } = next[itemId];
+        if (unitPrice !== undefined) {
+          next[itemId] = { unitPrice };
+        } else {
+          delete next[itemId];
+        }
+      }
+      return next;
+    });
+  };
+
+  // ── Price change handler ──────────────────────────────────
+  const handlePriceChange = (id, value) => {
+    setStaged(prev => ({
+      ...prev,
+      [id]: { ...(prev[id] || {}), unitPrice: value }
+    }));
+  };
+
+  // ── Tab change with warning ───────────────────────────────
+  const handleTabChange = (tab) => {
+    if (tab === activeTab) return;
+    if (hasStagedChanges) {
+      setTabSwitchDialog({ open: true, targetTab: tab });
+    } else {
+      setActiveTab(tab);
+    }
+  };
+
+  // ── handleSave ────────────────────────────────────────────
+  const handleSave = async () => {
+    const toSave = getModifiedItems();
+    if (toSave.length === 0) return;
     setSaving(true);
     try {
-      await Promise.all(
-        toUpdate.map(async (id) => {
-          const item = items.find(i => i.id === parseInt(id));
-          const edit = edited[id];
-          
-          let qty = edit.quantity !== undefined && edit.quantity !== "" ? parseInt(edit.quantity) : item.quantity;
-          let price = edit.unitPrice !== undefined && edit.unitPrice !== "" ? parseFloat(edit.unitPrice) : item.unit_price;
-
-          if (isNaN(qty) || qty < 0) {
-            throw new Error(`Quantity for '${item.item_name}' must be a non-negative integer.`);
+      const results = await Promise.allSettled(toSave.map(async (item) => {
+        const reasons = stagedReasons[item.id] || {};
+        if (item.hasQtyChange) {
+          if (item.qtyAction === 'add') {
+            await stock.addStock(item.id, item.qtyDelta, reasons.reasonCategory || null, reasons.reasonNote || null);
+          } else {
+            await stock.deductStock(item.id, item.qtyDelta, reasons.reasonCategory || null, reasons.reasonNote || null);
           }
-          if (isNaN(price) || price < 0) {
-            throw new Error(`Price for '${item.item_name}' must be a non-negative number.`);
-          }
-          await stockApi.update(parseInt(id), qty, price);
-        })
-      );
-
-      // Clear edited state and show success
-      setEdited({});
+        }
+        if (item.hasPriceChanged) {
+          await stock.updatePrice(item.id, item.newPrice);
+        }
+      }));
+      const failed = results.filter(r => r.status === 'rejected');
+      setStaged({});
+      setStagedReasons({});
       setDrawerOpen(false);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3500);
-      // Re-sync from server to confirm saved values (catches server-side rounding etc.)
-      stockApi.getAll()
-        .then(res => setItems(res.stock || []))
-        .catch(() => { /* non-critical — UI already reflects saved values optimistically */ });
+      await fetchStock();
+      if (failed.length > 0) {
+        setErrorDialog({ open: true, message: `${failed.length} item(s) could not be saved. The page has been refreshed to show the current state.` });
+      } else {
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3500);
+      }
     } catch (err) {
-      setErrorDialog({ open: true, message: err.message || "Failed to save stock changes." });
+      setErrorDialog({ open: true, message: err?.message || 'Failed to save changes. Please try again.' });
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDiscard = () => {
-    setEdited({});
-  };
-
-  const getModifiedItems = () => {
-    return items
-      .filter(item => isModified(item))
-      .map(item => {
-        const edit = edited[item.id];
-        return {
-          ...item,
-          oldQty: item.quantity,
-          newQty: edit.quantity !== undefined && edit.quantity !== "" ? parseInt(edit.quantity) : item.quantity,
-          oldPrice: item.unit_price,
-          newPrice: edit.unitPrice !== undefined && edit.unitPrice !== "" ? parseFloat(edit.unitPrice) : item.unit_price,
-          qtyChanged: isQtyModified(item),
-          priceChanged: isPriceModified(item),
-        };
-      });
-  };
-
-  // Indian Currency Formatting Helper
-  const fmtCurrency = (num) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(num);
-  };
-
-  // Calculation of stock live valuations (computes live changes instantly!)
-  const valuationMetrics = useMemo(() => {
-    const catVal = {};
-    const catQty = {};
-    let grandTotal = 0;
-
-    for (const item of items) {
-      const qty = parseFloat(getQty(item)) || 0;
-      const price = parseFloat(getPrice(item)) || 0;
-      const val = qty * price;
-
-      catVal[item.category] = (catVal[item.category] || 0) + val;
-      catQty[item.category] = (catQty[item.category] || 0) + qty;
-      grandTotal += val;
+  // ── handleDelete ──────────────────────────────────────────
+  const handleDelete = async (itemId, itemName) => {
+    try {
+      await stock.remove(itemId);
+      setItems(prev => prev.filter(i => i.id !== itemId));
+    } catch (err) {
+      setErrorDialog({ open: true, message: `Failed to delete '${itemName}': ${err?.message}` });
     }
+    setDeleteDialog({ open: false, itemId: null, itemName: '' });
+  };
 
-    return {
-      categoryValuations: catVal,
-      categoryQuantities: catQty,
-      grandTotalValuation: grandTotal,
-    };
-  }, [items, edited]);
+  // ── handleAddItem ─────────────────────────────────────────
+  const handleAddItem = async () => {
+    const { category, itemName, quantity, unit } = addItemModal;
+    if (!category || !itemName.trim() || !unit.trim()) return;
+    setAddItemModal(prev => ({ ...prev, saving: true }));
+    try {
+      await stock.add({ category, itemName: itemName.trim(), quantity: parseInt(quantity, 10) || 0, unit: unit.trim() });
+      setAddItemModal({ open: false, category: 'Accessory', itemName: '', quantity: 0, unit: 'pcs', saving: false });
+      await fetchStock();
+    } catch (err) {
+      setAddItemModal(prev => ({ ...prev, saving: false }));
+      setErrorDialog({ open: true, message: err?.message || 'Failed to add item. Please try again.' });
+    }
+  };
 
-  if (loading) {
-    return (
-      <div style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
-        <div style={{ marginBottom: 8 }}><Loader2 size={32} className="animate-spin" /></div>Loading stock...
+  const categories = [...new Set(items.map(i => i.category))];
+
+  // ── Loading ───────────────────────────────────────────────
+  if (loading) return (
+    <div className="page-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
+      <Loader2 size={28} className="animate-spin" style={{ color: 'var(--green)' }} />
+    </div>
+  );
+
+  // ── Fetch error ───────────────────────────────────────────
+  if (fetchError) return (
+    <div className="page-content">
+      <div className="card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--muted)' }}>
+        <AlertCircle size={40} style={{ marginBottom: 12, color: 'var(--red)', opacity: 0.7 }} />
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Failed to load stock data</div>
+        <div style={{ fontSize: 13, marginBottom: 16 }}>Please check your connection and try again.</div>
+        <button className="btn-sm primary" onClick={() => { setLoading(true); fetchStock(); }}>
+          <RefreshCw size={13} /> Retry
+        </button>
       </div>
-    );
-  }
+    </div>
+  );
 
-  if (fetchError) {
-    return (
-      <ErrorState
-        title="Failed to load stock data."
-        message="Could not connect to the server. Please check your connection and try again."
-        onRetry={fetchStock}
-      />
-    );
-  }
-
+  // ── PIN lock screen ───────────────────────────────────────
   if (!isUnlocked) {
     return (
       <div className="stock-lock-screen">
-        <div className={`pin-glass-container ${shake ? "error-shake" : ""}`}>
-          <div className={`pin-lock-icon-container ${pinError && !shake ? "error" : ""}`}>
-            <LockKeyhole size={30} className={shake ? "animate-bounce" : ""} />
+        <div className={`pin-glass-container ${shake ? 'error-shake' : ''}`}>
+          <div className={`pin-lock-icon-container ${pinError && !shake ? 'error' : ''}`}>
+            <LockKeyhole size={30} className={shake ? 'animate-bounce' : ''} />
           </div>
           <h2 className="pin-lock-title">Security Verification</h2>
           <p className="pin-lock-sub">
-            {pinError 
-              ? "Access denied. Please check your credentials and try again." 
-              : "This dashboard contains sensitive financial asset metrics and inventory logs. Please enter your PIN to verify your identity."}
+            {pinError
+              ? 'Access denied. Please check your credentials and try again.'
+              : 'This dashboard contains sensitive financial asset metrics and inventory logs. Please enter your PIN to verify your identity.'}
           </p>
-          
+
           <div className="pin-dots-row">
             {Array.from({ length: pin.length }).map((_, idx) => (
-              <div 
-                key={idx} 
+              <div
+                key={idx}
                 className={`pin-dot ${
-                  pinError 
-                    ? "error" 
-                    : idx < enteredPin.length 
-                      ? "active" 
-                      : ""
-                }`} 
+                  pinError
+                    ? 'error'
+                    : idx < enteredPin.length
+                      ? 'active'
+                      : ''
+                }`}
               />
             ))}
           </div>
-          
+
           <div className="pin-keypad-grid">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
-              <button 
-                key={num} 
+              <button
+                key={num}
                 className="pin-key-btn"
-                onClick={() => handleKeyPress(num.toString())}
+                onClick={() => handlePinDigit(num.toString())}
               >
                 {num}
               </button>
             ))}
-            <button 
+            <button
               className="pin-key-btn special-key"
-              onClick={() => {
-                setEnteredPin("");
-                setPinError(false);
-              }}
+              onClick={handlePinClear}
             >
               Clear
             </button>
-            <button 
+            <button
               className="pin-key-btn"
-              onClick={() => handleKeyPress("0")}
+              onClick={() => handlePinDigit('0')}
             >
               0
             </button>
-            <button 
+            <button
               className="pin-key-btn special-key"
-              onClick={handleBackspace}
+              onClick={handlePinBackspace}
               aria-label="Backspace"
             >
               <Delete size={16} />
@@ -343,404 +427,571 @@ export default function StockManager() {
     );
   }
 
-  const categories = [...new Set(items.map(i => i.category))];
-  const modifiedKeys = Object.keys(edited).filter(id => {
-    const item = items.find(i => i.id === parseInt(id));
-    return item && isModified(item);
-  });
-  const hasChanges = modifiedKeys.length > 0;
-
-  // Category Colors and Icons Map for premium rendering
-  const categoryConfig = {
-    Panel: { bg: "rgba(245, 158, 11, 0.06)", color: "#d97706", icon: Sun, label: "Solar Panels" },
-    Inverter: { bg: "rgba(59, 130, 246, 0.06)", color: "#2563eb", icon: Zap, label: "Inverters" },
-    Accessory: { bg: "rgba(16, 185, 129, 0.06)", color: "#059669", icon: Package, label: "Accessories" },
-    Wire: { bg: "rgba(139, 92, 246, 0.06)", color: "#7c3aed", icon: Layers, label: "Wires & Cables" },
-    Default: { bg: "rgba(107, 114, 128, 0.06)", color: "#4b5563", icon: Package, label: "Stock Items" }
-  };
-
+  // ── Main content ──────────────────────────────────────────
   return (
-    <div>
+    <div className="page-content">
       {/* Page Header */}
-      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12 }}>
+      <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
         <div>
-          <div className="page-title">Stock & Inventory Suite</div>
-          <div className="page-sub">Update inventory quantities, adjust unit valuation prices, and track assets</div>
+          <div className="page-title">Stock &amp; Inventory</div>
+          <div className="page-subtitle">Manage live stock levels, track movements, and view transaction history.</div>
         </div>
-        <button
-          className="btn-primary"
-          style={{ 
-            width: "auto", 
-            padding: "10px 24px", 
-            opacity: hasChanges ? 1 : 0.5,
-            background: hasChanges ? "var(--green)" : "var(--muted)",
-            display: "flex",
-            alignItems: "center",
-            gap: 6
-          }}
-          disabled={!hasChanges || saving}
-          onClick={() => setDrawerOpen(true)}
-        >
-          <Save size={16} />
-          Review & Save
-        </button>
+        {/* Header action buttons */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {activeTab === 'live' && (
+            <button
+              className="btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              onClick={() => setAddItemModal({ open: true, category: 'Accessory', itemName: '', quantity: 0, unit: 'pcs', saving: false })}
+            >
+              <Plus size={13} /> Add Item
+            </button>
+          )}
+          {activeTab === 'live' && hasStagedChanges && (
+            <button className="btn-sm" style={{ background: 'var(--green)', color: 'white', borderColor: 'var(--green)', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setDrawerOpen(true)}>
+              <Save size={14} /> Review &amp; Save
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Save success banner */}
       {saveSuccess && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 10, background: "#f0fdf4", border: "1px solid #86efac", marginBottom: 16, fontSize: 13, color: "#166534", animation: "fadeIn 0.2s ease" }}>
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          Stock updated successfully. All changes have been saved.
+        <div style={{ background: 'var(--green-light)', border: '1px solid rgba(46,125,82,0.3)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--green)', fontWeight: 600, fontSize: 13 }}>
+          <Save size={14} /> Stock changes saved successfully!
         </div>
       )}
 
-      {/* Empty state when no stock items exist */}
-      {items.length === 0 ? (
-        <div className="card" style={{ textAlign: "center", padding: "3rem 2rem", color: "var(--muted)" }}>
-          <div style={{ marginBottom: 12 }}><Package size={48} strokeWidth={1} /></div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text)" }}>No Stock Items Found</div>
-          <div style={{ fontSize: 13, marginTop: 6, maxWidth: 380, margin: "6px auto 0 auto", lineHeight: 1.6 }}>
-            Stock items are automatically created when you add panels and inverters in the <strong>Price Manager</strong>. Go to Price Manager to add your first panel or inverter.
+      {/* Valuation summary cards — only on live tab */}
+      {activeTab === 'live' && (
+        <div className="card" style={{ padding: '24px', marginBottom: 20 }}>
+          {/* Header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+            <div style={{ background: 'rgba(46,125,82,0.1)', padding: 10, borderRadius: 10, color: 'var(--green)' }}>
+              <Coins size={22} />
+            </div>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>Stock Asset Valuation Summary</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
+                Live financial assets valuation aggregated across categories
+              </div>
+            </div>
           </div>
-        </div>
-      ) : (
 
-      <>
-      {/* Stock Valuation Summary Dashboard Section */}
-      <div className="card" style={{ 
-        marginBottom: 32, 
-        border: "1.5px solid #e2e8f0", 
-        borderRadius: 20, 
-        background: "linear-gradient(135deg, #ffffff 0%, #fafaf9 100%)",
-        boxShadow: "0 10px 30px rgba(0,0,0,0.03)"
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid #f1f5f9", paddingBottom: 16, marginBottom: 20 }}>
-          <span style={{ 
-            background: "rgba(46,125,82,0.1)", 
-            color: "var(--green)", 
-            width: 38, 
-            height: 38, 
-            borderRadius: 10, 
-            display: "flex", 
-            justifyContent: "center", 
-            alignItems: "center" 
-          }}>
-            <Coins size={22} />
-          </span>
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>Stock Asset Valuation Summary</div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>Live financial assets valuation aggregated across categories</div>
-          </div>
-        </div>
-
-        {/* Valuation Grid Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
-          {categories.map(cat => {
-            const config = categoryConfig[cat] || categoryConfig.Default;
-            const Icon = config.icon;
-            const val = valuationMetrics.categoryValuations[cat] || 0;
-            const qty = valuationMetrics.categoryQuantities[cat] || 0;
-
-            return (
-              <div 
-                key={cat}
-                style={{
-                  background: "white",
-                  border: "1px solid #f1f5f9",
-                  borderRadius: 12,
-                  padding: 18,
-                  boxShadow: "0 4px 10px rgba(0,0,0,0.01)"
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                  <span style={{ 
-                    background: config.bg, 
-                    color: config.color, 
-                    width: 28, 
-                    height: 28, 
-                    borderRadius: 6, 
-                    display: "flex", 
-                    justifyContent: "center", 
-                    alignItems: "center" 
-                  }}>
-                    <Icon size={14} />
-                  </span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>{cat}s Valuation</span>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+            {/* Category Cards */}
+            {['Accessory', 'Inverter', 'Panel', 'Wire'].map(cat => {
+              const info = valuationMetrics.categories[cat];
+              const cfg = categoryConfig[cat];
+              const Icon = cfg.icon;
+              return (
+                <div key={cat} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px', background: 'white', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 16 }}>
+                    <Icon size={16} style={{ color: cfg.color, marginTop: 1 }} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', lineHeight: 1.4 }}>{cat === 'Accessory' ? 'Accessories' : cat + 's'}<br/>Valuation</span>
+                  </div>
+                  <div style={{ marginTop: 'auto' }}>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>{fmtCurrency(info.value)}</div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f1f5f9', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, color: '#475569' }}>
+                      <Package size={12} /> {info.count} Units
+                    </div>
+                  </div>
                 </div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>
-                  {fmtCurrency(val)}
-                </div>
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-                  Asset count: {qty} units
+              );
+            })}
+
+            {/* Grand Total Card */}
+            <div style={{ background: 'var(--green)', borderRadius: 12, padding: '16px 20px', color: 'white', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 16 }}>
+                <TrendingUp size={16} style={{ opacity: 0.9, marginTop: 1 }} />
+                <span style={{ fontSize: 11, fontWeight: 700, opacity: 0.9, textTransform: 'uppercase', lineHeight: 1.4 }}>Grand Total<br/>Asset Valuation</span>
+              </div>
+              <div style={{ marginTop: 'auto' }}>
+                <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>{fmtCurrency(valuationMetrics.totalValue)}</div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.2)', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>
+                  <Layers size={12} /> {valuationMetrics.totalItems} Total Units
                 </div>
               </div>
-            );
-          })}
-
-          {/* Grand Total Valuation Card */}
-          <div 
-            style={{
-              background: "linear-gradient(135deg, var(--green) 0%, #15803d 100%)",
-              color: "white",
-              borderRadius: 12,
-              padding: 18,
-              boxShadow: "0 8px 20px rgba(46,125,82,0.15)",
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center"
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, opacity: 0.9 }}>
-              <TrendingUp size={16} />
-              <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Grand Total Asset Valuation</span>
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 800 }}>
-              {fmtCurrency(valuationMetrics.grandTotalValuation)}
-            </div>
-            <div style={{ fontSize: 10, marginTop: 4, opacity: 0.8 }}>
-              All 4 stock categories combined
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Grid of Categories */}
-      {categories.map(cat => {
-        const config = categoryConfig[cat] || categoryConfig.Default;
-        const Icon = config.icon;
-        
-        return (
-          <div className="card" key={cat} style={{ borderLeft: `4px solid ${config.color}`, borderRadius: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
-              <div className="card-title" style={{ display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
-                <span style={{ 
-                  background: config.bg, 
-                  color: config.color, 
-                  width: 32, 
-                  height: 32, 
-                  borderRadius: 8, 
-                  display: "flex", 
-                  justifyContent: "center", 
-                  alignItems: "center" 
-                }}>
-                  <Icon size={18} />
-                </span>
-                <span>{config.label}</span>
-              </div>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", background: "#f8fafc", padding: "4px 10px", borderRadius: 8 }}>
-                Valuation: {fmtCurrency(valuationMetrics.categoryValuations[cat] || 0)}
-              </span>
+      {/* Tabs — always visible */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+          {[
+            { key: 'live',   label: 'Live Inventory',  icon: Package },
+            { key: 'ledger', label: 'Stock Ledger',     icon: BarChart2 },
+            { key: 'daily',  label: 'Daily Report',     icon: FileSpreadsheet },
+          ].map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              className={`btn-sm ${activeTab === key ? 'primary' : ''}`}
+              onClick={() => handleTabChange(key)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <Icon size={13} />{label}
+            </button>
+          ))}
+        </div>
+
+      {/* ── LIVE INVENTORY TAB ─────────────────────────────────── */}
+      {activeTab === 'live' && (
+        <>
+          {items.length === 0 ? (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--muted)' }}>
+              <Package size={40} style={{ marginBottom: 12, opacity: 0.4 }} />
+              <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>No stock items yet</div>
+              <div style={{ fontSize: 13 }}>Panels and inverters sync automatically. Add accessories or wires manually.</div>
             </div>
-            
-            <div className="table-scroll-wrap">
-              <table style={{ minWidth: "520px" }}>
-                <thead>
-                  <tr>
-                    <th style={{ width: "35%" }}>Item Specifications</th>
-                    <th style={{ width: "20%" }}>Quantity</th>
-                    <th style={{ width: "10%" }}>Unit</th>
-                    <th style={{ width: "20%" }}>Unit Price (₹)</th>
-                    <th style={{ width: "15%" }}>Total Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items
-                    .filter(i => i.category === cat)
-                    .map(item => {
-                      const qty = getQty(item);
-                      const price = getPrice(item);
-                      const isQtyChanged = isQtyModified(item);
-                      const isPriceChanged = isPriceModified(item);
-                      const isItemModified = isModified(item);
-                      
-                      return (
-                        <tr key={item.id}>
-                          <td style={{ fontWeight: 600 }}>{item.item_name}</td>
-                          <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <input
-                                className="input-inline"
-                                type="number"
-                                min="0"
-                                value={qty}
-                                style={
-                                  isQtyChanged
-                                    ? {
-                                        borderColor: "var(--sun)",
-                                        backgroundColor: "rgba(245, 166, 35, 0.05)",
-                                        fontWeight: "bold",
-                                        width: 80
-                                      }
-                                    : { width: 80 }
-                                }
-                                onChange={e => handleChange(item.id, "quantity", e.target.value)}
-                              />
-                              
-                              {/* Stock status indicator badge */}
-                              <span
-                                className={`badge ${
-                                  qty > thresholds.high
-                                    ? "badge-green"
-                                    : qty > thresholds.low
-                                    ? "badge-sun"
-                                    : "badge-red"
-                                }`}
-                                style={{ fontSize: 9, padding: "2px 6px" }}
-                              >
-                                {qty > thresholds.high ? "In Stock" : qty > thresholds.low ? "Low" : "Critical"}
-                              </span>
-                            </div>
-                          </td>
-                          <td style={{ color: "var(--muted)", fontSize: 13 }}>{item.unit}</td>
-                          <td>
-                            <input
-                              className="input-inline"
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={price}
-                              style={
-                                isPriceChanged
-                                  ? {
-                                      borderColor: "var(--green)",
-                                      backgroundColor: "rgba(46, 125, 82, 0.05)",
-                                      fontWeight: "bold",
-                                      width: 110
-                                    }
-                                  : { width: 110 }
-                              }
-                              onChange={e => handleChange(item.id, "unitPrice", e.target.value)}
-                            />
-                          </td>
-                          <td style={{ fontWeight: 700, color: isItemModified ? "var(--green)" : "var(--text)" }}>
-                            {fmtCurrency((parseFloat(qty) || 0) * (parseFloat(price) || 0))}
-                          </td>
+          ) : (
+            categories.map(cat => {
+              const cfg = categoryConfig[cat] || { bg: '#f8fafc', color: 'var(--text)', icon: Package, label: cat };
+              const CatIcon = cfg.icon;
+              const catItems = items.filter(i => i.category === cat);
+              return (
+                <div key={cat} className="card" style={{ marginBottom: 16 }}>
+                  {/* Category header */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px 12px', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 8, background: cfg.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <CatIcon size={16} style={{ color: cfg.color }} />
+                    </div>
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{cfg.label || cat}</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>({catItems.length} items)</span>
+                  </div>
+
+                  {/* Table */}
+                  <div className="table-scroll-wrap">
+                    <table style={{ minWidth: 580 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ width: '32%' }}>Item Specifications</th>
+                          <th style={{ width: '27%' }}>Quantity</th>
+                          <th style={{ width: '7%' }}>Unit</th>
+                          <th style={{ width: '15%' }}>Unit Price (₹)</th>
+                          <th style={{ width: '12%' }}>Total Value</th>
+                          <th style={{ width: '7%' }}></th>
                         </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
+                      </thead>
+                      <tbody>
+                        {catItems.map(item => {
+                          const currentQty = item.quantity;
+                          const stagedAction = getStagedQtyAction(item.id);
+                          const previewQty = stagedAction ? (stagedAction.action === 'add' ? currentQty + stagedAction.qty : currentQty - stagedAction.qty) : null;
+                          const price = getStagedPrice(item);
+                          const isPriceChanged = hasPriceChange(item);
+                          const badge = currentQty > thresholds.high ? { label: 'In Stock', cls: 'badge-green' }
+                                      : currentQty > thresholds.low  ? { label: 'Low',      cls: 'badge-sun' }
+                                      : { label: 'Critical', cls: 'badge-red' };
+                          return (
+                            <tr key={item.id} style={stagedAction ? { borderLeft: `3px solid ${stagedAction.action === 'add' ? 'var(--green)' : 'var(--sun)'}` } : {}}>
+                              <td style={{ fontWeight: 600 }}>{item.item_name}</td>
+                              <td>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+                                  {/* Current qty display + badge */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                                    {stagedAction ? (
+                                      <>
+                                        <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--muted)', textDecoration: 'line-through', minWidth: 55, display: 'inline-block' }}>{currentQty}</span>
+                                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>→</span>
+                                        <span style={{ fontWeight: 700, fontSize: 14, color: stagedAction.action === 'add' ? 'var(--green)' : 'var(--sun-dark)' }}>{previewQty}</span>
+                                        <span className={`stock-pending-chip ${stagedAction.action}`}>
+                                          {stagedAction.action === 'add' ? '+' : '−'}{stagedAction.qty}
+                                        </span>
+                                        <button
+                                          onClick={() => handleClearStagedQty(item.id)}
+                                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--muted)', display: 'flex' }}
+                                          title="Clear staged change"
+                                        ><X size={12} /></button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span style={{ fontWeight: 700, fontSize: 14, minWidth: 55, display: 'inline-block' }}>{currentQty}</span>
+                                        <span className={`badge ${badge.cls}`} style={{ fontSize: 9, padding: '2px 6px' }}>{badge.label}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                  {/* Action buttons */}
+                                  {!stagedAction && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                      <button className="stock-action-btn add" onClick={() => handleOpenModal(item.id, 'add')} title="Add stock">
+                                        <Plus size={12} />
+                                      </button>
+                                      <button className="stock-action-btn deduct" onClick={() => handleOpenModal(item.id, 'deduct')} title="Use stock" disabled={item.quantity === 0}>
+                                        <Minus size={12} />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                              <td style={{ color: 'var(--muted)', fontSize: 13 }}>{item.unit}</td>
+                              <td>
+                                <input
+                                  className="input-inline"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={price}
+                                  style={isPriceChanged ? { borderColor: 'var(--green)', backgroundColor: 'rgba(46,125,82,0.05)', fontWeight: 'bold', width: 110 } : { width: 110 }}
+                                  onChange={e => handlePriceChange(item.id, e.target.value)}
+                                />
+                              </td>
+                              <td style={{ fontWeight: 700, color: isPriceChanged ? 'var(--green)' : 'var(--text)' }}>
+                                {fmtCurrency((parseFloat(currentQty) || 0) * (parseFloat(price) || 0))}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <button
+                                  title={`Remove ${item.item_name}`}
+                                  onClick={() => setDeleteDialog({ open: true, itemId: item.id, itemName: item.item_name })}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: 'var(--muted)', display: 'inline-flex', borderRadius: 6, transition: 'color 0.15s' }}
+                                  onMouseOver={e => e.currentTarget.style.color = 'var(--red)'}
+                                  onMouseOut={e => e.currentTarget.style.color = 'var(--muted)'}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })
+          )}
+
+          {/* Unsaved changes bar */}
+          {hasStagedChanges && (
+            <div style={{ position: 'sticky', bottom: 0, background: 'rgba(255,255,255,0.97)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 12, padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, zIndex: 10, marginTop: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--sun-dark)', fontWeight: 600 }}>
+                <AlertCircle size={14} /> You have unsaved changes.
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn-sm" onClick={() => { setStaged({}); setStagedReasons({}); }}>Discard</button>
+                <button className="btn-sm primary" onClick={() => setDrawerOpen(true)}><Save size={13} /> Review &amp; Save</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── STOCK LEDGER TAB ───────────────────────────────────── */}
+      {activeTab === 'ledger' && (
+        <StockLedger />
+      )}
+
+      {/* ── DAILY REPORT TAB ──────────────────────────────────── */}
+      {activeTab === 'daily' && (
+        <DailyStockLogs />
+      )}
+
+      {/* ── QUANTITY ACTION MODAL ──────────────────────────────── */}
+      {qtyModal.open && (() => {
+        const modalItem = items.find(i => i.id === qtyModal.itemId);
+        if (!modalItem) return null;
+        const currentQty = modalItem.quantity;
+        const parsedQty = parseInt(qtyModal.qty, 10);
+        const validQty = !isNaN(parsedQty) && parsedQty >= 1;
+        const isOverDeduct = qtyModal.action === 'deduct' && validQty && parsedQty > currentQty;
+        const previewQty = validQty && !isOverDeduct ? (qtyModal.action === 'add' ? currentQty + parsedQty : currentQty - parsedQty) : null;
+        return (
+          <div className="stock-qty-modal-backdrop" onClick={() => setQtyModal({ open: false, itemId: null, action: null, qty: '' })}>
+            <div className="stock-qty-modal" onClick={e => e.stopPropagation()}>
+              <div className="stock-qty-modal-title" style={{ color: qtyModal.action === 'add' ? 'var(--green)' : 'var(--sun-dark)' }}>
+                {qtyModal.action === 'add' ? '＋ Add Stock' : '－ Use Stock'}
+              </div>
+              <div className="stock-qty-modal-subtitle">{modalItem.item_name}</div>
+
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                  Current Stock: <strong style={{ fontFamily: 'var(--mono)' }}>{currentQty} {modalItem.unit}</strong>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: qtyModal.action === 'add' ? 'var(--green)' : 'var(--sun-dark)', width: 16, textAlign: 'center' }}>
+                    {qtyModal.action === 'add' ? '+' : '−'}
+                  </span>
+                  <input
+                    className="input-inline"
+                    type="number"
+                    min="1"
+                    placeholder="Enter quantity..."
+                    value={qtyModal.qty}
+                    autoFocus
+                    style={{ width: 140, borderColor: isOverDeduct ? 'var(--red)' : undefined }}
+                    onChange={e => setQtyModal(prev => ({ ...prev, qty: e.target.value }))}
+                    onKeyDown={e => { if (e.key === 'Enter' && validQty && !isOverDeduct) handleStageQty(); }}
+                  />
+                  <span style={{ fontSize: 13, color: 'var(--muted)' }}>{modalItem.unit}</span>
+                </div>
+
+                {previewQty !== null && (
+                  <div className={`stock-qty-preview ${qtyModal.action}`}>
+                    <ArrowRight size={12} />
+                    New balance: <strong style={{ fontFamily: 'var(--mono)' }}>{previewQty} {modalItem.unit}</strong>
+                    {qtyModal.action === 'add' ? ' ↑' : ' ↓'}
+                  </div>
+                )}
+                {isOverDeduct && (
+                  <div className="stock-qty-preview error">
+                    <AlertCircle size={12} /> Cannot exceed {currentQty} {modalItem.unit} available
+                  </div>
+                )}
+                {!qtyModal.qty && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+                    {qtyModal.action === 'add' ? 'Reason can be added in Review & Save' : 'Enter how many you used'}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button className="btn-sm" onClick={() => setQtyModal({ open: false, itemId: null, action: null, qty: '' })}>
+                  Cancel
+                </button>
+                <button
+                  className="btn-sm"
+                  style={qtyModal.action === 'add'
+                    ? { background: 'var(--green)', color: 'white', borderColor: 'var(--green)' }
+                    : { background: 'var(--sun)', color: 'white', borderColor: 'var(--sun)' }}
+                  onClick={handleStageQty}
+                  disabled={!validQty || isOverDeduct}
+                >
+                  Stage this change
+                </button>
+              </div>
             </div>
           </div>
         );
-      })}
+      })()}
 
-      {/* Unsaved Changes Alert bar */}
-      {hasChanges && (
-        <div
-          className="alert alert-green"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: 8,
-            marginTop: 20,
-            borderRadius: 12,
-            animation: "fadeIn 0.2s ease"
-          }}
-        >
-          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "var(--sun)" }}></span>
-            You have unsaved changes ({modifiedKeys.length} inventory item{modifiedKeys.length > 1 ? "s" : ""} modified).
-          </span>
-          <button className="btn-sm" style={{ background: "transparent", border: "1.5px solid var(--green)", color: "var(--green)" }} onClick={handleDiscard}>
-            Discard Changes
-          </button>
+      {/* ── ADD ITEM MODAL ─────────────────────────────────────── */}
+      {addItemModal.open && (
+        <div className="stock-qty-modal-backdrop" onClick={() => !addItemModal.saving && setAddItemModal(prev => ({ ...prev, open: false }))}>
+          <div className="stock-qty-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="stock-qty-modal-title" style={{ color: 'var(--green)' }}>
+              + Add New Stock Item
+            </div>
+            <div className="stock-qty-modal-subtitle">
+              Add a new item to your live inventory.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+            <div>
+                <label style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, display: 'block', marginBottom: 4 }}>Category</label>
+                <select
+                  className="input-inline"
+                  style={{ width: '100%' }}
+                  value={addItemModal.category}
+                  onChange={e => setAddItemModal(prev => ({ ...prev, category: e.target.value }))}
+                >
+                  <option value="Accessory">Accessory</option>
+                  <option value="Wire">Wire / Cable</option>
+                  <option value="Panel">Panel (Solar)</option>
+                  <option value="Inverter">Inverter</option>
+                </select>
+                {(addItemModal.category === 'Panel' || addItemModal.category === 'Inverter') && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 6, padding: '8px 10px', background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.15)', borderRadius: 6, fontSize: 11, color: '#2563eb' }}>
+                    <Info size={12} style={{ marginTop: 1, flexShrink: 0 }} />
+                    <span>
+                      {addItemModal.category === 'Panel' ? 'Solar Panels' : 'Inverters'} from your Products catalog auto-sync into stock.
+                      Only add here if this item is <strong>not</strong> in your catalog.
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, display: 'block', marginBottom: 4 }}>Item Name</label>
+                <input
+                  className="input-inline"
+                  type="text"
+                  placeholder="e.g. ACDB Box, Earthing Kit, DC Cable..."
+                  style={{ width: '100%' }}
+                  value={addItemModal.itemName}
+                  autoFocus
+                  onChange={e => setAddItemModal(prev => ({ ...prev, itemName: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter' && addItemModal.itemName.trim()) handleAddItem(); }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, display: 'block', marginBottom: 4 }}>Opening Qty</label>
+                  <input
+                    className="input-inline"
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    style={{ width: '100%' }}
+                    value={addItemModal.quantity}
+                    onChange={e => setAddItemModal(prev => ({ ...prev, quantity: e.target.value }))}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, display: 'block', marginBottom: 4 }}>Unit</label>
+                  <input
+                    className="input-inline"
+                    type="text"
+                    placeholder="pcs, meters, rolls..."
+                    style={{ width: '100%' }}
+                    value={addItemModal.unit}
+                    onChange={e => setAddItemModal(prev => ({ ...prev, unit: e.target.value }))}
+                  />
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn-sm" disabled={addItemModal.saving} onClick={() => setAddItemModal(prev => ({ ...prev, open: false }))}>
+                Cancel
+              </button>
+              <button
+                className="btn-sm"
+                style={{ background: 'var(--green)', color: 'white', borderColor: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                disabled={!addItemModal.itemName.trim() || addItemModal.saving}
+                onClick={handleAddItem}
+              >
+                {addItemModal.saving
+                  ? <><Loader2 size={12} className="animate-spin" /> Adding...</>
+                  : <><Plus size={12} /> Add Item</>}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-
-
-      </> 
-      )} 
-
-      {/* Review Changes Drawer */}
+      {/* ── REVIEW & SAVE DRAWER ───────────────────────────────── */}
       {drawerOpen && (
         <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} style={{ zIndex: 999 }}>
           <div className="drawer-container" onClick={e => e.stopPropagation()}>
             <div className="drawer-header">
               <div className="drawer-title-area">
                 <span className="drawer-title">Review Stock Adjustments</span>
-                <span className="drawer-subtitle">Verify quantity and price changes before syncing</span>
+                <span className="drawer-subtitle">Quantity changes are permanently recorded in the stock ledger</span>
               </div>
-              <button className="close-btn" style={{ padding: 4, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setDrawerOpen(false)}>
+              <button className="close-btn" style={{ padding: 4, display: 'flex' }} onClick={() => setDrawerOpen(false)}>
                 <X size={20} />
               </button>
             </div>
-            <div className="drawer-content" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{ fontSize: 13, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6 }}>
-                <Info size={14} style={{ color: "var(--green)" }} />
-                The following modifications will update stock logs and assets value:
+
+            <div className="drawer-content" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Info size={14} style={{ color: 'var(--green)' }} />
+                The following changes will be recorded in the stock ledger.
               </div>
-              
-              <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: "55vh", overflowY: "auto", paddingRight: 4 }}>
-                {getModifiedItems().map(item => (
-                  <div className="change-card" key={item.id} style={{ padding: 14, border: "1px solid #f1f5f9", borderRadius: 10 }}>
-                    <div className="change-item-info" style={{ marginBottom: 8 }}>
-                      <span className="change-item-cat" style={{ background: "#f8fafc", padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 700, color: "var(--muted)" }}>{item.category}</span>
-                      <span className="change-item-name" style={{ fontWeight: 700, marginLeft: 8, fontSize: 13 }}>{item.item_name}</span>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '55vh', overflowY: 'auto', paddingRight: 4 }}>
+                {getModifiedItems().map(item => {
+                  const reasons = stagedReasons[item.id] || {};
+                  const reasonPresets = item.qtyAction === 'add' ? ADD_REASONS : DEDUCT_REASONS;
+                  return (
+                    <div key={item.id} style={{ padding: 14, border: '1px solid #f1f5f9', borderRadius: 10 }}>
+                      {/* Item header */}
+                      <div style={{ marginBottom: 8 }}>
+                        <span style={{ background: '#f8fafc', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, color: 'var(--muted)' }}>{item.category}</span>
+                        <span style={{ fontWeight: 700, marginLeft: 8, fontSize: 13 }}>{item.item_name}</span>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: 4 }}>
+                        {/* Quantity change */}
+                        {item.hasQtyChange && (
+                          <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, flexWrap: 'wrap', gap: 4 }}>
+                              <span style={{ color: 'var(--muted)' }}>
+                                {item.qtyAction === 'add' ? '↑ Adding' : '↓ Using'} {item.qtyDelta} {item.unit}:
+                              </span>
+                              <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--mono)' }}>
+                                <span style={{ color: '#ef4444', textDecoration: 'line-through' }}>{item.quantity}</span>
+                                <ArrowRight size={11} style={{ color: 'var(--muted)' }} />
+                                <span style={{ color: item.qtyAction === 'add' ? 'var(--green)' : 'var(--sun-dark)', fontWeight: 700 }}>{item.newQty}</span>
+                                <span style={{ color: 'var(--muted)', fontWeight: 400 }}>{item.unit}</span>
+                              </span>
+                            </div>
+
+                            {/* Reason fields */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              <select
+                                className="input-inline"
+                                style={{ width: '100%', fontSize: 12 }}
+                                value={reasons.reasonCategory || ''}
+                                onChange={e => setStagedReasons(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), reasonCategory: e.target.value } }))}
+                              >
+                                <option value="">Reason (optional) — select...</option>
+                                {reasonPresets.map(r => <option key={r} value={r}>{r}</option>)}
+                              </select>
+                              <input
+                                className="input-inline"
+                                type="text"
+                                placeholder="Add a note... (optional)"
+                                style={{ width: '100%', fontSize: 12 }}
+                                value={reasons.reasonNote || ''}
+                                onChange={e => setStagedReasons(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), reasonNote: e.target.value } }))}
+                              />
+                            </div>
+                          </>
+                        )}
+
+                        {/* Price change */}
+                        {item.hasPriceChanged && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, flexWrap: 'wrap', gap: 4 }}>
+                            <span style={{ color: 'var(--muted)' }}>Unit Price:</span>
+                            <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <span style={{ textDecoration: 'line-through', color: '#ef4444' }}>{fmtCurrency(item.oldPrice)}</span>
+                              <ArrowRight size={11} style={{ color: 'var(--muted)' }} />
+                              <span style={{ color: 'var(--green)', fontWeight: 700 }}>{fmtCurrency(item.newPrice)}</span>
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 4 }}>
-                      {/* Qty Change */}
-                      {item.qtyChanged && (
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, flexWrap: "wrap", gap: 4 }}>
-                          <span style={{ color: "var(--muted)" }}>Quantity Adjustment:</span>
-                          <span style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 4 }}>
-                            <span style={{ textDecoration: "line-through", color: "#ef4444" }}>{item.oldQty}</span>
-                            <ArrowRight size={11} style={{ color: "var(--muted)" }} />
-                            <span style={{ color: "var(--green)", fontWeight: 700 }}>{item.newQty}</span> {item.unit}
-                          </span>
-                        </div>
-                      )}
-                      
-                      {/* Price Change */}
-                      {item.priceChanged && (
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, flexWrap: "wrap", gap: 4 }}>
-                          <span style={{ color: "var(--muted)" }}>Unit Price Adjustment:</span>
-                          <span style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 4 }}>
-                            <span style={{ textDecoration: "line-through", color: "#ef4444" }}>{fmtCurrency(item.oldPrice)}</span>
-                            <ArrowRight size={11} style={{ color: "var(--muted)" }} />
-                            <span style={{ color: "var(--green)", fontWeight: 700 }}>{fmtCurrency(item.newPrice)}</span>
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
+
             <div className="drawer-footer">
-              <button className="btn-sm" style={{ padding: "12px", border: "1.5px solid var(--border)", background: "transparent", fontWeight: 600 }} onClick={() => setDrawerOpen(false)}>
-                Cancel
-              </button>
-              <button className="btn-primary" disabled={saving} onClick={handleSave} style={{ background: "var(--green)" }}>
-                {saving ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" /> Saving Changes...
-                  </>
-                ) : (
-                  <>
-                    <Save size={16} /> Confirm & Save Changes
-                  </>
-                )}
+              <button className="btn-sm" style={{ padding: '12px', border: '1.5px solid var(--border)', background: 'transparent', fontWeight: 600 }} onClick={() => setDrawerOpen(false)}>Cancel</button>
+              <button className="btn-primary" disabled={saving} onClick={handleSave} style={{ background: 'var(--green)' }}>
+                {saving ? <><Loader2 size={16} className="animate-spin" /> Saving...</> : <><Save size={16} /> Confirm &amp; Save Changes</>}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Confirmation & Alert dialog */}
+      {/* ── TAB SWITCH WARNING ─────────────────────────────────── */}
+      <ConfirmDialog
+        open={tabSwitchDialog.open}
+        title="Unsaved Changes"
+        message="You have unsaved stock changes. If you switch tabs, your staged changes will be lost."
+        confirmText="Leave Anyway"
+        cancelText="Stay Here"
+        onConfirm={() => {
+          setStaged({});
+          setStagedReasons({});
+          setActiveTab(tabSwitchDialog.targetTab);
+          setTabSwitchDialog({ open: false, targetTab: null });
+        }}
+        onCancel={() => setTabSwitchDialog({ open: false, targetTab: null })}
+      />
+
+      {/* ── ERROR DIALOG ───────────────────────────────────────── */}
       <ConfirmDialog
         open={errorDialog.open}
         title="Error"
         message={errorDialog.message}
-        variant="danger"
         confirmText="OK"
         hideCancel
-        onConfirm={() => setErrorDialog({ open: false, message: "" })}
-        onCancel={() => setErrorDialog({ open: false, message: "" })}
+        onConfirm={() => setErrorDialog({ open: false, message: '' })}
+        onCancel={() => setErrorDialog({ open: false, message: '' })}
+      />
+
+      {/* ── DELETE CONFIRM ─────────────────────────────────────── */}
+      <ConfirmDialog
+        open={deleteDialog.open}
+        title="Remove Stock Item"
+        message={`Remove '${deleteDialog.itemName}' from stock? This will also delete all transaction history for this item. This cannot be undone.`}
+        confirmText="Remove"
+        cancelText="Cancel"
+        variant="danger"
+        onConfirm={() => handleDelete(deleteDialog.itemId, deleteDialog.itemName)}
+        onCancel={() => setDeleteDialog({ open: false, itemId: null, itemName: '' })}
       />
     </div>
   );
