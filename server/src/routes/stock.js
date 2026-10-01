@@ -443,7 +443,7 @@ router.get("/daily", async (req, res, next) => {
 // Seeds an 'initial' transaction if the starting quantity is > 0.
 // ═══════════════════════════════════════════════════════════════════════════════
 const addStockItemSchema = Joi.object({
-  category: Joi.string().required().trim().min(2).max(50),
+  category: Joi.string().valid('Structure Material', 'Electrical Material').required(),
   itemName: Joi.string().required().trim().min(2).max(255),
   quantity: Joi.number().integer().required().min(0),
   unit: Joi.string().required().trim().max(30).default("pcs"),
@@ -728,7 +728,8 @@ router.post("/:id/adjust", validate(adjustStockSchema), async (req, res, next) =
 // PATCH /api/stock/:id
 // Update unit price ONLY.
 // Quantity is now managed exclusively through /add, /deduct, /adjust.
-// Syncs updated price to the corresponding panel/inverter/accessory catalog entry.
+// Syncs updated price to the corresponding panel/inverter catalog entry
+// (Structure Material and Electrical Material have no catalog table to sync to).
 // ═══════════════════════════════════════════════════════════════════════════════
 const updatePriceSchema = Joi.object({
   unitPrice: Joi.number().min(0).required(),
@@ -779,11 +780,6 @@ router.patch("/:id", validate(updatePriceSchema), async (req, res, next) => {
         if (match) {
           await db.query("UPDATE inverters SET price_per_unit = ? WHERE id = ?", [unitPrice, match.id]);
         }
-      } else if (category === "Accessory" || category === "Wire") {
-        await db.query(
-          "UPDATE accessories SET price = ? WHERE display_name = ?",
-          [unitPrice, item_name]
-        );
       }
     } catch (syncErr) {
       // Sync failure is non-fatal — log a warning but don't fail the request

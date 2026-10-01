@@ -14,13 +14,43 @@ import DailyStockLogs from './DailyStockLogs';
 const ADD_REASONS = ['Received from supplier', 'Returned from installation site', 'Manual stock correction', 'Other'];
 const DEDUCT_REASONS = ['Installed at customer site', 'Damaged / Write-off', 'Returned to supplier', 'Manual stock correction', 'Other'];
 
-// ── Category config ──────────────────────────────────────────
+// ── Category config (keyed by DB value) ──────────────────────
 const categoryConfig = {
-  Panel:     { bg: 'rgba(245,166,35,0.06)',  color: '#f5a623', icon: Sun,    label: 'Solar Panels' },
-  Inverter:  { bg: 'rgba(37,99,235,0.06)',   color: '#2563eb', icon: Zap,    label: 'Inverters' },
-  Accessory: { bg: 'rgba(16,185,129,0.06)', color: '#10b981', icon: Layers, label: 'Accessories' },
-  Wire:      { bg: 'rgba(139,92,246,0.06)', color: '#7c3aed', icon: Layers, label: 'Wires & Cables' },
+  Panel:                 { bg: 'rgba(245,166,35,0.06)',   color: '#f5a623', icon: Sun,    label: 'Solar Panels' },
+  Inverter:              { bg: 'rgba(37,99,235,0.06)',    color: '#2563eb', icon: Zap,    label: 'Inverters' },
+  'Structure Material':  { bg: 'rgba(120,113,108,0.06)', color: '#78716c', icon: Layers, label: 'Structure Material' },
+  'Electrical Material': { bg: 'rgba(234,179,8,0.06)',   color: '#ca8a04', icon: Zap,    label: 'Electrical Material' },
 };
+
+// ── Display groups — controls what sections appear on screen ──
+// Panel and Inverter share one section even though they are
+// stored as separate categories in the database.
+const DISPLAY_GROUPS = [
+  {
+    key: 'panel-inverter',
+    label: 'PANEL AND INVERTER',
+    icon: Sun,
+    color: '#f5a623',
+    bg: 'rgba(245,166,35,0.06)',
+    categories: ['Panel', 'Inverter'],
+  },
+  {
+    key: 'structure',
+    label: 'STRUCTURE MATERIAL',
+    icon: Layers,
+    color: '#78716c',
+    bg: 'rgba(120,113,108,0.06)',
+    categories: ['Structure Material'],
+  },
+  {
+    key: 'electrical',
+    label: 'ELECTRICAL MATERIAL',
+    icon: Zap,
+    color: '#ca8a04',
+    bg: 'rgba(234,179,8,0.06)',
+    categories: ['Electrical Material'],
+  },
+];
 
 // ── Currency helper ──────────────────────────────────────────
 const fmtCurrency = (n) =>
@@ -48,7 +78,7 @@ export default function StockManager() {
   const [qtyModal, setQtyModal] = useState({ open: false, itemId: null, action: null, qty: '' });
   const [tabSwitchDialog, setTabSwitchDialog] = useState({ open: false, targetTab: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, itemId: null, itemName: '', category: '' });
-  const [addItemModal, setAddItemModal] = useState({ open: false, category: 'Accessory', itemName: '', quantity: 0, unit: 'pcs', saving: false });
+  const [addItemModal, setAddItemModal] = useState({ open: false, category: 'Structure Material', itemName: '', quantity: 0, unit: 'pcs', saving: false });
 
   // ── fetchStock ───────────────────────────────────────────
   const fetchStock = useCallback(async () => {
@@ -195,20 +225,14 @@ export default function StockManager() {
   // ── Valuation metrics (uses item.quantity directly, NOT staged) ──
   const valuationMetrics = useMemo(() => {
     let totalValue = 0;
-    const categories = {
-      Accessory: { value: 0, count: 0 },
-      Inverter:  { value: 0, count: 0 },
-      Panel:     { value: 0, count: 0 },
-      Wire:      { value: 0, count: 0 }
-    };
-    
+    const categories = {};
+
     items.forEach(i => {
       const v = (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_price) || 0);
       totalValue += v;
-      if (categories[i.category]) {
-        categories[i.category].value += v;
-        categories[i.category].count += 1;
-      }
+      if (!categories[i.category]) categories[i.category] = { value: 0, count: 0 };
+      categories[i.category].value += v;
+      categories[i.category].count += 1;
     });
 
     const criticalCount = items.filter(i => i.quantity <= thresholds.low).length;
@@ -382,7 +406,7 @@ export default function StockManager() {
     setAddItemModal(prev => ({ ...prev, saving: true }));
     try {
       await stock.add({ category, itemName: itemName.trim(), quantity: parseInt(quantity, 10) || 0, unit: unit.trim() });
-      setAddItemModal({ open: false, category: 'Accessory', itemName: '', quantity: 0, unit: 'pcs', saving: false });
+      setAddItemModal({ open: false, category: 'Structure Material', itemName: '', quantity: 0, unit: 'pcs', saving: false });
       await fetchStock();
     } catch (err) {
       setAddItemModal(prev => ({ ...prev, saving: false }));
@@ -396,7 +420,10 @@ export default function StockManager() {
     }
   };
 
-  const categories = [...new Set(items.map(i => i.category))];
+  // Filter DISPLAY_GROUPS to only those with at least one matching stock item
+  const activeGroups = DISPLAY_GROUPS.filter(g =>
+    g.categories.some(cat => items.some(i => i.category === cat))
+  );
 
   // ── Loading ───────────────────────────────────────────────
   if (loading) return (
@@ -499,7 +526,7 @@ export default function StockManager() {
             <button
               className="btn-sm"
               style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-              onClick={() => setAddItemModal({ open: true, category: 'Accessory', itemName: '', quantity: 0, unit: 'pcs', saving: false })}
+              onClick={() => setAddItemModal({ open: true, category: 'Structure Material', itemName: '', quantity: 0, unit: 'pcs', saving: false })}
             >
               <Plus size={13} /> Add Item
             </button>
@@ -536,21 +563,25 @@ export default function StockManager() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-            {/* Category Cards */}
-            {['Accessory', 'Inverter', 'Panel', 'Wire'].map(cat => {
-              const info = valuationMetrics.categories[cat];
-              const cfg = categoryConfig[cat];
-              const Icon = cfg.icon;
+            {/* Category Cards — one per display group */}
+            {DISPLAY_GROUPS.map(group => {
+              const groupValue = group.categories.reduce((sum, cat) => {
+                return sum + (valuationMetrics.categories[cat]?.value || 0);
+              }, 0);
+              const groupCount = group.categories.reduce((sum, cat) => {
+                return sum + (valuationMetrics.categories[cat]?.count || 0);
+              }, 0);
+              const Icon = group.icon;
               return (
-                <div key={cat} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px', background: 'white', display: 'flex', flexDirection: 'column' }}>
+                <div key={group.key} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px', background: 'white', display: 'flex', flexDirection: 'column' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 16 }}>
-                    <Icon size={16} style={{ color: cfg.color, marginTop: 1 }} />
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', lineHeight: 1.4 }}>{cat === 'Accessory' ? 'Accessories' : cat + 's'}<br/>Valuation</span>
+                    <Icon size={16} style={{ color: group.color, marginTop: 1 }} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', lineHeight: 1.4 }}>{group.label}<br/>Valuation</span>
                   </div>
                   <div style={{ marginTop: 'auto' }}>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>{fmtCurrency(info.value)}</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>{fmtCurrency(groupValue)}</div>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f1f5f9', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, color: '#475569' }}>
-                      <Package size={12} /> {info.count} Units
+                      <Package size={12} /> {groupCount} Units
                     </div>
                   </div>
                 </div>
@@ -599,22 +630,21 @@ export default function StockManager() {
             <div className="card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--muted)' }}>
               <Package size={40} style={{ marginBottom: 12, opacity: 0.4 }} />
               <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>No stock items yet</div>
-              <div style={{ fontSize: 13 }}>Panels and inverters sync automatically. Add accessories or wires manually.</div>
+              <div style={{ fontSize: 13 }}>Panels and inverters sync automatically. Add structure or electrical items manually.</div>
             </div>
           ) : (
-            categories.map(cat => {
-              const cfg = categoryConfig[cat] || { bg: '#f8fafc', color: 'var(--text)', icon: Package, label: cat };
-              const CatIcon = cfg.icon;
-              const catItems = items.filter(i => i.category === cat);
+            activeGroups.map(group => {
+              const GroupIcon = group.icon;
+              const groupItems = items.filter(i => group.categories.includes(i.category));
               return (
-                <div key={cat} className="card" style={{ marginBottom: 16 }}>
-                  {/* Category header */}
+                <div key={group.key} className="card" style={{ marginBottom: 16 }}>
+                  {/* Group header */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px 12px', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ width: 32, height: 32, borderRadius: 8, background: cfg.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <CatIcon size={16} style={{ color: cfg.color }} />
+                    <div style={{ width: 32, height: 32, borderRadius: 8, background: group.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <GroupIcon size={16} style={{ color: group.color }} />
                     </div>
-                    <span style={{ fontWeight: 700, fontSize: 14 }}>{cfg.label || cat}</span>
-                    <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>({catItems.length} items)</span>
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{group.label}</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>({groupItems.length} items)</span>
                   </div>
 
                   {/* Table */}
@@ -631,7 +661,7 @@ export default function StockManager() {
                         </tr>
                       </thead>
                       <tbody>
-                        {catItems.map(item => {
+                        {groupItems.map(item => {
                           const currentQty = item.quantity;
                           const stagedAction = getStagedQtyAction(item.id);
                           const previewQty = stagedAction ? (stagedAction.action === 'add' ? currentQty + stagedAction.qty : currentQty - stagedAction.qty) : null;
@@ -853,27 +883,22 @@ export default function StockManager() {
                   value={addItemModal.category}
                   onChange={e => setAddItemModal(prev => ({ ...prev, category: e.target.value }))}
                 >
-                  <option value="Accessory">Accessory</option>
-                  <option value="Wire">Wire / Cable</option>
-                  <option value="Panel">Panel (Solar)</option>
-                  <option value="Inverter">Inverter</option>
+                  <option value="Structure Material">Structure Material</option>
+                  <option value="Electrical Material">Electrical Material</option>
                 </select>
-                {(addItemModal.category === 'Panel' || addItemModal.category === 'Inverter') && (
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 6, padding: '8px 10px', background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.15)', borderRadius: 6, fontSize: 11, color: '#2563eb' }}>
-                    <Info size={12} style={{ marginTop: 1, flexShrink: 0 }} />
-                    <span>
-                      {addItemModal.category === 'Panel' ? 'Solar Panels' : 'Inverters'} from your Products catalog auto-sync into stock.
-                      Only add here if this item is <strong>not</strong> in your catalog.
-                    </span>
-                  </div>
-                )}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 6, padding: '7px 10px', background: 'rgba(37,99,235,0.05)', border: '1px solid rgba(37,99,235,0.12)', borderRadius: 6, fontSize: 11, color: '#2563eb' }}>
+                  <Info size={11} style={{ marginTop: 1, flexShrink: 0 }} />
+                  <span>Panels &amp; Inverters auto-sync from Price Manager — no need to add them here.</span>
+                </div>
               </div>
               <div>
                 <label style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, display: 'block', marginBottom: 4 }}>Item Name</label>
                 <input
                   className="input-inline"
                   type="text"
-                  placeholder="e.g. ACDB Box, Earthing Kit, DC Cable..."
+                  placeholder={addItemModal.category === 'Structure Material'
+                    ? 'e.g. GI Pipe, MS L Angle, J Bolt, Zinc Spray...'
+                    : 'e.g. ACDB Box, DC Cable, MC4 Connector, DCDB...'}
                   style={{ width: '100%' }}
                   value={addItemModal.itemName}
                   autoFocus

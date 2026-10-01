@@ -14,12 +14,26 @@ function getISTDateString() {
 
 // ── Category config ──────────────────────────────────────────
 const categoryConfig = {
-  Panel:     { bg: 'rgba(245,166,35,0.06)',  color: '#f5a623', icon: Sun,    label: 'Solar Panels' },
-  Inverter:  { bg: 'rgba(37,99,235,0.06)',   color: '#2563eb', icon: Zap,    label: 'Inverters' },
-  Accessory: { bg: 'rgba(16,185,129,0.06)', color: '#10b981', icon: Layers, label: 'Accessories' },
-  Wire:      { bg: 'rgba(139,92,246,0.06)', color: '#7c3aed', icon: Layers, label: 'Wires & Cables' },
-  Default:   { bg: 'rgba(107,114,128,0.06)', color: '#4b5563', icon: Package, label: 'Stock Items' },
+  Panel:                 { bg: 'rgba(245,166,35,0.06)',   color: '#f5a623', icon: Sun,    label: 'Solar Panels' },
+  Inverter:              { bg: 'rgba(37,99,235,0.06)',    color: '#2563eb', icon: Zap,    label: 'Inverters' },
+  'Structure Material':  { bg: 'rgba(120,113,108,0.06)', color: '#78716c', icon: Layers, label: 'Structure Material' },
+  'Electrical Material': { bg: 'rgba(234,179,8,0.06)',   color: '#ca8a04', icon: Zap,    label: 'Electrical Material' },
+  Default:               { bg: 'rgba(107,114,128,0.06)', color: '#4b5563', icon: Package, label: 'Stock Items' },
 };
+
+// ── Display groups (Panel + Inverter shown together) ─────────
+const DISPLAY_GROUPS = [
+  { key: 'panel-inverter', label: 'PANEL AND INVERTER',  categories: ['Panel', 'Inverter'],           icon: Sun,    color: '#f5a623', bg: 'rgba(245,166,35,0.06)' },
+  { key: 'structure',      label: 'STRUCTURE MATERIAL',  categories: ['Structure Material'],           icon: Layers, color: '#78716c', bg: 'rgba(120,113,108,0.06)' },
+  { key: 'electrical',     label: 'ELECTRICAL MATERIAL', categories: ['Electrical Material'],          icon: Zap,    color: '#ca8a04', bg: 'rgba(234,179,8,0.06)' },
+];
+
+// Map a DB category value to its display group key
+const getGroupKey = (cat) => {
+  const group = DISPLAY_GROUPS.find(g => g.categories.includes(cat));
+  return group ? group.key : cat;
+};
+
 
 // ── Format a net change with color ───────────────────────────
 function NetChange({ value }) {
@@ -80,11 +94,12 @@ export default function DailyStockLogs() {
 
   const isToday = date === today;
 
-  // ── Group by category ────────────────────────────────────
+  // ── Group by display group (Panel + Inverter share one group) ─
   const grouped = {};
   for (const b of balances) {
-    if (!grouped[b.category]) grouped[b.category] = [];
-    grouped[b.category].push(b);
+    const groupKey = getGroupKey(b.category);
+    if (!grouped[groupKey]) grouped[groupKey] = [];
+    grouped[groupKey].push(b);
   }
   const hasData = balances.length > 0;
 
@@ -255,19 +270,18 @@ export default function DailyStockLogs() {
       )}
 
       {/* ── Category tables ───────────────────────────────────── */}
-      {!loading && !fetchError && hasData && Object.keys(grouped).map(cat => {
-        const config = categoryConfig[cat] || categoryConfig.Default;
-        const CatIcon = config.icon;
+      {!loading && !fetchError && hasData && DISPLAY_GROUPS.filter(g => grouped[g.key]).map(group => {
+        const CatIcon = group.icon;
 
         return (
-          <div key={cat} className="card" style={{ marginBottom: 16 }}>
-            {/* Category header */}
+          <div key={group.key} className="card" style={{ marginBottom: 16 }}>
+            {/* Group header */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px 12px', borderBottom: '1px solid var(--border)' }}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: config.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CatIcon size={16} style={{ color: config.color }} />
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: group.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CatIcon size={16} style={{ color: group.color }} />
               </div>
-              <span style={{ fontWeight: 700, fontSize: 14 }}>{config.label}</span>
-              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>({grouped[cat].length} items)</span>
+              <span style={{ fontWeight: 700, fontSize: 14 }}>{group.label}</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>({grouped[group.key].length} items)</span>
             </div>
 
             <div className="table-scroll-wrap">
@@ -283,7 +297,7 @@ export default function DailyStockLogs() {
                     </tr>
                   </thead>
                   <tbody>
-                    {grouped[cat].map(b => {
+                    {grouped[group.key].map(b => {
                       const { opening, change, closing } = getSingleRowValues(b);
                       return (
                         <tr key={b.stock_item_id}>
@@ -319,7 +333,7 @@ export default function DailyStockLogs() {
                     </tr>
                   </thead>
                   <tbody>
-                    {grouped[cat].map(b => {
+                    {grouped[group.key].map(b => {
                       const { opening, added, used, net, closing } = getRangeRowValues(b);
                       return (
                         <tr key={b.stock_item_id}>
