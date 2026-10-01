@@ -437,7 +437,7 @@ export default function PriceManager() {
                         >
                           Edit
                         </button>
-                        <button className="btn-sm danger" style={{ padding: "4px 10px" }} onClick={() => setDeleteConfirm({ type: "panel", id: p.id, name: `${p.brand} ${p.watt}W` })} title="Remove from catalog">
+                        <button className="btn-sm danger" style={{ padding: "4px 10px" }} onClick={() => setDeleteConfirm({ type: "panel", id: p.id, name: `${p.brand} ${p.watt}W ${p.type}` })} title="Remove from catalog">
                           <Trash2 size={12} /> Delete
                         </button>
                       </div>
@@ -602,7 +602,7 @@ export default function PriceManager() {
                         >
                           Edit
                         </button>
-                        <button className="btn-sm danger" style={{ padding: "4px 10px" }} onClick={() => setDeleteConfirm({ type: "inverter", id: i.id, name: `${i.brand} ${i.kw}kW` })} title="Remove from catalog">
+                        <button className="btn-sm danger" style={{ padding: "4px 10px" }} onClick={() => setDeleteConfirm({ type: "inverter", id: i.id, name: `${i.brand} ${i.kw}kW ${i.type}` })} title="Remove from catalog">
                           <Trash2 size={12} /> Delete
                         </button>
                       </div>
@@ -946,10 +946,34 @@ export default function PriceManager() {
       </div>
       <ConfirmDialog
         open={!!deleteConfirm}
-        title={`Remove ${deleteConfirm?.type ? deleteConfirm.type.charAt(0).toUpperCase() + deleteConfirm.type.slice(1) : "Item"}?`}
-        message={`Are you sure you want to remove "${deleteConfirm?.name || "this item"}" from the catalog? Quotations already created will keep their data, but it won't be available for new orders. This cannot be undone.`}
+        title={
+          deleteConfirm?.type === 'kit'
+            ? 'Delete Kit?'
+            : `Delete ${deleteConfirm?.type ? deleteConfirm.type.charAt(0).toUpperCase() + deleteConfirm.type.slice(1) : 'Product'}?`
+        }
+        message={
+          deleteConfirm?.type === 'kit'
+            ? (
+              <span>
+                Delete kit <strong style={{ color: 'var(--text)' }}>'{deleteConfirm?.name}'</strong> from the catalog?
+                <br /><br />
+                <span style={{ color: '#ef4444' }}>This cannot be undone.</span>
+              </span>
+            )
+            : (
+              <span>
+                Delete <strong style={{ color: 'var(--text)' }}>'{deleteConfirm?.name}'</strong> from the catalog?
+                <br /><br />
+                This product will no longer appear in new quotations.
+                <br />
+                All existing quotations using this product will continue to work normally.
+                <br /><br />
+                <span style={{ color: 'var(--green, #2e7d52)', fontWeight: 600 }}>Your data is safe — this product is preserved in the database permanently.</span>
+              </span>
+            )
+        }
         variant="danger"
-        confirmText="Yes, Remove"
+        confirmText="Delete"
         onConfirm={() => {
           const { type, id } = deleteConfirm;
           setDeleteConfirm(null);
@@ -961,7 +985,7 @@ export default function PriceManager() {
       />
       <ConfirmDialog
         open={errorDialog.open}
-        title="Error"
+        title="Something Went Wrong"
         message={errorDialog.message}
         variant="danger"
         confirmText="OK"

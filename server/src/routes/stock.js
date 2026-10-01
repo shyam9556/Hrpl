@@ -806,6 +806,9 @@ router.patch("/:id", validate(updatePriceSchema), async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // DELETE /api/stock/:id
 // Remove a stock item. ON DELETE CASCADE handles transaction cleanup automatically.
+// If the item is an active Panel/Inverter in the catalog it will be re-synced on
+// the next GET /api/stock call — we flag this in the response so the frontend
+// can warn the user instead of silently letting the item ghost back.
 // ═══════════════════════════════════════════════════════════════════════════════
 router.delete("/:id", async (req, res, next) => {
   try {
@@ -814,18 +817,51 @@ router.delete("/:id", async (req, res, next) => {
       return res.status(400).json({ success: false, error: "Invalid stock item ID." });
     }
 
+    // Fetch item details BEFORE deleting so we can check catalog membership
     const findResult = await db.query(
-      "SELECT item_name FROM stock_items WHERE id = ?",
+      "SELECT id, item_name, category FROM stock_items WHERE id = ?",
       [stockId]
     );
     if (findResult.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Stock item not found." });
+      // Item already gone — refresh the caller's list so their UI becomes consistent
+      return res.status(404).json({
+        success: false,
+        error: "Stock item not found. It may have already been removed. Please refresh to see the current stock list.",
+      });
     }
 
-    const itemName = findResult.rows[0].item_name;
+    const { item_name: itemName, category } = findResult.rows[0];
     await db.query("DELETE FROM stock_items WHERE id = ?", [stockId]);
 
-    res.json({ success: true, message: `Stock item '${itemName}' removed.` });
+    // Check whether this item will be re-synced from the catalog on next GET /
+    // This can only happen for Panel and Inverter categories (auto-synced via INSERT IGNORE).
+    let willReappear = false;
+    if (category === "Panel") {
+      const catalogCheck = await db.query(
+        `SELECT 1 FROM panels
+         WHERE CONCAT(brand, ' ', watt, 'W ', type) = ? AND is_active = 1 LIMIT 1`,
+        [itemName]
+      );
+      willReappear = catalogCheck.rows.length > 0;
+    } else if (category === "Inverter") {
+      const catalogCheck = await db.query(
+        `SELECT 1 FROM inverters
+         WHERE CONCAT(
+           brand, ' ',
+           TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(kw AS CHAR))),
+           'kW ', type
+         ) = ? AND is_active = 1 LIMIT 1`,
+        [itemName]
+      );
+      willReappear = catalogCheck.rows.length > 0;
+    }
+
+    res.json({
+      success: true,
+      message: `Stock item '${itemName}' removed.`,
+      willReappear,
+      category,
+    });
     broadcastToRole("admin", "stock:changed", { action: "deleted", id: stockId });
   } catch (err) {
     next(err);

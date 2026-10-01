@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Loader2, Save, X, Sun, Zap, Package, Layers, Info,
   AlertCircle, FileSpreadsheet, LockKeyhole, Trash2, ArrowRight,
-  Plus, Minus, RefreshCw, BarChart2, Delete, Coins, TrendingUp
+  Plus, Minus, RefreshCw, BarChart2, Link2,
+  Delete, Coins, TrendingUp
 } from 'lucide-react';
 import { stock, settings } from '../utils/api';
 import ConfirmDialog from './ConfirmDialog';
@@ -35,7 +36,8 @@ export default function StockManager() {
   const [staged, setStaged] = useState({}); // { [itemId]: { addQty, deductQty, unitPrice } }
   const [stagedReasons, setStagedReasons] = useState({}); // { [itemId]: { reasonCategory, reasonNote } }
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [errorDialog, setErrorDialog] = useState({ open: false, message: '' });
+  const [errorDialog, setErrorDialog] = useState({ open: false, message: null });
+  const [infoDialog, setInfoDialog] = useState({ open: false, title: '', message: null });
   const [thresholds, setThresholds] = useState({ high: 20, low: 5 });
   const [pin, setPin] = useState('1234');
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -45,7 +47,7 @@ export default function StockManager() {
   const [activeTab, setActiveTab] = useState('live');
   const [qtyModal, setQtyModal] = useState({ open: false, itemId: null, action: null, qty: '' });
   const [tabSwitchDialog, setTabSwitchDialog] = useState({ open: false, targetTab: null });
-  const [deleteDialog, setDeleteDialog] = useState({ open: false, itemId: null, itemName: '' });
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, itemId: null, itemName: '', category: '' });
   const [addItemModal, setAddItemModal] = useState({ open: false, category: 'Accessory', itemName: '', quantity: 0, unit: 'pcs', saving: false });
 
   // ── fetchStock ───────────────────────────────────────────
@@ -301,13 +303,25 @@ export default function StockManager() {
       setDrawerOpen(false);
       await fetchStock();
       if (failed.length > 0) {
-        setErrorDialog({ open: true, message: `${failed.length} item(s) could not be saved. The page has been refreshed to show the current state.` });
+        setErrorDialog({ open: true, message: (
+          <span>
+            <strong style={{ color: 'var(--text)' }}>{failed.length} item(s)</strong> could not be saved.
+            <br />
+            The page has been refreshed to show the current state.
+          </span>
+        ) });
       } else {
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3500);
       }
     } catch (err) {
-      setErrorDialog({ open: true, message: err?.message || 'Failed to save changes. Please try again.' });
+      setErrorDialog({ open: true, message: (
+        <span>
+          Failed to save changes.
+          <br />
+          <span style={{ color: '#ef4444' }}>{err?.message || 'Please try again.'}</span>
+        </span>
+      ) });
     } finally {
       setSaving(false);
     }
@@ -315,14 +329,51 @@ export default function StockManager() {
 
   // ── handleDelete ──────────────────────────────────────────
   const handleDelete = async (itemId, itemName) => {
+    setDeleteDialog({ open: false, itemId: null, itemName: '', category: '' });
     try {
-      await stock.remove(itemId);
-      setItems(prev => prev.filter(i => i.id !== itemId));
+      const res = await stock.remove(itemId);
+      await fetchStock();
+      if (res.willReappear) {
+        // Succeeded but item is still in catalog — show info (blue), NOT error (red)
+        setInfoDialog({
+          open: true,
+          title: 'Item Will Reappear',
+          message: (
+            <span>
+              <strong style={{ color: 'var(--text)' }}>'{itemName}'</strong> has been removed from stock.
+              <br /><br />
+              This product is still <strong>active in Price Manager</strong>, so it will automatically reappear here on the next page load.
+              <br /><br />
+              <span style={{ display: 'block', fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>To stop it from reappearing:</span>
+              <span style={{ display: 'block', paddingLeft: 4 }}>1. Go to <strong>Price Manager</strong></span>
+              <span style={{ display: 'block', paddingLeft: 4 }}>2. Find this product and click <strong>Delete</strong></span>
+              <span style={{ display: 'block', paddingLeft: 4 }}>3. Come back and remove it from stock</span>
+            </span>
+          ),
+        });
+      }
     } catch (err) {
-      setErrorDialog({ open: true, message: `Failed to delete '${itemName}': ${err?.message}` });
+      await fetchStock();
+      const isNotFound = err?.message?.includes('not found') || err?.status === 404;
+      setErrorDialog({
+        open: true,
+        message: isNotFound ? (
+          <span>
+            <strong style={{ color: 'var(--text)' }}>'{itemName}'</strong> was not found — it may have already been removed in another session.
+            <br /><br />
+            The stock list has been refreshed.
+          </span>
+        ) : (
+          <span>
+            Could not remove <strong style={{ color: 'var(--text)' }}>'{itemName}'</strong>.
+            <br />
+            <span style={{ color: '#ef4444' }}>{err?.message || 'Please try again.'}</span>
+          </span>
+        ),
+      });
     }
-    setDeleteDialog({ open: false, itemId: null, itemName: '' });
   };
+
 
   // ── handleAddItem ─────────────────────────────────────────
   const handleAddItem = async () => {
@@ -335,7 +386,13 @@ export default function StockManager() {
       await fetchStock();
     } catch (err) {
       setAddItemModal(prev => ({ ...prev, saving: false }));
-      setErrorDialog({ open: true, message: err?.message || 'Failed to add item. Please try again.' });
+      setErrorDialog({ open: true, message: (
+        <span>
+          Could not add <strong style={{ color: 'var(--text)' }}>'{itemName}'</strong> to stock.
+          <br />
+          <span style={{ color: '#ef4444' }}>{err?.message || 'Please try again.'}</span>
+        </span>
+      ) });
     }
   };
 
@@ -585,7 +642,20 @@ export default function StockManager() {
                                       : { label: 'Critical', cls: 'badge-red' };
                           return (
                             <tr key={item.id} style={stagedAction ? { borderLeft: `3px solid ${stagedAction.action === 'add' ? 'var(--green)' : 'var(--sun)'}` } : {}}>
-                              <td style={{ fontWeight: 600 }}>{item.item_name}</td>
+                              <td style={{ fontWeight: 600 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                  <span>{item.item_name}</span>
+                                  {(item.category === 'Panel' || item.category === 'Inverter') && (
+                                    <span
+                                      title="This item is automatically synced from Price Manager. If the product is still active there, it will reappear here on every page load."
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 600, color: '#6366f1', letterSpacing: '0.02em', width: 'fit-content' }}
+                                    >
+                                      <Link2 size={9} />
+                                      Price Manager
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
                               <td>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
                                   {/* Current qty display + badge */}
@@ -642,7 +712,7 @@ export default function StockManager() {
                               <td style={{ textAlign: 'center' }}>
                                 <button
                                   title={`Remove ${item.item_name}`}
-                                  onClick={() => setDeleteDialog({ open: true, itemId: item.id, itemName: item.item_name })}
+                                  onClick={() => setDeleteDialog({ open: true, itemId: item.id, itemName: item.item_name, category: item.category })}
                                   style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: 'var(--muted)', display: 'inline-flex', borderRadius: 6, transition: 'color 0.15s' }}
                                   onMouseOver={e => e.currentTarget.style.color = 'var(--red)'}
                                   onMouseOut={e => e.currentTarget.style.color = 'var(--muted)'}
@@ -971,27 +1041,58 @@ export default function StockManager() {
         onCancel={() => setTabSwitchDialog({ open: false, targetTab: null })}
       />
 
-      {/* ── ERROR DIALOG ───────────────────────────────────────── */}
+      {/* ── ERROR DIALOG — genuine failures (red AlertTriangle) ── */}
       <ConfirmDialog
         open={errorDialog.open}
-        title="Error"
+        title="Something Went Wrong"
         message={errorDialog.message}
+        variant="danger"
         confirmText="OK"
         hideCancel
-        onConfirm={() => setErrorDialog({ open: false, message: '' })}
-        onCancel={() => setErrorDialog({ open: false, message: '' })}
+        onConfirm={() => setErrorDialog({ open: false, message: null })}
+        onCancel={() => setErrorDialog({ open: false, message: null })}
       />
 
-      {/* ── DELETE CONFIRM ─────────────────────────────────────── */}
+      {/* ── INFO DIALOG — success with a note (blue Info icon) ─── */}
+      <ConfirmDialog
+        open={infoDialog.open}
+        title={infoDialog.title}
+        message={infoDialog.message}
+        variant="info"
+        confirmText="Got it"
+        hideCancel
+        onConfirm={() => setInfoDialog({ open: false, title: '', message: null })}
+        onCancel={() => setInfoDialog({ open: false, title: '', message: null })}
+      />
+
+      {/* ── DELETE CONFIRM (red AlertTriangle) ───────────────── */}
       <ConfirmDialog
         open={deleteDialog.open}
-        title="Remove Stock Item"
-        message={`Remove '${deleteDialog.itemName}' from stock? This will also delete all transaction history for this item. This cannot be undone.`}
-        confirmText="Remove"
+        title="Remove from Stock"
+        message={
+          (deleteDialog.category === 'Panel' || deleteDialog.category === 'Inverter')
+            ? (
+              <span>
+                Are you sure you want to remove <strong style={{ color: 'var(--text)' }}>'{deleteDialog.itemName}'</strong> from stock?
+                <br /><br />
+                <strong>This item is synced from Price Manager.</strong> If it is still active there, it will automatically reappear here on the next page load.
+                <br /><br />
+                <span style={{ color: '#ef4444' }}>Transaction history will be permanently deleted.</span>
+              </span>
+            )
+            : (
+              <span>
+                Are you sure you want to remove <strong style={{ color: 'var(--text)' }}>'{deleteDialog.itemName}'</strong> from stock?
+                <br /><br />
+                <span style={{ color: '#ef4444' }}>Transaction history will be permanently deleted. This cannot be undone.</span>
+              </span>
+            )
+        }
+        confirmText="Remove from Stock"
         cancelText="Cancel"
         variant="danger"
         onConfirm={() => handleDelete(deleteDialog.itemId, deleteDialog.itemName)}
-        onCancel={() => setDeleteDialog({ open: false, itemId: null, itemName: '' })}
+        onCancel={() => setDeleteDialog({ open: false, itemId: null, itemName: '', category: '' })}
       />
     </div>
   );
